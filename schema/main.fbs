@@ -1,0 +1,85 @@
+namespace Globed.Data;
+
+// Various structs
+
+table PlayerIconData {
+    cube: int16;
+    ship: int16;
+    ball: int16;
+    ufo: int16;
+    wave: int16;
+    robot: int16;
+    spider: int16;
+    swing: int16;
+    jetpack: int16;
+    color1: uint16;
+    color2: uint16;
+    glow_color: uint16;
+    // 255 means none/default
+    death_effect: uint8 = 1;
+    trail: uint8 = 255;
+    ship_trail: uint8 = 255;
+}
+
+table PlayerAccountData {
+    account_id: int32;
+    user_id: int32;
+    username: string (required);
+}
+
+// Login messages
+
+table LoginSessionMessage {
+    token: string (required);
+}
+
+table LoginArgonMessage {
+    token: string (required);
+}
+
+table LoginPlainMessage {
+    data: PlayerAccountData (required);
+}
+
+table LoginOkMessage {
+    // TODO: roles or something
+}
+
+enum LoginFailedReason : byte {
+    InvalidSessionToken = 0,
+    InvalidArgonToken = 1,
+}
+
+table LoginFailedMessage {
+    reason: LoginFailedReason = InvalidSessionToken;
+}
+
+// this is a response to LoginPlainMessage when plain login is disabled
+table LoginRequiredMessage {
+    argon_url: string (required);
+}
+
+// Other misc messages
+
+table UpdateOwnDataMessage {
+    icons: PlayerIconData (required);
+}
+
+union MessageKind {
+    // Client-side messages
+    LoginSessionMessage,
+    LoginArgonMessage,
+    LoginPlainMessage,
+    UpdateOwnDataMessage,
+
+    // Server-side messages
+    LoginOkMessage,
+    LoginFailedMessage,
+    LoginRequiredMessage,
+}
+
+table Message {
+    msg: MessageKind;
+}
+
+root_type Message;
