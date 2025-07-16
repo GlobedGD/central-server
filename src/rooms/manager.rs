@@ -7,7 +7,7 @@ use std::{
     },
 };
 
-use dashmap::{DashMap, DashSet};
+use dashmap::DashMap;
 use parking_lot::RwLock;
 use slab::Slab;
 use thiserror::Error;

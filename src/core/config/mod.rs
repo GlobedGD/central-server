@@ -4,6 +4,7 @@ use std::{
 };
 
 use serde::{Serialize, de::DeserializeOwned};
+use server_shared::config::env_replace;
 use state::TypeMap;
 use thiserror::Error;
 use tracing::error;
@@ -12,19 +13,6 @@ use crate::core::module::ServerModule;
 
 mod core;
 pub use core::*;
-
-pub fn env_replace<T: DeserializeOwned>(var: &str, val: &mut T) {
-    if let Ok(var) = std::env::var(var) {
-        let newv: T = match toml::from_str(&var) {
-            Ok(v) => v,
-            Err(e) => {
-                panic!("Failed to parse environment variable {var}: {e}");
-            }
-        };
-
-        *val = newv;
-    }
-}
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -42,9 +30,8 @@ pub struct Config {
 
 impl Config {
     pub fn new() -> Result<Self, ConfigError> {
-        let mut root_dir = std::env::current_dir()
-            .expect("Failed to get current directory")
-            .join("config");
+        let mut root_dir =
+            std::env::current_dir().expect("Failed to get current directory").join("config");
 
         env_replace("GLOBED_ROOT_CONFIG_DIR", &mut root_dir);
 

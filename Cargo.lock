@@ -235,9 +235,9 @@ dependencies = [
  "parking_lot",
  "qunet",
  "rand 0.9.1",
- "schema",
  "serde",
  "serde_json",
+ "server-shared",
  "slab",
  "state",
  "thiserror 2.0.12",
@@ -247,7 +247,6 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-appender",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -1763,14 +1762,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "schema"
-version = "0.1.0"
-dependencies = [
- "capnp",
- "capnpc",
-]
-
-[[package]]
 name = "scoped-tls"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1850,6 +1841,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40734c41988f7306bb04f0ecf60ec0f3f1caa34290e4e8ea471dcd3346483b83"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "server-shared"
+version = "0.1.0"
+dependencies = [
+ "capnp",
+ "capnpc",
+ "serde",
+ "toml",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
 ]
 
 [[package]]

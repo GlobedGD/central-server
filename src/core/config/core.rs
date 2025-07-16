@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use super::env_replace;
 use serde::{Deserialize, Serialize};
+use server_shared::config::env_replace;
 
 // Memory
 

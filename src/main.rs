@@ -1,16 +1,14 @@
 #![feature(try_blocks, duration_constructors_lite)]
 #![allow(clippy::new_without_default)]
 
-use std::net::SocketAddr;
-
 use qunet::server::{
     Server as QunetServer, ServerOutcome,
     builder::{BufferPoolOpts, MemoryUsageOptions, UdpDiscoveryMode},
 };
 
-use tracing::{error, info, level_filters::LevelFilter};
-use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
-use tracing_subscriber::{Layer as _, Registry, fmt::Layer, layer::SubscriberExt};
+use server_shared::config::parse_addr;
+use tracing::{error, info};
+use tracing_appender::non_blocking::WorkerGuard;
 
 use crate::{
     auth::AuthModule,
@@ -34,41 +32,13 @@ pub mod core;
 pub mod rooms;
 
 fn setup_logger(config: &CoreConfig) -> WorkerGuard {
-    let appender = if config.log_rolling {
-        tracing_appender::rolling::daily(&config.log_directory, &config.log_filename)
-    } else {
-        tracing_appender::rolling::never(&config.log_directory, &config.log_filename)
-    };
-
-    let (nb, guard) = NonBlockingBuilder::default()
-        .lossy(true)
-        .thread_name("Log writer thread")
-        .buffered_lines_limit(8192)
-        .finish(appender);
-
-    let log_level = match config.log_level.as_str() {
-        "error" => LevelFilter::ERROR,
-        "warn" => LevelFilter::WARN,
-        "info" => LevelFilter::INFO,
-        "debug" => LevelFilter::DEBUG,
-        "trace" => LevelFilter::TRACE,
-        _ => LevelFilter::INFO,
-    };
-
-    let stdout_layer = Layer::default().with_writer(std::io::stdout).with_filter(log_level);
-
-    let subscriber = Registry::default().with(stdout_layer);
-
-    if config.log_file_enabled {
-        let subscriber = subscriber
-            .with(Layer::default().with_writer(nb).with_ansi(false).with_filter(log_level));
-        tracing::subscriber::set_global_default(subscriber)
-    } else {
-        tracing::subscriber::set_global_default(subscriber)
-    }
-    .expect("failed to set global subscriber");
-
-    guard
+    server_shared::logging::setup_logger(
+        config.log_rolling,
+        &config.log_directory,
+        &config.log_filename,
+        &config.log_level,
+        config.log_file_enabled,
+    )
 }
 
 #[tokio::main]
@@ -172,23 +142,9 @@ fn init_module<'a, T: ServerModule>(config: &Config, handler: &'a ConnectionHand
     handler.module()
 }
 
-fn make_memory_limits(mut usage: u32) -> MemoryUsageOptions {
-    usage = usage.clamp(1, 11);
-
-    let (buf_min_mult, buf_max_mult, rcvbuf, sndbuf) = match usage {
-        1 => (1, 1, None, None),
-        2 => (2, 2, None, None),
-        3 => (3, 5, None, None),
-        4 => (4, 8, None, None),
-        5 => (8, 16, None, None),
-        6 => (12, 32, None, None),
-        7 => (16, 64, None, Some(524288)),
-        8 => (32, 128, None, Some(1048576)),
-        9 => (64, 256, Some(524288), Some(2097152)),
-        10 => (128, 512, Some(1048576), Some(4194304)),
-        11 => (256, 1024, Some(2097152), Some(8388608)),
-        _ => unreachable!(),
-    };
+fn make_memory_limits(usage: u32) -> MemoryUsageOptions {
+    let (buf_min_mult, buf_max_mult, rcvbuf, sndbuf) =
+        server_shared::config::make_memory_limits(usage);
 
     MemoryUsageOptions {
         buffer_pools: vec![
@@ -199,19 +155,5 @@ fn make_memory_limits(mut usage: u32) -> MemoryUsageOptions {
         udp_listener_buffer_pool: BufferPoolOpts::new(1500, 8 * buf_min_mult, 32 * buf_max_mult),
         udp_recv_buffer_size: rcvbuf,
         udp_send_buffer_size: sndbuf,
-    }
-}
-
-fn parse_addr(addr: &str, name: &str) -> SocketAddr {
-    match addr.parse() {
-        Ok(x) => x,
-        Err(e) => {
-            error!("failed to parse option '{name}': {e}");
-            error!(
-                "note: it must be a valid IPv4/IPv6 socket address, for example \"0.0.0.0:4340\" or \"[::]:4340\""
-            );
-
-            std::process::exit(1);
-        }
     }
 }
