@@ -28,7 +28,6 @@ struct PlayerAccountData {
 
 struct LevelSession {
     sessionId @0 :UInt64;
-    levelId   @1 :Int64;
 }
 
 # Login messages
@@ -81,11 +80,23 @@ struct CreateRoomMessage {
 }
 
 struct JoinRoomMessage {
-    roomId @0 :Int32;
+    roomId @0 :UInt32;
 }
 
 struct LeaveRoomMessage {
     # empty
+}
+
+struct RoomPlayer {
+    accountData @0 :PlayerAccountData;
+    cube @1 :Int16;
+    level @2 :LevelSession;
+}
+
+struct RoomStateMessage {
+    roomId @0 : UInt32;
+    name @1 :Text;
+    players @2 :List(RoomPlayer);
 }
 
 # Warping
@@ -111,6 +122,10 @@ struct Message {
         loginOk       @3 :LoginOkMessage;
         loginFailed   @4 :LoginFailedMessage;
         loginRequired @5 :LoginRequiredMessage;
+
+
+        roomState     @11 :RoomStateMessage;
+
         warpPlayer    @10 :WarpPlayerMessage;
     }
 }

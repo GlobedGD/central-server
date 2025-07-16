@@ -18,7 +18,7 @@ use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
     tungstenite::{Bytes, protocol::Message},
 };
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use crate::core::client_data::ClientAccountData;
 
@@ -215,10 +215,7 @@ impl InnerState {
         let (mut socket, _) = tokio_tungstenite::connect_async(to_ws_url(&self.url)).await?;
 
         // Send auth message
-        let msg = Message::text(format!(
-            r#"{{"token":"{}","proto":"binary-v1"}}"#,
-            self.api_token
-        ));
+        let msg = Message::text(format!(r#"{{"token":"{}","proto":"binary-v1"}}"#, self.api_token));
 
         socket.send(msg).await?;
 
@@ -263,10 +260,7 @@ impl InnerState {
         } else if ty == "FatalError" {
             error!("argon server sent a fatal error: {}", obj["data"]["error"]);
             Err(ArgonClientError::Other(
-                obj["data"]["error"]
-                    .as_str()
-                    .unwrap_or("<unknown fatal error>")
-                    .to_owned(),
+                obj["data"]["error"].as_str().unwrap_or("<unknown fatal error>").to_owned(),
             ))
         } else {
             error!("expected AuthAck from argon server, got message: {}", msg);
@@ -282,6 +276,8 @@ impl InnerState {
 
         self.req_rx.drain();
         self.connected.store(true, Ordering::SeqCst);
+
+        info!("Argon client successfully connected to {}", self.url);
 
         let mut in_flight = VecDeque::new();
 

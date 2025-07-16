@@ -1,8 +1,8 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 use parking_lot::Mutex;
 
-use crate::rooms::Room;
+use crate::rooms::ClientRoomHandle;
 
 #[derive(Default, Debug)]
 pub struct ClientAccountData {
@@ -14,7 +14,7 @@ pub struct ClientAccountData {
 #[derive(Default)]
 pub struct ClientData {
     account_data: OnceLock<ClientAccountData>,
-    room: Mutex<Option<Arc<Room>>>,
+    room: Mutex<Option<ClientRoomHandle>>,
 }
 
 impl ClientData {
@@ -45,14 +45,15 @@ impl ClientData {
         self.account_data().map_or("", |x| x.username.as_str())
     }
 
-    /// Returns the room the client is in, if any.
-    pub fn room(&self) -> Option<Arc<Room>> {
-        self.room.lock().clone()
-    }
-
     /// Sets the room the client is in.
-    pub fn set_room(&self, room: Arc<Room>) {
+    pub fn set_room(&self, room: ClientRoomHandle) {
         let mut lock = self.room.lock();
         *lock = Some(room);
+    }
+
+    /// Clears the room the client is in, returning the room.
+    /// Note: this puts a client into an invalid state, you should immediately call `set_room` with another room afterwards.
+    pub fn clear_room(&self) -> Option<ClientRoomHandle> {
+        self.room.lock().take()
     }
 }

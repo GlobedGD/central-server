@@ -19,6 +19,7 @@ use crate::{
         handler::ConnectionHandler,
         module::ServerModule,
     },
+    rooms::RoomModule,
 };
 
 use crate::core::data::main_capnp; // this is needed for the codegenned capnp code
@@ -56,19 +57,13 @@ fn setup_logger(config: &CoreConfig) -> WorkerGuard {
         _ => LevelFilter::INFO,
     };
 
-    let stdout_layer = Layer::default()
-        .with_writer(std::io::stdout)
-        .with_filter(log_level);
+    let stdout_layer = Layer::default().with_writer(std::io::stdout).with_filter(log_level);
 
     let subscriber = Registry::default().with(stdout_layer);
 
     if config.log_file_enabled {
-        let subscriber = subscriber.with(
-            Layer::default()
-                .with_writer(nb)
-                .with_ansi(false)
-                .with_filter(log_level),
-        );
+        let subscriber = subscriber
+            .with(Layer::default().with_writer(nb).with_ansi(false).with_filter(log_level));
         tracing::subscriber::set_global_default(subscriber)
     } else {
         tracing::subscriber::set_global_default(subscriber)
@@ -95,6 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Add necessary modules
     init_module::<AuthModule>(&config, &handler);
+    init_module::<RoomModule>(&config, &handler);
 
     // Add optional modules
     // todo
@@ -159,11 +155,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn init_module<'a, T: ServerModule>(config: &Config, handler: &'a ConnectionHandler) -> &'a T {
     if let Err(e) = config.init_module::<T>() {
-        error!(
-            "Failed to initialize config for module {} ({}): {e}",
-            T::name(),
-            T::id()
-        );
+        error!("Failed to initialize config for module {} ({}): {e}", T::name(), T::id());
         std::process::exit(1);
     }
 
@@ -172,11 +164,7 @@ fn init_module<'a, T: ServerModule>(config: &Config, handler: &'a ConnectionHand
     let module = match T::new(conf) {
         Ok(m) => m,
         Err(e) => {
-            error!(
-                "Failed to initialize module {} ({}): {e}",
-                T::name(),
-                T::id()
-            );
+            error!("Failed to initialize module {} ({}): {e}", T::name(), T::id());
             std::process::exit(1);
         }
     };

@@ -19,6 +19,7 @@ qunet = { path = "../qunet/qunet", features = ["client"] }
 rand = "0.9.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
+slab = "0.4.10"
 state = "0.6.0"
 thiserror = "2.0.12"
 tokio = { version = "1.45.1", features = ["full"] }

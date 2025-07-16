@@ -18,18 +18,20 @@ pub struct CapnpAlloc<const N: usize> {
 
 unsafe impl<const N: usize> Allocator for CapnpAlloc<N> {
     #[inline]
-    fn allocate_segment(&mut self, size: u32) -> (*mut u8, u32) {
+    fn allocate_segment(&mut self, size_words: u32) -> (*mut u8, u32) {
         if self.called {
             panic!("CapnpAlloc::allocate_segment called multiple times");
         }
 
+        let size = (size_words * 8) as usize;
+
         self.called = true;
 
-        if size as usize > N {
+        if size > N {
             panic!("Not enough space in CapnpAlloc");
         }
 
-        (self.buf.as_mut_ptr(), size)
+        (self.buf.as_mut_ptr(), (N / 8) as u32)
     }
 
     #[inline]
@@ -38,10 +40,7 @@ unsafe impl<const N: usize> Allocator for CapnpAlloc<N> {
 
 impl<const N: usize> CapnpAlloc<N> {
     pub const fn new() -> Self {
-        Self {
-            buf: [0; N],
-            called: false,
-        }
+        Self { buf: [0; N], called: false }
     }
 
     pub fn into_builder(self) -> Builder<Self> {
@@ -62,18 +61,20 @@ pub struct CapnpBorrowAlloc<'a> {
 
 unsafe impl<'a> Allocator for CapnpBorrowAlloc<'a> {
     #[inline]
-    fn allocate_segment(&mut self, size: u32) -> (*mut u8, u32) {
+    fn allocate_segment(&mut self, size_words: u32) -> (*mut u8, u32) {
         if self.called {
             panic!("CapnpAlloc::allocate_segment called multiple times");
         }
 
+        let size = (size_words * 8) as usize;
+
         self.called = true;
 
-        if size as usize > self.buf.len() {
+        if size > self.buf.len() {
             panic!("Not enough space in CapnpAlloc");
         }
 
-        (self.buf.as_mut_ptr(), size)
+        (self.buf.as_mut_ptr(), (self.buf.len() / 8) as u32)
     }
 
     #[inline]
@@ -81,7 +82,22 @@ unsafe impl<'a> Allocator for CapnpBorrowAlloc<'a> {
 }
 
 impl<'a> CapnpBorrowAlloc<'a> {
-    pub const fn new(buf: &'a mut [u8]) -> Self {
+    pub fn new(buf: &'a mut [u8]) -> Self {
+        // zero the buffer
+        buf.fill(0);
+
+        // safety: buffer is zeroed
+        unsafe { Self::new_assert_zeroed(buf) }
+    }
+
+    pub unsafe fn new_assert_zeroed(buf: &'a mut [u8]) -> Self {
+        #[cfg(debug_assertions)]
+        {
+            if !buf.iter().all(|&x| x == 0) {
+                panic!("CapnpBorrowAlloc buffer must be zeroed");
+            }
+        }
+
         Self { buf, called: false }
     }
 
@@ -100,10 +116,12 @@ pub enum DataDecodeError {
     InvalidUtf8(#[from] std::str::Utf8Error),
     #[error("username too long")]
     UsernameTooLong,
+    #[error("no message handler for the incoming message type")]
+    NoMessageHandler,
 }
 
 macro_rules! decode_message_match {
-    ($data:expr, {$($variant:ident($msg_var:ident) => $block:expr),* $(,)?}) => {{
+    ($data:expr, {$($variant:ident($msg_var:ident) => {  $($t:tt)* }),* $(,)?}) => {{
         let _res: Result<_, $crate::core::data::DataDecodeError> = try {
             let mut data = $data;
             let reader = capnp::serialize::read_message_from_flat_slice_no_alloc(
@@ -118,10 +136,10 @@ macro_rules! decode_message_match {
             match message.which().map_err(|_| $crate::core::data::DataDecodeError::InvalidDiscriminant)? {
                 $($crate::core::data::message::Which::$variant(msg) => {
                     let $msg_var = msg?;
-                    $block
+                    $($t)*
                 })*
 
-                _ => Err($crate::core::data::DataDecodeError::InvalidDiscriminant)?,
+                _ => Err($crate::core::data::DataDecodeError::NoMessageHandler)?,
             }
         };
 
@@ -191,6 +209,45 @@ macro_rules! encode_message_unsafe {
     }};
 }
 
+/// Like `encode_message_unsafe!`, but uses heap buffers from server's bufferpool.
+/// You are required to pass in the estimated maximum message size in bytes, if it proves to be too small,
+/// a panic will occur and subsequently be caught and returned as an error.
+macro_rules! encode_message_heap {
+    ($this:expr, $estcap:expr, $msg:ident => $code:expr) => {{
+        let _res: Result<qunet::message::BufferKind, $crate::core::data::EncodeMessageError> = try {
+            let mut buffer = $this.server().request_buffer($estcap).await;
+
+            let mut builder =
+                $crate::core::data::CapnpBorrowAlloc::new(&mut buffer[..]).into_builder();
+
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut $msg = builder.init_root::<$crate::core::data::message::Builder>();
+                $code
+            }))
+            .map_err(|e| $crate::core::data::EncodeMessageError {
+                payload: e,
+                file: file!(),
+                line: line!(),
+            })?;
+
+            let ser_size = capnp::serialize::compute_serialized_size_in_words(&builder) * 8;
+
+            #[cfg(debug_assertions)]
+            tracing::debug!("serialized size: {ser_size}");
+
+            let mut buf = $this.server().request_buffer(ser_size).await;
+
+            // this must never fail at this point
+            capnp::serialize::write_message(&mut buf, &builder).expect("capnp write failed");
+
+            buf
+        };
+
+        _res
+    }};
+}
+
 pub(crate) use decode_message_match;
 // pub(crate) use encode_safe;
+pub(crate) use encode_message_heap;
 pub(crate) use encode_message_unsafe;

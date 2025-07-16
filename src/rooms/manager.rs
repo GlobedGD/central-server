@@ -1,11 +1,86 @@
-use std::{str::FromStr, sync::Arc};
+use std::{
+    ops::Deref,
+    str::FromStr,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
+use parking_lot::RwLock;
+use slab::Slab;
 use thiserror::Error;
+
+use crate::core::handler::ClientStateHandle;
 
 pub struct Room {
     pub id: u32,
     pub name: heapless::String<64>,
+    players: RwLock<Slab<ClientStateHandle>>,
+    player_count: AtomicUsize,
+}
+
+impl Room {
+    fn new(id: u32, name: heapless::String<64>) -> Self {
+        Self {
+            id,
+            name,
+            players: RwLock::new(Slab::new()),
+            player_count: AtomicUsize::new(0),
+        }
+    }
+
+    fn remove_player(&self, key: usize) {
+        self.players.write().remove(key);
+        self.player_count.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    pub(super) fn add_player(self: Arc<Room>, player: ClientStateHandle) -> ClientRoomHandle {
+        let key = self.players.write().insert(player);
+        self.player_count.fetch_add(1, Ordering::Relaxed);
+
+        ClientRoomHandle {
+            room: self.clone(),
+            room_key: key,
+        }
+    }
+
+    pub fn get_players(&self) -> Vec<ClientStateHandle> {
+        self.players.read().iter().map(|(_, x)| x.clone()).collect()
+    }
+
+    pub fn player_count(&self) -> usize {
+        self.player_count.load(Ordering::Relaxed)
+    }
+
+    pub fn with_players<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(usize, slab::Iter<'_, ClientStateHandle>) -> R,
+    {
+        let players = self.players.read();
+        f(players.len(), players.iter())
+    }
+}
+
+pub struct ClientRoomHandle {
+    room: Arc<Room>,
+    room_key: usize,
+}
+
+impl Deref for ClientRoomHandle {
+    type Target = Room;
+
+    fn deref(&self) -> &Self::Target {
+        &self.room
+    }
+}
+
+// Remove the player from the player list inside the room once the handle is dropped
+impl Drop for ClientRoomHandle {
+    fn drop(&mut self) {
+        self.room.remove_player(self.room_key);
+    }
 }
 
 #[derive(Debug, Error)]
@@ -20,31 +95,28 @@ pub struct RoomManager {
 }
 
 impl RoomManager {
-    pub fn new() -> Self {
-        let global_room = Arc::new(Room {
-            id: 0,
-            name: "Global".try_into().unwrap(),
-        });
+    pub(super) fn new() -> Self {
+        let global_room = Arc::new(Room::new(0, "Global".try_into().unwrap()));
 
-        let rooms = DashMap::new();
-        rooms.insert(global_room.id, global_room.clone());
-
-        Self { rooms, global_room }
+        Self {
+            rooms: DashMap::new(),
+            global_room,
+        }
     }
 
-    pub fn get(&self, id: u32) -> Option<Arc<Room>> {
+    pub(super) fn get(&self, id: u32) -> Option<Arc<Room>> {
         self.rooms.get(&id).map(|r| r.clone())
     }
 
-    pub fn global(&self) -> Arc<Room> {
+    pub(super) fn global(&self) -> Arc<Room> {
         self.global_room.clone()
     }
 
-    pub fn get_or_global(&self, id: u32) -> Arc<Room> {
+    pub(super) fn get_or_global(&self, id: u32) -> Arc<Room> {
         self.get(id).unwrap_or_else(|| self.global().clone())
     }
 
-    pub fn create_room(&self, name: &str) -> Result<Arc<Room>, RoomCreationError> {
+    pub(super) fn create_room(&self, name: &str) -> Result<Arc<Room>, RoomCreationError> {
         let name = heapless::String::from_str(name).map_err(|_| RoomCreationError::NameTooLong)?;
 
         loop {
@@ -52,7 +124,7 @@ impl RoomManager {
 
             match self.rooms.entry(id) {
                 dashmap::Entry::Vacant(entry) => {
-                    let room = Arc::new(Room { id, name });
+                    let room = Arc::new(Room::new(id, name));
                     entry.insert(room.clone());
 
                     break Ok(room);
@@ -63,5 +135,16 @@ impl RoomManager {
                 }
             }
         }
+    }
+
+    /// Deletes all rooms from the manager. The global room remains intact, but all players are removed from it.
+    pub(super) fn clear(&self) {
+        for room in self.rooms.iter() {
+            room.players.write().clear();
+        }
+
+        self.rooms.clear();
+
+        self.global_room.players.write().clear();
     }
 }
