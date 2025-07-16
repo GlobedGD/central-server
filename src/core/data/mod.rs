@@ -1,9 +1,6 @@
-#[allow(warnings)]
-#[path = "../../../schema/generated/main_capnp.rs"]
-pub mod main_capnp;
 use std::{any::Any, fmt::Display};
 
-pub use main_capnp::*;
+pub use schema::main::*;
 
 use capnp::message::Allocator;
 use thiserror::Error;

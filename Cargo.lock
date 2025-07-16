@@ -228,7 +228,6 @@ dependencies = [
  "base64",
  "blake3",
  "capnp",
- "capnpc",
  "dashmap",
  "futures-util",
  "heapless",
@@ -236,6 +235,7 @@ dependencies = [
  "parking_lot",
  "qunet",
  "rand 0.9.1",
+ "schema",
  "serde",
  "serde_json",
  "slab",
@@ -1760,6 +1760,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f29ebaa345f945cec9fbbc532eb307f0fdad8161f281b6369539c8d84876b3d"
 dependencies = [
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "schema"
+version = "0.1.0"
+dependencies = [
+ "capnp",
+ "capnpc",
 ]
 
 [[package]]

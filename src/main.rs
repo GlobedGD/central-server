@@ -22,8 +22,6 @@ use crate::{
     rooms::RoomModule,
 };
 
-use crate::core::data::main_capnp; // this is needed for the codegenned capnp code
-
 #[cfg(all(not(target_env = "msvc"), not(debug_assertions)))]
 use tikv_jemallocator::Jemalloc;
 

@@ -17,6 +17,7 @@ hex = "0.4.3"
 parking_lot = "0.12.4"
 qunet = { path = "../qunet/qunet", features = ["client"] }
 rand = "0.9.1"
+schema = { path = "../schema", features = ["main"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 slab = "0.4.10"
@@ -33,6 +34,3 @@ tracing-subscriber = "0.3.19"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5"
-
-[build-dependencies]
-capnpc = "0.21.1"
