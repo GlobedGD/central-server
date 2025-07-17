@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use rand::distr::SampleString;
 use serde::{Deserialize, Serialize};
 use server_shared::config::env_replace;
 
@@ -79,6 +80,20 @@ fn default_qdb_path() -> Option<PathBuf> {
     None
 }
 
+// Game server stuff
+
+fn default_gs_password() -> String {
+    rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 32)
+}
+
+fn default_gs_tcp_address() -> Option<String> {
+    Some("[::]:4342".into())
+}
+
+fn default_gs_quic_address() -> Option<String> {
+    Some("[::]:4343".into())
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CoreConfig {
     /// The memory usage value (1 to 11), determines how much memory the server will preallocate for operations.
@@ -136,6 +151,16 @@ pub struct CoreConfig {
     /// The path to the QDB file.
     #[serde(default = "default_qdb_path")]
     pub qdb_path: Option<PathBuf>,
+
+    /// The password for the game server
+    #[serde(default = "default_gs_password")]
+    pub gs_password: String,
+    /// Address for accepting TCP connections from game servers. If blank, TCP is not used.
+    #[serde(default = "default_gs_tcp_address")]
+    pub gs_tcp_address: Option<String>,
+    /// Address for accepting QUIC connections from game servers. If blank, QUIC is not used.
+    #[serde(default = "default_gs_quic_address")]
+    pub gs_quic_address: Option<String>,
 }
 
 impl Default for CoreConfig {
@@ -157,6 +182,9 @@ impl Default for CoreConfig {
             udp_ping_only: default_udp_ping_only(),
             udp_address: default_udp_address(),
             qdb_path: default_qdb_path(),
+            gs_password: default_gs_password(),
+            gs_tcp_address: default_gs_tcp_address(),
+            gs_quic_address: default_gs_quic_address(),
         }
     }
 }

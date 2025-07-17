@@ -2,14 +2,7 @@ use std::sync::OnceLock;
 
 use parking_lot::Mutex;
 
-use crate::rooms::ClientRoomHandle;
-
-#[derive(Default, Debug)]
-pub struct ClientAccountData {
-    pub account_id: i32,
-    pub user_id: i32,
-    pub username: heapless::String<16>,
-}
+use crate::{auth::ClientAccountData, rooms::ClientRoomHandle};
 
 #[derive(Default)]
 pub struct ClientData {

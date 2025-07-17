@@ -7,13 +7,14 @@ use qunet::server::{
 };
 
 use server_shared::config::parse_addr;
-use tracing::{error, info};
+use tracing::{debug, error};
 use tracing_appender::non_blocking::WorkerGuard;
 
 use crate::{
     auth::AuthModule,
     core::{
         config::{Config, CoreConfig},
+        game_server::GameServerHandler,
         handler::ConnectionHandler,
         module::ServerModule,
     },
@@ -104,14 +105,86 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         builder = builder.with_qdb_file(path);
     }
 
-    // Actually run the server
-    let outcome = builder.run().await;
+    // Build the server
+    let server = match builder.build().await {
+        Ok(srv) => srv,
+        Err(e) => {
+            error!("Failed to setup server: {e}");
+            std::process::exit(1);
+        }
+    };
 
-    match outcome {
-        ServerOutcome::GracefulShutdown => {}
+    // Run the server
+    let server_clone = server.clone();
+    let mut srv_join_handle = tokio::spawn(async move {
+        match server_clone.run().await {
+            ServerOutcome::GracefulShutdown => {}
+            e => {
+                error!("Critical server error: {}", e);
+            }
+        }
+    });
 
-        e => {
-            error!("Critical server error: {}", e);
+    // .. Build the listener for game servers ..
+
+    let handler = GameServerHandler::new(server.make_weak(), core.gs_password.clone());
+
+    let mut builder =
+        QunetServer::builder().with_memory_options(make_memory_limits(3)).with_app_handler(handler);
+
+    if let Some(addr) = &core.gs_tcp_address {
+        builder = builder.with_tcp(parse_addr(addr, "gs_tcp_address"));
+    }
+
+    if let Some(addr) = &core.gs_quic_address {
+        builder = builder.with_quic(
+            parse_addr(addr, "gs_quic_address"),
+            &core.quic_tls_cert,
+            &core.quic_tls_key,
+        );
+    }
+
+    // TODO: qdb
+
+    let gs_server = match builder.build().await {
+        Ok(srv) => srv,
+        Err(e) => {
+            error!("Failed to setup game server listener: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    // Run the game server listener
+    let gs_server_clone = gs_server.clone();
+    let mut gs_srv_join_handle = tokio::spawn(async move {
+        match gs_server_clone.run().await {
+            ServerOutcome::GracefulShutdown => {}
+
+            e => {
+                error!("Critical game server listener error: {}", e);
+            }
+        }
+    });
+
+    // Poll both of the servers
+
+    tokio::select! {
+        _ = &mut srv_join_handle => {
+            debug!("Main server has stopped, shutting down");
+            gs_server.shutdown();
+
+            if let Err(e) = gs_srv_join_handle.await {
+                error!("Failed to join game server listener: {e}");
+            }
+        }
+
+        _ = &mut gs_srv_join_handle => {
+            debug!("Game server listener has stopped, shutting down");
+            server.shutdown();
+
+            if let Err(e) = srv_join_handle.await {
+                error!("Failed to join main server: {e}");
+            }
         }
     }
 

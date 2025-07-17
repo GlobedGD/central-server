@@ -1,7 +1,11 @@
 use futures_util::{SinkExt, StreamExt};
-use qunet::buffers::byte_reader::ByteReaderError;
-use qunet::buffers::{byte_reader::ByteReader, byte_writer::ByteWriter};
-use qunet::message::channel;
+use qunet::{
+    buffers::{
+        byte_reader::{ByteReader, ByteReaderError},
+        byte_writer::ByteWriter,
+    },
+    message::channel,
+};
 use std::{
     collections::VecDeque,
     str::FromStr,
@@ -12,15 +16,14 @@ use std::{
     time::Duration,
 };
 use thiserror::Error;
-use tokio::net::TcpStream;
-use tokio::task::JoinHandle;
+use tokio::{net::TcpStream, task::JoinHandle};
 use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
     tungstenite::{Bytes, protocol::Message},
 };
 use tracing::{error, info, warn};
 
-use crate::core::client_data::ClientAccountData;
+use crate::auth::ClientAccountData;
 
 pub struct ArgonClient {
     inner: Arc<InnerState>,

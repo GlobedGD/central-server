@@ -5,10 +5,13 @@ use std::{
     time::Duration,
 };
 
-use qunet::server::{
-    Server as QunetServer, ServerHandle as QunetServerHandle, WeakServerHandle,
-    app_handler::{AppHandler, AppResult, MsgData},
-    client::ClientState,
+use qunet::{
+    message::MsgData,
+    server::{
+        Server as QunetServer, ServerHandle as QunetServerHandle, WeakServerHandle,
+        app_handler::{AppHandler, AppResult},
+        client::ClientState,
+    },
 };
 use server_shared::encoding::DataDecodeError;
 use state::TypeMap;
@@ -16,13 +19,14 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 
 use crate::{
-    auth::AuthModule,
+    auth::{AuthModule, AuthVerdict, ClientAccountData, LoginKind},
     core::{
-        client_data::{ClientAccountData, ClientData},
+        client_data::ClientData,
         data::{
             self, EncodeMessageError, decode_message_match, encode_message_heap,
             encode_message_unsafe,
         },
+        game_server::GameServerHandler,
         module::ServerModule,
     },
     rooms::{Room, RoomModule},
@@ -37,14 +41,8 @@ pub struct ConnectionHandler {
 
 pub type ClientStateHandle = Arc<ClientState<ConnectionHandler>>;
 
-enum LoginKind<'a> {
-    UserToken(i32, &'a str),
-    Argon(i32, &'a str),
-    Plain(ClientAccountData),
-}
-
 #[derive(Debug, Error)]
-enum HandlerError {
+pub enum HandlerError {
     #[error("failed to encode message: {0}")]
     Encoder(#[from] EncodeMessageError),
     #[error("cannot handle this message while unauthorized")]
@@ -76,8 +74,7 @@ impl ConnectionHandler {
         self.modules.freeze();
     }
 
-    /// Obtain a reference to the server. This must not be called before the server is launched and `on_launch` is called,
-    /// otherwise it causes undefined behavior in Release.
+    /// Obtain a reference to the server. This must not be called before the server is launched and `on_launch` is called.
     fn server(&self) -> QunetServerHandle<Self> {
         self.server
             .get()
@@ -86,6 +83,22 @@ impl ConnectionHandler {
             .expect("Server has shut down")
     }
 
+    // Handling of game servers.
+
+    pub async fn handle_game_server_connect(
+        &self,
+        client: Arc<ClientState<GameServerHandler>>,
+    ) -> HandlerResult<()> {
+        // TODO
+        Ok(())
+    }
+
+    pub async fn handle_game_server_disconnect(&self, client: Arc<ClientState<GameServerHandler>>) {
+        // TODO
+    }
+
+    // Handling of clients.
+
     async fn handle_login_attempt(
         &self,
         client: &Arc<ClientState<Self>>,
@@ -93,122 +106,28 @@ impl ConnectionHandler {
     ) -> HandlerResult<()> {
         let auth = self.module::<AuthModule>();
 
-        if client.data().authorized() {
+        if client.authorized() {
             // if the client is already authorized, ignore the login attempt
             debug!("[{}] ignoring repeated login attempt", client.address);
             return Ok(());
         }
 
-        // TODO: clean this up, delegate stuff here to AuthModule
-        match kind {
-            LoginKind::Plain(data) => {
-                if auth.verification_enabled() {
-                    // if verification is enabled, plain login is not allowed
-                    let buf = encode_message_unsafe!(self, 128, msg => {
-                        let mut login_req = msg.reborrow().init_login_required();
-                        login_req.set_argon_url(auth.argon_url().unwrap());
-                    })?;
-
-                    client.send_data_bufkind(buf);
-                } else {
-                    // otherwise, perform no verification
-                    self.on_login_success(client, data).await?;
-                }
+        match auth.handle_login(kind).await {
+            AuthVerdict::Success(data) => {
+                self.on_login_success(client, data).await?;
             }
 
-            LoginKind::UserToken(account_id, token) => {
-                let token_data = match auth.validate_user_token(token) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        warn!(
-                            "[{} @ {}] failed to validate user token: {}",
-                            account_id, client.address, e
-                        );
-
-                        self.on_login_failed(client, data::LoginFailedReason::InvalidUserToken)
-                            .await?;
-
-                        return Ok(());
-                    }
-                };
-
-                if token_data.account_id != account_id {
-                    warn!(
-                        "[{} @ {}] user token validation failed: account ID mismatch",
-                        account_id, client.address
-                    );
-
-                    self.on_login_failed(client, data::LoginFailedReason::InvalidUserToken).await?;
-
-                    return Ok(());
-                }
-
-                self.on_login_success(
-                    client,
-                    ClientAccountData {
-                        account_id,
-                        user_id: token_data.user_id,
-                        username: token_data.username,
-                    },
-                )
-                .await?;
+            AuthVerdict::Failed(reason) => {
+                self.on_login_failed(client, reason).await?;
             }
 
-            LoginKind::Argon(account_id, token) => {
-                if let Some(argon) = auth.argon_client() {
-                    let handle = match argon.validate(account_id, token) {
-                        Ok(handle) => handle,
-                        Err(e) => {
-                            warn!(
-                                "[{} @ {}] failed to request token validation: {}",
-                                account_id, client.address, e
-                            );
-                            self.on_login_failed(client, data::LoginFailedReason::ArgonUnreachable)
-                                .await?;
-                            return Ok(());
-                        }
-                    };
+            AuthVerdict::LoginRequired => {
+                let buf = encode_message_unsafe!(self, 128, msg => {
+                    let mut login_req = msg.reborrow().init_login_required();
+                    login_req.set_argon_url(auth.argon_url().unwrap());
+                })?;
 
-                    let response = match handle.wait().await {
-                        Ok(resp) => resp,
-                        Err(_) => {
-                            warn!(
-                                "[{} @ {}] token validation attempt was dropped",
-                                account_id, client.address
-                            );
-
-                            self.on_login_failed(
-                                client,
-                                data::LoginFailedReason::ArgonInternalError,
-                            )
-                            .await?;
-
-                            return Ok(());
-                        }
-                    };
-
-                    match response.into_inner() {
-                        Ok(data) => {
-                            self.on_login_success(client, data).await?;
-                        }
-
-                        Err(err) => {
-                            debug!(
-                                "[{} @ {}] token validation failed: {}",
-                                account_id, client.address, err
-                            );
-
-                            self.on_login_failed(
-                                client,
-                                data::LoginFailedReason::InvalidArgonToken,
-                            )
-                            .await?;
-                        }
-                    }
-                } else {
-                    self.on_login_failed(client, data::LoginFailedReason::ArgonNotSupported)
-                        .await?;
-                }
+                client.send_data_bufkind(buf);
             }
         }
 
