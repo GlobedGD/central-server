@@ -88,14 +88,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if core.enable_udp {
-        builder = builder.with_udp_multiple(
+        builder = builder.with_udp(
             parse_addr(&core.udp_address, "udp_address"),
             if core.udp_ping_only {
                 UdpDiscoveryMode::Discovery
             } else {
                 UdpDiscoveryMode::Both
             },
-            core.udp_binds as usize,
         );
     }
 
@@ -109,9 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let outcome = builder.run().await;
 
     match outcome {
-        ServerOutcome::GracefulShutdown => {
-            info!("Server shutdown gracefully.");
-        }
+        ServerOutcome::GracefulShutdown => {}
 
         e => {
             error!("Critical server error: {}", e);

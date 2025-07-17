@@ -31,6 +31,8 @@ fn default_log_rolling() -> bool {
     false
 }
 
+// QUIC
+
 fn default_enable_quic() -> bool {
     false
 }
@@ -47,6 +49,8 @@ fn default_quic_tls_key() -> String {
     String::new()
 }
 
+// TCP
+
 fn default_enable_tcp() -> bool {
     true
 }
@@ -54,6 +58,8 @@ fn default_enable_tcp() -> bool {
 fn default_tcp_address() -> String {
     "[::]:4340".into()
 }
+
+// UDP
 
 fn default_enable_udp() -> bool {
     true
@@ -67,9 +73,7 @@ fn default_udp_address() -> String {
     "[::]:4340".into()
 }
 
-fn default_udp_binds() -> usize {
-    1
-}
+// QDB stuff
 
 fn default_qdb_path() -> Option<PathBuf> {
     None
@@ -128,10 +132,6 @@ pub struct CoreConfig {
     /// The address to listen for UDP connections or pings on.
     #[serde(default = "default_udp_address")]
     pub udp_address: String,
-    /// How many UDP sockets to bind. This is useful for load balancing on multi-core systems,
-    /// but it does not work on Windows systems, and it is only useful when managing a large number of UDP connections.
-    #[serde(default = "default_udp_binds")]
-    pub udp_binds: usize,
 
     /// The path to the QDB file.
     #[serde(default = "default_qdb_path")]
@@ -156,7 +156,6 @@ impl Default for CoreConfig {
             enable_udp: default_enable_udp(),
             udp_ping_only: default_udp_ping_only(),
             udp_address: default_udp_address(),
-            udp_binds: default_udp_binds(),
             qdb_path: default_qdb_path(),
         }
     }
@@ -183,7 +182,6 @@ impl CoreConfig {
         env_replace("GLOBED_CORE_ENABLE_UDP", &mut self.enable_udp);
         env_replace("GLOBED_CORE_UDP_PING_ONLY", &mut self.udp_ping_only);
         env_replace("GLOBED_CORE_UDP_ADDRESS", &mut self.udp_address);
-        env_replace("GLOBED_CORE_UDP_BINDS", &mut self.udp_binds);
 
         env_replace("GLOBED_CORE_QDB_PATH", &mut self.qdb_path);
     }

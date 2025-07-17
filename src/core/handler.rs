@@ -10,6 +10,7 @@ use qunet::server::{
     app_handler::{AppHandler, AppResult, MsgData},
     client::ClientState,
 };
+use server_shared::encoding::DataDecodeError;
 use state::TypeMap;
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -19,7 +20,7 @@ use crate::{
     core::{
         client_data::{ClientAccountData, ClientData},
         data::{
-            self, DataDecodeError, EncodeMessageError, decode_message_match, encode_message_heap,
+            self, EncodeMessageError, decode_message_match, encode_message_heap,
             encode_message_unsafe,
         },
         module::ServerModule,
@@ -311,15 +312,13 @@ impl ConnectionHandler {
             room_state.set_room_id(room.id);
             room_state.set_name(&room.name);
 
-            // we could optimize this to not allocate an extra vec if there is a small amount of people in the room,
-            // but i decided it's not worth it
             let players = room.get_players();
             let player_count = players.len().min(PLAYER_CAP);
 
             // TODO: like globed, we should prioritize friends, and when the list is greater than the cap, show random players
             let mut players_ser = room_state.init_players(player_count as u32);
 
-            for (i, player) in players.iter().take(player_count).enumerate() {
+            for (i, (_, player)) in players.iter().take(player_count).enumerate() {
                 let mut player_ser = players_ser.reborrow().get(i as u32);
                 player_ser.set_cube(0); // TODO: use player's cube
 

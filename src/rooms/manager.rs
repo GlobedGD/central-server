@@ -7,8 +7,8 @@ use std::{
     },
 };
 
+use arc_swap::ArcSwap;
 use dashmap::DashMap;
-use parking_lot::RwLock;
 use slab::Slab;
 use thiserror::Error;
 
@@ -17,7 +17,7 @@ use crate::core::handler::ClientStateHandle;
 pub struct Room {
     pub id: u32,
     pub name: heapless::String<64>,
-    players: RwLock<Slab<ClientStateHandle>>,
+    players: ArcSwap<Slab<ClientStateHandle>>,
     player_count: AtomicUsize,
 }
 
@@ -26,18 +26,29 @@ impl Room {
         Self {
             id,
             name,
-            players: RwLock::new(Slab::new()),
+            players: ArcSwap::new(Arc::new(Slab::new())),
             player_count: AtomicUsize::new(0),
         }
     }
 
     fn remove_player(&self, key: usize) {
-        self.players.write().remove(key);
+        self.players.rcu(|players| {
+            let mut players = (**players).clone();
+            players.remove(key);
+            players
+        });
+
         self.player_count.fetch_sub(1, Ordering::Relaxed);
     }
 
     pub(super) fn add_player(self: Arc<Room>, player: ClientStateHandle) -> ClientRoomHandle {
-        let key = self.players.write().insert(player);
+        let mut key = 0;
+        self.players.rcu(|players| {
+            let mut players = (**players).clone();
+            key = players.insert(player.clone());
+            players
+        });
+
         self.player_count.fetch_add(1, Ordering::Relaxed);
 
         ClientRoomHandle {
@@ -46,8 +57,13 @@ impl Room {
         }
     }
 
-    pub fn get_players(&self) -> Vec<ClientStateHandle> {
-        self.players.read().iter().map(|(_, x)| x.clone()).collect()
+    fn clear(&self) {
+        self.players.store(Arc::new(Slab::new()));
+        self.player_count.store(0, Ordering::Relaxed);
+    }
+
+    pub fn get_players(&self) -> Arc<Slab<ClientStateHandle>> {
+        self.players.load_full()
     }
 
     pub fn player_count(&self) -> usize {
@@ -58,7 +74,7 @@ impl Room {
     where
         F: FnOnce(usize, slab::Iter<'_, ClientStateHandle>) -> R,
     {
-        let players = self.players.read();
+        let players = self.players.load_full();
         f(players.len(), players.iter())
     }
 }
@@ -140,11 +156,11 @@ impl RoomManager {
     /// Deletes all rooms from the manager. The global room remains intact, but all players are removed from it.
     pub(super) fn clear(&self) {
         for room in self.rooms.iter() {
-            room.players.write().clear();
+            room.clear();
         }
 
         self.rooms.clear();
 
-        self.global_room.players.write().clear();
+        self.global_room.clear();
     }
 }

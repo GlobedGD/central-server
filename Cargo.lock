@@ -33,6 +33,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "arc-swap"
+version = "1.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -225,6 +231,7 @@ dependencies = [
 name = "central-server"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "base64",
  "blake3",
  "capnp",
@@ -1847,9 +1854,15 @@ dependencies = [
 name = "server-shared"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "blake3",
  "capnp",
  "capnpc",
+ "heapless",
+ "hex",
+ "qunet",
  "serde",
+ "thiserror 2.0.12",
  "toml",
  "tracing",
  "tracing-appender",

@@ -30,6 +30,7 @@ tokio-tungstenite = { version = "0.27.0", features = [
 toml = "0.9.2"
 tracing = "0.1.41"
 tracing-appender = { version = "0.2.3", features = ["parking_lot"] }
+arc-swap = "1.7.1"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5"

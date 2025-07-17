@@ -2,11 +2,10 @@ use crate::core::module::ServerModule;
 
 mod argon_client;
 mod config;
-mod token_issuer;
 
 pub use argon_client::ArgonClient;
 use config::Config;
-use token_issuer::*;
+use server_shared::token_issuer::*;
 
 pub struct AuthModule {
     token_issuer: TokenIssuer,
@@ -36,11 +35,7 @@ impl AuthModule {
         user_id: i32,
         username: heapless::String<16>,
     ) -> String {
-        self.token_issuer.generate(&TokenData {
-            account_id,
-            user_id,
-            username,
-        })
+        self.token_issuer.generate(&TokenData { account_id, user_id, username })
     }
 }
 
@@ -54,10 +49,7 @@ impl ServerModule for AuthModule {
             .enable_argon
             .then(|| ArgonClient::new(config.argon_url.clone(), config.argon_token.clone()));
 
-        Ok(Self {
-            token_issuer,
-            argon_client,
-        })
+        Ok(Self { token_issuer, argon_client })
     }
 
     fn id() -> &'static str {

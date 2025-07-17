@@ -99,7 +99,7 @@ impl Config {
                 &path,
                 toml::to_string_pretty(&config).expect("config serialization failed"),
             )?;
-            Ok(T::default())
+            Ok(config)
         }
     }
 }
