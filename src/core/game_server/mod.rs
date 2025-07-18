@@ -3,4 +3,4 @@ mod handler;
 mod manager;
 
 pub use handler::GameServerHandler;
-pub use manager::{GameServerData, GameServerManager};
+pub use manager::GameServerManager;

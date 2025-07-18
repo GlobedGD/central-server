@@ -13,7 +13,7 @@ use qunet::{
         client::ClientState,
     },
 };
-use server_shared::encoding::DataDecodeError;
+use server_shared::{data::GameServerData, encoding::DataDecodeError};
 use state::TypeMap;
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -23,7 +23,7 @@ use crate::{
     core::{
         client_data::ClientData,
         data::{self, EncodeMessageError, decode_message_match},
-        game_server::{GameServerData, GameServerHandler, GameServerManager},
+        game_server::{GameServerHandler, GameServerManager},
         module::ServerModule,
     },
     rooms::{Room, RoomModule},

@@ -14,15 +14,12 @@ use qunet::{
         client::ClientState,
     },
 };
-use server_shared::encoding::EncodeMessageError;
+use server_shared::{data::GameServerData, encoding::EncodeMessageError};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
 use super::data;
-use crate::core::{
-    data::heapless_str_from_reader, game_server::manager::GameServerData,
-    handler::ConnectionHandler,
-};
+use crate::core::{data::heapless_str_from_reader, handler::ConnectionHandler};
 
 pub struct GameServerHandler {
     password: String,

@@ -2,17 +2,9 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use qunet::server::client::ClientState;
+use server_shared::data::GameServerData;
 
 use crate::core::game_server::GameServerHandler;
-
-#[derive(Clone, Debug)]
-pub struct GameServerData {
-    pub id: u8,
-    pub address: heapless::String<64>,
-    pub string_id: heapless::String<32>,
-    pub name: heapless::String<64>,
-    pub region: heapless::String<32>,
-}
 
 #[derive(Clone)]
 pub struct StoredGameServer {
