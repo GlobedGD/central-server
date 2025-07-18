@@ -19,7 +19,10 @@ use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
 use super::data;
-use crate::core::handler::ConnectionHandler;
+use crate::core::{
+    data::heapless_str_from_reader, game_server::manager::GameServerData,
+    handler::ConnectionHandler,
+};
 
 pub struct GameServerHandler {
     password: String,
@@ -39,12 +42,11 @@ enum HandlerError {
 
 type HandlerResult<T> = Result<T, HandlerError>;
 
-#[derive(Default)]
-pub struct GameServerData {
+pub struct GameServerClientData {
     authorized: AtomicBool,
 }
 
-impl GameServerData {
+impl GameServerClientData {
     pub fn new() -> Self {
         Self {
             authorized: AtomicBool::new(false),
@@ -86,7 +88,7 @@ impl GameServerHandler {
         client: &ClientStateHandle,
         reason: &str,
     ) -> HandlerResult<()> {
-        let buf = data::encode_message_unsafe!(self, 512, msg => {
+        let buf = data::encode_message!(self, 512, msg => {
             let mut login_failed = msg.reborrow().init_login_failed();
             login_failed.set_reason(reason);
         })?;
@@ -96,20 +98,30 @@ impl GameServerHandler {
         Ok(())
     }
 
-    async fn handle_login(&self, client: &ClientStateHandle, password: &str) -> HandlerResult<()> {
+    async fn handle_login(
+        &self,
+        client: &ClientStateHandle,
+        password: &str,
+        data: GameServerData,
+    ) -> HandlerResult<()> {
+        // ignore duplicate login attempts
+        if client.authorized() {
+            return self.send_login_failed(client, "already logged in").await;
+        }
+
         if !constant_time_eq(password, &self.password) {
             return self.send_login_failed(client, "invalid password").await;
         }
 
         // successful login! tell the main server to add this game server
         if let Err(e) =
-            self.main_server().handler().handle_game_server_connect(client.clone()).await
+            self.main_server().handler().handle_game_server_connect(client.clone(), data).await
         {
             warn!("[{}] failed to handle game server connect: {e}", client.address);
             return self.send_login_failed(client, &format!("internal error: {e}")).await;
         }
 
-        let buf = data::encode_message_unsafe!(self, 128, msg => {
+        let buf = data::encode_message!(self, 128, msg => {
             msg.reborrow().init_login_ok();
         })
         .expect("failed to encode login success message");
@@ -133,7 +145,7 @@ impl GameServerHandler {
 }
 
 impl AppHandler for GameServerHandler {
-    type ClientData = GameServerData;
+    type ClientData = GameServerClientData;
 
     async fn on_launch(&self, server: QunetServerHandle<Self>) -> AppResult<()> {
         let _ = self.server.set(server.make_weak());
@@ -154,7 +166,9 @@ impl AppHandler for GameServerHandler {
             return Err("server not initialized yet".into());
         }
 
-        Ok(GameServerData::new())
+        info!("[{connection_id} @ {address} ({kind})] Game server connection attempt");
+
+        Ok(GameServerClientData::new())
     }
 
     async fn on_client_disconnect(&self, _server: &QunetServer<Self>, client: &ClientStateHandle) {
@@ -169,11 +183,20 @@ impl AppHandler for GameServerHandler {
         client: &ClientStateHandle,
         data: MsgData<'_>,
     ) {
-        let result = data::decode_message_match!(data.as_bytes(), {
+        let result = data::decode_message_match!(self, data,{
             LoginSrv(message) => {
                 let password = message.get_password()?.to_str()?;
+                let data = message.get_data()?;
 
-                self.handle_login(client, password).await
+                let data = GameServerData {
+                    id: 0,
+                    address: heapless_str_from_reader(data.get_address()?)?,
+                    name: heapless_str_from_reader(data.get_name()?)?,
+                    string_id: heapless_str_from_reader(data.get_string_id()?)?,
+                    region: heapless_str_from_reader(data.get_region()?)?,
+                };
+
+                self.handle_login(client, password, data).await
             },
         });
 

@@ -1,9 +1,6 @@
 use futures_util::{SinkExt, StreamExt};
 use qunet::{
-    buffers::{
-        byte_reader::{ByteReader, ByteReaderError},
-        byte_writer::ByteWriter,
-    },
+    buffers::{ByteReader, ByteReaderError, ByteWriter},
     message::channel,
 };
 use std::{

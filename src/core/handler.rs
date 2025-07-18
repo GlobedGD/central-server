@@ -22,11 +22,8 @@ use crate::{
     auth::{AuthModule, AuthVerdict, ClientAccountData, LoginKind},
     core::{
         client_data::ClientData,
-        data::{
-            self, EncodeMessageError, decode_message_match, encode_message_heap,
-            encode_message_unsafe,
-        },
-        game_server::GameServerHandler,
+        data::{self, EncodeMessageError, decode_message_match},
+        game_server::{GameServerData, GameServerHandler, GameServerManager},
         module::ServerModule,
     },
     rooms::{Room, RoomModule},
@@ -37,6 +34,7 @@ pub struct ConnectionHandler {
     modules: TypeMap![Send + Sync],
     // we use a weak handle here to avoid ref cycles, which will make it impossible to drop the server
     server: OnceLock<WeakServerHandle<Self>>,
+    game_server_manager: GameServerManager,
 }
 
 pub type ClientStateHandle = Arc<ClientState<ConnectionHandler>>;
@@ -88,13 +86,31 @@ impl ConnectionHandler {
     pub async fn handle_game_server_connect(
         &self,
         client: Arc<ClientState<GameServerHandler>>,
+        data: GameServerData,
     ) -> HandlerResult<()> {
-        // TODO
+        self.game_server_manager.add_server(client, data);
+
+        // TODO: notify all clients about the change
         Ok(())
     }
 
     pub async fn handle_game_server_disconnect(&self, client: Arc<ClientState<GameServerHandler>>) {
-        // TODO
+        self.game_server_manager.remove_server(&client);
+        // TODO: notify all clients about the change
+    }
+
+    // Misc encoding stuff
+
+    fn encode_game_server(
+        &self,
+        srv: &GameServerData,
+        mut server: server_shared::schema::shared::game_server::Builder<'_>,
+    ) {
+        server.set_id(srv.id);
+        server.set_name(&srv.name);
+        server.set_address(&srv.address);
+        server.set_string_id(&srv.string_id);
+        server.set_region(&srv.region);
     }
 
     // Handling of clients.
@@ -122,7 +138,7 @@ impl ConnectionHandler {
             }
 
             AuthVerdict::LoginRequired => {
-                let buf = encode_message_unsafe!(self, 128, msg => {
+                let buf = data::encode_message!(self, 128, msg => {
                     let mut login_req = msg.reborrow().init_login_required();
                     login_req.set_argon_url(auth.argon_url().unwrap());
                 })?;
@@ -150,11 +166,19 @@ impl ConnectionHandler {
         // put the user in the global room
         rooms.join_room(client, rooms.global_room());
 
-        // send login success message
+        // send login success message with all servers
+        let servers = self.game_server_manager.servers();
 
-        let buf = encode_message_unsafe!(self, 128, msg => {
+        let buf = data::encode_message!(self, 1024, msg => {
             let mut login_ok = msg.reborrow().init_login_ok();
             login_ok.set_new_token(&token);
+
+            let mut srvs = login_ok.reborrow().init_servers(servers.len() as u32);
+
+            for (i, srv) in servers.iter().enumerate() {
+                let server = srvs.reborrow().get(i as u32);
+                self.encode_game_server(&srv.data, server);
+            }
         })?;
 
         client.send_data_bufkind(buf);
@@ -168,7 +192,7 @@ impl ConnectionHandler {
         client: &ClientState<Self>,
         reason: data::LoginFailedReason,
     ) -> HandlerResult<()> {
-        let buf = encode_message_unsafe!(self, 128, msg => {
+        let buf = data::encode_message!(self, 128, msg => {
             let mut login_failed = msg.reborrow().init_login_failed();
             login_failed.set_reason(reason);
         })?;
@@ -226,7 +250,7 @@ impl ConnectionHandler {
 
         const PLAYER_CAP: usize = 250;
 
-        let buf = encode_message_heap!(self, cap, msg => {
+        let buf = data::encode_message_heap!(self, cap, msg => {
             let mut room_state = msg.reborrow().init_room_state();
             room_state.set_room_id(room.id);
             room_state.set_name(&room.name);
@@ -317,7 +341,7 @@ impl AppHandler for ConnectionHandler {
     ) {
         info!("Received {} bytes from client {}", data.len(), client.address);
 
-        let result = decode_message_match!(data.as_bytes(), {
+        let result = decode_message_match!(self, data, {
             LoginUToken(message) => {
                 let account_id = message.get_account_id();
                 let token = message.get_token()?.to_str()?;
