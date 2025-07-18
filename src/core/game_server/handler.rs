@@ -36,8 +36,6 @@ pub type ClientStateHandle = Arc<ClientState<GameServerHandler>>;
 enum HandlerError {
     #[error("failed to encode message: {0}")]
     Encoder(#[from] EncodeMessageError),
-    #[error("cannot handle this message while unauthorized")]
-    Unauthorized,
 }
 
 type HandlerResult<T> = Result<T, HandlerError>;

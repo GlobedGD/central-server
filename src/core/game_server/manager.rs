@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use qunet::server::client::ClientState;
