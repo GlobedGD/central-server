@@ -1,4 +1,7 @@
-use std::sync::OnceLock;
+use std::sync::{
+    OnceLock,
+    atomic::{AtomicU64, Ordering},
+};
 
 use parking_lot::Mutex;
 
@@ -8,6 +11,7 @@ use crate::{auth::ClientAccountData, rooms::ClientRoomHandle};
 pub struct ClientData {
     account_data: OnceLock<ClientAccountData>,
     room: Mutex<Option<ClientRoomHandle>>,
+    session_id: AtomicU64,
 }
 
 impl ClientData {
@@ -38,6 +42,11 @@ impl ClientData {
         self.account_data().map_or("", |x| x.username.as_str())
     }
 
+    /// Returns the room the client is in, or None if not in a room.
+    pub fn get_room_id(&self) -> Option<u32> {
+        self.room.lock().as_ref().map(|r| r.id)
+    }
+
     /// Sets the room the client is in.
     pub fn set_room(&self, room: ClientRoomHandle) {
         let mut lock = self.room.lock();
@@ -48,5 +57,15 @@ impl ClientData {
     /// Note: this puts a client into an invalid state, you should immediately call `set_room` with another room afterwards.
     pub fn clear_room(&self) -> Option<ClientRoomHandle> {
         self.room.lock().take()
+    }
+
+    /// Returns client's current session (aka which level they are in)
+    pub fn session_id(&self) -> u64 {
+        self.session_id.load(Ordering::Relaxed)
+    }
+
+    /// Sets the client's session ID, returning the previous session ID.
+    pub fn set_session_id(&self, session_id: u64) -> u64 {
+        self.session_id.swap(session_id, Ordering::Relaxed)
     }
 }

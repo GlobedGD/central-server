@@ -16,25 +16,26 @@ use qunet::{
 use server_shared::{data::GameServerData, encoding::DataDecodeError};
 use state::TypeMap;
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     auth::{AuthModule, AuthVerdict, ClientAccountData, LoginKind},
     core::{
         client_data::ClientData,
+        config::Config,
         data::{self, EncodeMessageError, decode_message_match},
         game_server::{GameServerHandler, GameServerManager},
         module::ServerModule,
     },
-    rooms::{Room, RoomModule},
+    rooms::{Room, RoomModule, SessionId},
 };
 
-#[derive(Default)]
 pub struct ConnectionHandler {
     modules: TypeMap![Send + Sync],
     // we use a weak handle here to avoid ref cycles, which will make it impossible to drop the server
     server: OnceLock<WeakServerHandle<Self>>,
     game_server_manager: GameServerManager,
+    config: Config,
 }
 
 pub type ClientStateHandle = Arc<ClientState<ConnectionHandler>>;
@@ -49,9 +50,165 @@ pub enum HandlerError {
 
 type HandlerResult<T> = Result<T, HandlerError>;
 
+impl AppHandler for ConnectionHandler {
+    type ClientData = ClientData;
+
+    async fn on_launch(&self, server: QunetServerHandle<Self>) -> AppResult<()> {
+        let _ = self.server.set(server.make_weak());
+
+        info!("Globed central server is running!");
+
+        let status_intv = if cfg!(debug_assertions) {
+            Duration::from_mins(15)
+        } else {
+            Duration::from_mins(60)
+        };
+
+        server
+            .schedule(status_intv, |server| async move {
+                server.print_server_status();
+                // TODO: shrink server buffer pool here to reclaim memory?
+            })
+            .await;
+
+        Ok(())
+    }
+
+    async fn on_client_connect(
+        &self,
+        _server: &QunetServer<Self>,
+        connection_id: u64,
+        address: SocketAddr,
+        kind: &str,
+    ) -> AppResult<Self::ClientData> {
+        if self.server.get().is_none() {
+            return Err("server not initialized yet".into());
+        }
+
+        info!(
+            "Client connected: connection_id={}, address={}, kind={}",
+            connection_id, address, kind
+        );
+
+        Ok(ClientData::default())
+    }
+
+    async fn post_shutdown(&self, _server: &QunetServer<Self>) -> AppResult<()> {
+        // by this point all connections have been dropped, we should clean up any resources
+        info!("Cleaning up resources");
+        let rooms = self.module::<RoomModule>();
+        rooms.cleanup_everything();
+
+        Ok(())
+    }
+
+    async fn on_client_data(
+        &self,
+        _server: &QunetServer<Self>,
+        client: &ClientStateHandle,
+        data: MsgData<'_>,
+    ) {
+        info!("Received {} bytes from client {}", data.len(), client.address);
+
+        let result = decode_message_match!(self, data, {
+            LoginUToken(message) => {
+                let account_id = message.get_account_id();
+                let token = message.get_token()?.to_str()?;
+                self.handle_login_attempt(client, LoginKind::UserToken(account_id, token)).await
+            },
+
+            LoginArgon(message) => {
+                let account_id = message.get_account_id();
+                let token = message.get_token()?.to_str()?;
+                self.handle_login_attempt(client, LoginKind::Argon(account_id, token)).await
+            },
+
+            LoginPlain(message) => {
+                let data = message.get_data()?;
+                let account_id = data.get_account_id();
+                let user_id = data.get_user_id();
+                let username = data.get_username()?.to_str()?;
+
+                let username = heapless::String::from_str(username)
+                        .map_err(|_| DataDecodeError::UsernameTooLong)?;
+
+                self.handle_login_attempt(client, LoginKind::Plain(ClientAccountData {
+                    account_id, user_id, username
+                })).await
+            },
+
+            UpdateOwnData(message) => {
+                let icons = message.get_icons()?;
+
+                if_auth(client, || {
+                    // TODO
+                    Ok(())
+                })
+            },
+
+            CreateRoom(message) => {
+                let name = message.get_name()?.to_str()?;
+                self.handle_create_room(client, name).await
+            },
+
+            JoinRoom(message) => {
+                let id = message.get_room_id();
+                self.handle_join_room(client, id).await
+            },
+
+            LeaveRoom(_message) => {
+                self.handle_leave_room(client).await
+            },
+
+            JoinSession(message) => {
+                self.handle_join_session(client, message.get_session_id()).await
+            },
+
+            LeaveSession(message) => {
+                self.handle_leave_session(client).await
+            },
+        });
+
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                warn!("[{}] handler error: {}", client.address, e);
+            }
+
+            Err(e) => {
+                warn!("[{}] failed to decode message: {}", client.address, e);
+            }
+        }
+    }
+}
+
+fn must_auth(client: &ClientState<ConnectionHandler>) -> HandlerResult<()> {
+    if client.data().authorized() {
+        Ok(())
+    } else {
+        Err(HandlerError::Unauthorized)
+    }
+}
+
+fn if_auth<R, F: FnOnce() -> Result<R, HandlerError>>(
+    client: &ClientState<ConnectionHandler>,
+    f: F,
+) -> Result<R, HandlerError> {
+    if client.data().authorized() {
+        f()
+    } else {
+        Err(HandlerError::Unauthorized)
+    }
+}
+
 impl ConnectionHandler {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(config: Config) -> Self {
+        Self {
+            modules: <TypeMap![Send + Sync]>::new(),
+            server: OnceLock::new(),
+            game_server_manager: GameServerManager::new(),
+            config,
+        }
     }
 
     pub fn insert_module<T: ServerModule>(&self, module: T) {
@@ -70,6 +227,11 @@ impl ConnectionHandler {
 
     pub fn freeze(&mut self) {
         self.modules.freeze();
+        self.config.freeze();
+    }
+
+    pub fn config(&self) -> &Config {
+        &self.config
     }
 
     /// Obtain a reference to the server. This must not be called before the server is launched and `on_launch` is called.
@@ -95,8 +257,15 @@ impl ConnectionHandler {
     }
 
     pub async fn handle_game_server_disconnect(&self, client: Arc<ClientState<GameServerHandler>>) {
-        self.game_server_manager.remove_server(&client);
-        // TODO: notify all clients about the change
+        if let Some(_srv) = self.game_server_manager.remove_server(&client) {
+            // TODO: notify all clients about the change
+            // TODO: reset active session of clients that were connected to this server
+        } else {
+            error!(
+                "[{} @ {}] unknown game server disconnected!",
+                client.connection_id, client.address
+            );
+        }
     }
 
     // Misc encoding stuff
@@ -158,6 +327,8 @@ impl ConnectionHandler {
         // refresh the user's user token (or generate a new one)
         let auth = self.module::<AuthModule>();
         let rooms = self.module::<RoomModule>();
+
+        info!("[{}] {} ({}) logged in", client.address, data.username, data.account_id);
 
         let token = auth.generate_user_token(data.account_id, data.user_id, data.username.clone());
 
@@ -280,146 +451,66 @@ impl ConnectionHandler {
 
         Ok(())
     }
-}
 
-impl AppHandler for ConnectionHandler {
-    type ClientData = ClientData;
-
-    async fn on_launch(&self, server: QunetServerHandle<Self>) -> AppResult<()> {
-        let _ = self.server.set(server.make_weak());
-
-        info!("Globed central server is running!");
-
-        let status_intv = if cfg!(debug_assertions) {
-            Duration::from_mins(15)
-        } else {
-            Duration::from_mins(60)
-        };
-
-        server
-            .schedule(status_intv, |server| async move {
-                server.print_server_status();
-                // TODO: shrink server buffer pool here to reclaim memory?
-            })
-            .await;
-
-        Ok(())
-    }
-
-    async fn on_client_connect(
+    async fn handle_join_session(
         &self,
-        _server: &QunetServer<Self>,
-        connection_id: u64,
-        address: SocketAddr,
-        kind: &str,
-    ) -> AppResult<Self::ClientData> {
-        if self.server.get().is_none() {
-            return Err("server not initialized yet".into());
-        }
-
-        info!(
-            "Client connected: connection_id={}, address={}, kind={}",
-            connection_id, address, kind
-        );
-
-        Ok(ClientData::default())
-    }
-
-    async fn post_shutdown(&self, _server: &QunetServer<Self>) -> AppResult<()> {
-        // by this point all connections have been dropped, we should clean up any resources
-        let rooms = self.module::<RoomModule>();
-        rooms.cleanup_everything();
-
-        Ok(())
-    }
-
-    async fn on_client_data(
-        &self,
-        _server: &QunetServer<Self>,
         client: &ClientStateHandle,
-        data: MsgData<'_>,
-    ) {
-        info!("Received {} bytes from client {}", data.len(), client.address);
+        session_id: u64,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
 
-        let result = decode_message_match!(self, data, {
-            LoginUToken(message) => {
-                let account_id = message.get_account_id();
-                let token = message.get_token()?.to_str()?;
-                self.handle_login_attempt(client, LoginKind::UserToken(account_id, token)).await
-            },
+        let session_id = SessionId::from(session_id);
 
-            LoginArgon(message) => {
-                let account_id = message.get_account_id();
-                let token = message.get_token()?.to_str()?;
-                self.handle_login_attempt(client, LoginKind::Argon(account_id, token)).await
-            },
+        // do some validation
 
-            LoginPlain(message) => {
-                let data = message.get_data()?;
-                let account_id = data.get_account_id();
-                let user_id = data.get_user_id();
-                let username = data.get_username()?.to_str()?;
-
-                let username = heapless::String::from_str(username)
-                        .map_err(|_| DataDecodeError::UsernameTooLong)?;
-
-                self.handle_login_attempt(client, LoginKind::Plain(ClientAccountData {
-                    account_id, user_id, username
-                })).await
-            },
-
-            UpdateOwnData(message) => {
-                let icons = message.get_icons()?;
-
-                if_auth(client, || {
-                    // TODO
-                    Ok(())
-                })
-            },
-
-            CreateRoom(message) => {
-                let name = message.get_name()?.to_str()?;
-                self.handle_create_room(client, name).await
-            },
-
-            JoinRoom(message) => {
-                let id = message.get_room_id();
-                self.handle_join_room(client, id).await
-            },
-
-            LeaveRoom(_message) => {
-                self.handle_leave_room(client).await
-            },
-        });
-
-        match result {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => {
-                warn!("[{}] handler error: {}", client.address, e);
-            }
-
-            Err(e) => {
-                warn!("[{}] failed to decode message: {}", client.address, e);
-            }
+        if client.get_room_id().is_none_or(|x| x != session_id.room_id()) {
+            return self.on_join_failed(client, data::JoinSessionFailedReason::InvalidRoom).await;
         }
-    }
-}
 
-fn must_auth(client: &ClientState<ConnectionHandler>) -> HandlerResult<()> {
-    if client.data().authorized() {
+        if !self.game_server_manager.has_server(session_id.server_id()) {
+            return self.on_join_failed(client, data::JoinSessionFailedReason::InvalidServer).await;
+        }
+
+        let prev_id = client.set_session_id(session_id.as_u64());
+        self.handle_session_change(client, prev_id).await?;
+
         Ok(())
-    } else {
-        Err(HandlerError::Unauthorized)
     }
-}
 
-fn if_auth<R, F: FnOnce() -> Result<R, HandlerError>>(
-    client: &ClientState<ConnectionHandler>,
-    f: F,
-) -> Result<R, HandlerError> {
-    if client.data().authorized() {
-        f()
-    } else {
-        Err(HandlerError::Unauthorized)
+    async fn on_join_failed(
+        &self,
+        client: &ClientStateHandle,
+        reason: data::JoinSessionFailedReason,
+    ) -> HandlerResult<()> {
+        let buf = data::encode_message!(self, 128, msg => {
+            let mut join_failed = msg.reborrow().init_join_failed();
+            join_failed.set_reason(reason);
+        })?;
+
+        client.send_data_bufkind(buf);
+        Ok(())
+    }
+
+    async fn handle_leave_session(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let prev_id = client.set_session_id(0);
+        self.handle_session_change(client, prev_id).await?;
+
+        Ok(())
+    }
+
+    // internal, called when the session ID changes to update player counts in rooms and stuff
+    async fn handle_session_change(
+        &self,
+        client: &ClientStateHandle,
+        prev_session_id: u64,
+    ) -> HandlerResult<()> {
+        if prev_session_id == 0 {
+            return Ok(());
+        }
+
+        // TODO: update player counts in the room
+        Ok(())
     }
 }

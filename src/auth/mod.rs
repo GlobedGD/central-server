@@ -35,8 +35,12 @@ impl AuthModule {
         self.argon_client.as_ref()
     }
 
-    pub fn validate_user_token(&self, token: &str) -> Result<TokenData, TokenValidationError> {
-        self.token_issuer.validate(token)
+    pub fn validate_user_token(
+        &self,
+        token: &str,
+        account_id: i32,
+    ) -> Result<TokenData, TokenValidationError> {
+        self.token_issuer.validate_match(token, account_id)
     }
 
     pub fn generate_user_token(
@@ -59,14 +63,10 @@ impl AuthModule {
             }
 
             LoginKind::UserToken(account_id, token) => {
-                let token_data = match self.validate_user_token(token) {
+                let token_data = match self.validate_user_token(token, account_id) {
                     Ok(data) => data,
                     Err(_) => return AuthVerdict::Failed(LoginFailedReason::InvalidUserToken),
                 };
-
-                if token_data.account_id != account_id {
-                    return AuthVerdict::Failed(LoginFailedReason::InvalidUserToken);
-                }
 
                 AuthVerdict::Success(ClientAccountData {
                     account_id: token_data.account_id,

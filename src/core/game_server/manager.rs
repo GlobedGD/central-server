@@ -47,15 +47,31 @@ impl GameServerManager {
         });
     }
 
-    pub fn remove_server(&self, server: &ClientState<GameServerHandler>) {
+    pub fn remove_server(
+        &self,
+        server: &ClientState<GameServerHandler>,
+    ) -> Option<StoredGameServer> {
+        let mut ret = None;
+
         self.servers.rcu(|servers| {
             let mut servers = (**servers).clone();
-            servers.retain(|s| s.qclient.connection_id != server.connection_id);
+
+            ret = servers
+                .iter()
+                .position(|s| s.qclient.connection_id == server.connection_id)
+                .map(|pos| servers.remove(pos));
+
             servers
         });
+
+        ret
     }
 
     pub fn servers(&self) -> Arc<Vec<StoredGameServer>> {
         self.servers.load_full()
+    }
+
+    pub fn has_server(&self, id: u8) -> bool {
+        self.servers.load().iter().any(|s| s.data.id == id)
     }
 }

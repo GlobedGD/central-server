@@ -45,7 +45,7 @@ fn setup_logger(config: &CoreConfig) -> WorkerGuard {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load config and setup logger
-    let mut config = match Config::new() {
+    let config = match Config::new() {
         Ok(x) => x,
         Err(e) => {
             eprintln!("Failed to load configuration: {e}");
@@ -55,22 +55,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _guard = setup_logger(config.core());
 
-    let mut handler = ConnectionHandler::new();
+    let mut handler = ConnectionHandler::new(config);
 
     // Add necessary modules
-    init_module::<AuthModule>(&config, &handler);
-    init_module::<RoomModule>(&config, &handler);
+    init_module::<AuthModule>(&handler);
+    init_module::<RoomModule>(&handler);
 
     // Add optional modules
     // todo
 
-    // Freeze handler and config, this disallows adding new modules,
+    // Freeze handler, this disallows adding new modules and module configs,
     // but improves performance by removing the need for locks.
-    config.freeze();
     handler.freeze();
 
     // Initialize the qunet server
-    let core = config.core();
+    let core = handler.config().core().clone();
 
     let mut builder = QunetServer::builder()
         .with_memory_options(make_memory_limits(core.memory_usage))
@@ -191,7 +190,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn init_module<'a, T: ServerModule>(config: &Config, handler: &'a ConnectionHandler) -> &'a T {
+fn init_module<T: ServerModule>(handler: &ConnectionHandler) -> &T {
+    let config = handler.config();
+
     if let Err(e) = config.init_module::<T>() {
         error!("Failed to initialize config for module {} ({}): {e}", T::name(), T::id());
         std::process::exit(1);
@@ -213,16 +214,12 @@ fn init_module<'a, T: ServerModule>(config: &Config, handler: &'a ConnectionHand
 }
 
 fn make_memory_limits(usage: u32) -> MemoryUsageOptions {
-    let (buf_min_mult, buf_max_mult, rcvbuf, sndbuf) =
-        server_shared::config::make_memory_limits(usage);
+    let (initial_mem, max_mem, rcvbuf, sndbuf) = server_shared::config::make_memory_limits(usage);
 
     MemoryUsageOptions {
-        buffer_pools: vec![
-            BufferPoolOpts::new(1500, 16 * buf_min_mult, 64 * buf_max_mult), // buffers around mtu size for udp
-            BufferPoolOpts::new(4096, 8 * buf_min_mult, 32 * buf_max_mult),  // small buffers
-            BufferPoolOpts::new(65536, buf_min_mult, 4 * buf_max_mult),      // large buffers
-        ],
-        udp_listener_buffer_pool: BufferPoolOpts::new(1500, 8 * buf_min_mult, 32 * buf_max_mult),
+        initial_mem,
+        max_mem,
+        udp_listener_buffer_pool: BufferPoolOpts::new(1500, 16, 512),
         udp_recv_buffer_size: rcvbuf,
         udp_send_buffer_size: sndbuf,
     }

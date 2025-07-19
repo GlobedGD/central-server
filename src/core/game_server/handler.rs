@@ -19,7 +19,10 @@ use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
 use super::data;
-use crate::core::{data::heapless_str_from_reader, handler::ConnectionHandler};
+use crate::{
+    auth::AuthModule,
+    core::{data::heapless_str_from_reader, handler::ConnectionHandler},
+};
 
 pub struct GameServerHandler {
     password: String,
@@ -116,8 +119,12 @@ impl GameServerHandler {
             return self.send_login_failed(client, &format!("internal error: {e}")).await;
         }
 
-        let buf = data::encode_message!(self, 128, msg => {
-            msg.reborrow().init_login_ok();
+        let buf = data::encode_message!(self, 164, msg => {
+            let mut login_ok = msg.reborrow().init_login_ok();
+            let server = self.main_server();
+            let secret_key = &server.handler().config().module::<AuthModule>().secret_key;
+
+            login_ok.set_token_key(secret_key);
         })
         .expect("failed to encode login success message");
 

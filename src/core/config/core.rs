@@ -94,7 +94,7 @@ fn default_gs_quic_address() -> Option<String> {
     Some("[::]:4343".into())
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CoreConfig {
     /// The memory usage value (1 to 11), determines how much memory the server will preallocate for operations.
     #[serde(default = "default_memory_usage")]
