@@ -34,7 +34,13 @@ impl Room {
     fn remove_player(&self, key: usize) {
         self.players.rcu(|players| {
             let mut players = (**players).clone();
-            players.remove(key);
+
+            // sometimes, this function can run already after the server has shut down and the room has been cleared
+            // this would result in a panic inside a dtor, which is quite bad, so let's check just to be sure
+            if players.contains(key) {
+                players.remove(key);
+            }
+
             players
         });
 
