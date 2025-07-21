@@ -112,6 +112,7 @@ impl GameServerHandler {
         }
 
         // successful login! tell the main server to add this game server
+        info!("[{}] New game server connected! ({})", client.address, data.string_id);
         if let Err(e) =
             self.main_server().handler().handle_game_server_connect(client.clone(), data).await
         {
@@ -130,7 +131,6 @@ impl GameServerHandler {
 
         client.send_data_bufkind(buf);
 
-        info!("[{}] New game server connected!", client.address);
         client.set_authorized(true);
 
         Ok(())

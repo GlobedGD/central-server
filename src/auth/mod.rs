@@ -65,7 +65,10 @@ impl AuthModule {
             LoginKind::UserToken(account_id, token) => {
                 let token_data = match self.validate_user_token(token, account_id) {
                     Ok(data) => data,
-                    Err(_) => return AuthVerdict::Failed(LoginFailedReason::InvalidUserToken),
+                    Err(e) => {
+                        debug!("[{}] failed to validate user token: {}", account_id, e);
+                        return AuthVerdict::Failed(LoginFailedReason::InvalidUserToken);
+                    }
                 };
 
                 AuthVerdict::Success(ClientAccountData {
