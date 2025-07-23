@@ -1,10 +1,12 @@
 use std::{
+    borrow::Cow,
     net::SocketAddr,
     str::FromStr,
-    sync::{Arc, OnceLock},
+    sync::{Arc, OnceLock, Weak},
     time::Duration,
 };
 
+use dashmap::DashMap;
 use qunet::{
     message::MsgData,
     server::{
@@ -36,9 +38,12 @@ pub struct ConnectionHandler {
     server: OnceLock<WeakServerHandle<Self>>,
     game_server_manager: GameServerManager,
     config: Config,
+
+    all_clients: DashMap<i32, WeakClientStateHandle>,
 }
 
 pub type ClientStateHandle = Arc<ClientState<ConnectionHandler>>;
+pub type WeakClientStateHandle = Weak<ClientState<ConnectionHandler>>;
 
 #[derive(Debug, Error)]
 pub enum HandlerError {
@@ -93,6 +98,14 @@ impl AppHandler for ConnectionHandler {
         Ok(ClientData::default())
     }
 
+    async fn on_client_disconnect(&self, _server: &QunetServer<Self>, client: &ClientStateHandle) {
+        let account_id = client.account_id();
+
+        if account_id != 0 {
+            self.all_clients.remove(&account_id);
+        }
+    }
+
     async fn post_shutdown(&self, _server: &QunetServer<Self>) -> AppResult<()> {
         // by this point all connections have been dropped, we should clean up any resources
         info!("Cleaning up resources");
@@ -110,7 +123,7 @@ impl AppHandler for ConnectionHandler {
     ) {
         info!("Received {} bytes from client {}", data.len(), client.address);
 
-        let result = decode_message_match!(self, data, {
+        let result = decode_message_match!(self, data, unpacked_data, {
             LoginUToken(message) => {
                 let account_id = message.get_account_id();
                 let token = message.get_token()?.to_str()?;
@@ -153,18 +166,27 @@ impl AppHandler for ConnectionHandler {
 
             JoinRoom(message) => {
                 let id = message.get_room_id();
+                unpacked_data.reset(); // free up memory
+
                 self.handle_join_room(client, id).await
             },
 
             LeaveRoom(_message) => {
+                unpacked_data.reset(); // free up memory
+
                 self.handle_leave_room(client).await
             },
 
             JoinSession(message) => {
-                self.handle_join_session(client, message.get_session_id()).await
+                let id = message.get_session_id();
+                unpacked_data.reset(); // free up memory
+
+                self.handle_join_session(client, id).await
             },
 
-            LeaveSession(message) => {
+            LeaveSession(_message) => {
+                unpacked_data.reset(); // free up memory
+
                 self.handle_leave_session(client).await
             },
         });
@@ -208,6 +230,7 @@ impl ConnectionHandler {
             server: OnceLock::new(),
             game_server_manager: GameServerManager::new(),
             config,
+            all_clients: DashMap::new(),
         }
     }
 
@@ -331,6 +354,13 @@ impl ConnectionHandler {
         info!("[{}] {} ({}) logged in", client.address, data.username, data.account_id);
 
         let token = auth.generate_user_token(data.account_id, data.user_id, data.username.clone());
+
+        if let Some(old_client) = self.all_clients.insert(data.account_id, Arc::downgrade(client)) {
+            // there already was a client with this account ID, disconnect them
+            if let Some(old_client) = old_client.upgrade() {
+                old_client.disconnect(Cow::Borrowed("Duplicate login detected, the same account logged in from a different location"));
+            }
+        }
 
         client.set_account_data(data);
 

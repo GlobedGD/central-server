@@ -185,7 +185,7 @@ impl AppHandler for GameServerHandler {
         client: &ClientStateHandle,
         data: MsgData<'_>,
     ) {
-        let result = data::decode_message_match!(self, data,{
+        let result = data::decode_message_match!(self, data, _unpacked_data, {
             LoginSrv(message) => {
                 let password = message.get_password()?.to_str()?;
                 let data = message.get_data()?;
