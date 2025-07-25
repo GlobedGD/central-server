@@ -14,7 +14,7 @@ dashmap = { version = "6.1.0", features = ["inline"] }
 futures-util = "0.3.31"
 heapless = "0.8.0"
 hex = "0.4.3"
-parking_lot = "0.12.4"
+parking_lot = { version = "0.12.4", features = ["send_guard"] }
 qunet = { path = "../qunet/qunet", features = ["client"] }
 rand = "0.9.1"
 server-shared = { path = "../server-shared", features = ["main", "srvc"] }
@@ -31,6 +31,7 @@ toml = "0.9.2"
 tracing = "0.1.41"
 tracing-appender = { version = "0.2.3", features = ["parking_lot"] }
 arc-swap = "1.7.1"
+rustc-hash = "2.1.1"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5"

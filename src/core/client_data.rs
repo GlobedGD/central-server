@@ -3,15 +3,23 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
-use parking_lot::Mutex;
+use parking_lot::{Mutex, MutexGuard};
+use rustc_hash::FxHashSet;
+use server_shared::data::PlayerIconData;
 
-use crate::{auth::ClientAccountData, rooms::ClientRoomHandle};
+use crate::{
+    auth::ClientAccountData,
+    rooms::{ClientRoomHandle, Room},
+};
 
 #[derive(Default)]
 pub struct ClientData {
     account_data: OnceLock<ClientAccountData>,
+    icons: Mutex<PlayerIconData>,
     room: Mutex<Option<ClientRoomHandle>>,
     session_id: AtomicU64,
+
+    pub friend_list: Mutex<FxHashSet<i32>>,
 }
 
 impl ClientData {
@@ -47,6 +55,15 @@ impl ClientData {
         self.room.lock().as_ref().map(|r| r.id)
     }
 
+    pub fn lock_room(&self) -> MutexGuard<'_, Option<ClientRoomHandle>> {
+        self.room.lock()
+    }
+
+    /// Returns whether the client is connected to the given room
+    pub fn is_in_room(&self, room: &Room) -> bool {
+        self.room.lock().as_ref().is_some_and(|r| r.id == room.id)
+    }
+
     /// Sets the room the client is in.
     pub fn set_room(&self, room: ClientRoomHandle) {
         let mut lock = self.room.lock();
@@ -67,5 +84,19 @@ impl ClientData {
     /// Sets the client's session ID, returning the previous session ID.
     pub fn set_session_id(&self, session_id: u64) -> u64 {
         self.session_id.swap(session_id, Ordering::Relaxed)
+    }
+
+    pub fn set_icons(&self, icons: PlayerIconData) {
+        let mut lock = self.icons.lock();
+        *lock = icons;
+    }
+
+    pub fn icons(&self) -> PlayerIconData {
+        *self.icons.lock()
+    }
+
+    pub fn set_friends(&self, friends: FxHashSet<i32>) {
+        let mut lock = self.friend_list.lock();
+        *lock = friends;
     }
 }

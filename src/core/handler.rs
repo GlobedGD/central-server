@@ -15,7 +15,11 @@ use qunet::{
         client::ClientState,
     },
 };
-use server_shared::{data::GameServerData, encoding::DataDecodeError};
+use rand::{rng, seq::IteratorRandom};
+use server_shared::{
+    data::{GameServerData, PlayerIconData},
+    encoding::{DataDecodeError, heapless_str_from_reader},
+};
 use state::TypeMap;
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
@@ -127,36 +131,36 @@ impl AppHandler for ConnectionHandler {
             LoginUToken(message) => {
                 let account_id = message.get_account_id();
                 let token = message.get_token()?.to_str()?;
-                self.handle_login_attempt(client, LoginKind::UserToken(account_id, token)).await
+                let icons = PlayerIconData::from_reader(message.get_icons()?)?;
+
+                self.handle_login_attempt(client, LoginKind::UserToken(account_id, token), icons).await
             },
 
             LoginArgon(message) => {
                 let account_id = message.get_account_id();
                 let token = message.get_token()?.to_str()?;
-                self.handle_login_attempt(client, LoginKind::Argon(account_id, token)).await
+                let icons = PlayerIconData::from_reader(message.get_icons()?)?;
+
+                self.handle_login_attempt(client, LoginKind::Argon(account_id, token), icons).await
             },
 
             LoginPlain(message) => {
                 let data = message.get_data()?;
                 let account_id = data.get_account_id();
                 let user_id = data.get_user_id();
-                let username = data.get_username()?.to_str()?;
-
-                let username = heapless::String::from_str(username)
-                        .map_err(|_| DataDecodeError::UsernameTooLong)?;
+                let username = heapless_str_from_reader(data.get_username()?)?;
+                let icons = PlayerIconData::from_reader(message.get_icons()?)?;
 
                 self.handle_login_attempt(client, LoginKind::Plain(ClientAccountData {
                     account_id, user_id, username
-                })).await
+                }), icons).await
             },
 
             UpdateOwnData(message) => {
-                let icons = message.get_icons()?;
+                let icons = PlayerIconData::from_reader(message.get_icons()?)?;
+                client.set_icons(icons);
 
-                if_auth(client, || {
-                    // TODO
-                    Ok(())
-                })
+                Ok(())
             },
 
             CreateRoom(message) => {
@@ -175,6 +179,12 @@ impl AppHandler for ConnectionHandler {
                 unpacked_data.reset(); // free up memory
 
                 self.handle_leave_room(client).await
+            },
+
+            CheckRoomState(_message) => {
+                unpacked_data.reset(); // free up memory
+
+                self.handle_check_room_state(client).await
             },
 
             JoinSession(message) => {
@@ -207,17 +217,6 @@ impl AppHandler for ConnectionHandler {
 fn must_auth(client: &ClientState<ConnectionHandler>) -> HandlerResult<()> {
     if client.data().authorized() {
         Ok(())
-    } else {
-        Err(HandlerError::Unauthorized)
-    }
-}
-
-fn if_auth<R, F: FnOnce() -> Result<R, HandlerError>>(
-    client: &ClientState<ConnectionHandler>,
-    f: F,
-) -> Result<R, HandlerError> {
-    if client.data().authorized() {
-        f()
     } else {
         Err(HandlerError::Unauthorized)
     }
@@ -311,6 +310,7 @@ impl ConnectionHandler {
         &self,
         client: &Arc<ClientState<Self>>,
         kind: LoginKind<'_>,
+        icons: PlayerIconData,
     ) -> HandlerResult<()> {
         let auth = self.module::<AuthModule>();
 
@@ -323,6 +323,7 @@ impl ConnectionHandler {
         match auth.handle_login(kind).await {
             AuthVerdict::Success(data) => {
                 self.on_login_success(client, data).await?;
+                client.set_icons(icons);
             }
 
             AuthVerdict::Failed(reason) => {
@@ -438,36 +439,25 @@ impl ConnectionHandler {
     }
 
     async fn send_room_data(&self, client: &ClientStateHandle, room: &Room) -> HandlerResult<()> {
-        let player_count = room.player_count();
+        const BYTES_PER_PLAYER: usize = 64; // TODO
 
-        // choose appropriate buffer size based on player count
-        let cap = if player_count <= 25 {
-            1500
-        } else if player_count <= 65 {
-            4096
-        } else {
-            65536
-        };
+        let players = self.pick_players_to_send(client, room);
 
-        const PLAYER_CAP: usize = 250;
+        // TODO: that 64 is uncertain
+        let cap = 64 + BYTES_PER_PLAYER * players.len();
 
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut room_state = msg.reborrow().init_room_state();
             room_state.set_room_id(room.id);
             room_state.set_name(&room.name);
 
-            let players = room.get_players();
-            let player_count = players.len().min(PLAYER_CAP);
-
             // TODO: like globed, we should prioritize friends, and when the list is greater than the cap, show random players
-            let mut players_ser = room_state.init_players(player_count as u32);
+            let mut players_ser = room_state.init_players(players.len() as u32);
 
-            for (i, (_, player)) in players.iter().take(player_count).enumerate() {
+            for (i, player) in players.iter().enumerate() {
                 let mut player_ser = players_ser.reborrow().get(i as u32);
-                player_ser.set_cube(0); // TODO: use player's cube
-
-                let mut level = player_ser.reborrow().init_level();
-                level.set_session_id(0); // TODO: use player's session ID
+                player_ser.set_cube(player.icons().cube);
+                player_ser.reborrow().set_session(player.session_id());
 
                 let mut accdata = player_ser.reborrow().init_account_data();
                 let account = player.account_data().expect("client must have account data");
@@ -480,6 +470,45 @@ impl ConnectionHandler {
         client.send_data_bufkind(buf);
 
         Ok(())
+    }
+
+    fn pick_players_to_send(
+        &self,
+        client: &ClientStateHandle,
+        room: &Room,
+    ) -> Vec<ClientStateHandle> {
+        const PLAYER_CAP: usize = 250;
+
+        let players = room.get_players();
+
+        let mut out = Vec::with_capacity(players.len().min(PLAYER_CAP));
+
+        // always push friends first
+        let friend_list = client.friend_list.lock();
+        for friend in friend_list.iter() {
+            if let Some(friend) = self.all_clients.get(friend).and_then(|x| x.upgrade())
+                && let Some(room_id) = friend.get_room_id()
+                && room_id == room.id
+            {
+                out.push(friend);
+            }
+
+            if out.len() == PLAYER_CAP {
+                break;
+            }
+        }
+
+        debug_assert!(out.len() <= PLAYER_CAP);
+
+        // put a bunch of dummy values into the vec, as `choose_multiple_fill` requires a mutable slice of initialized Arcs
+        out.resize(out.capacity(), client.clone());
+        let begin = out.len();
+        let written =
+            players.iter().map(|x| x.1.clone()).choose_multiple_fill(&mut rng(), &mut out[begin..]);
+
+        out.truncate(begin + written);
+
+        out
     }
 
     async fn handle_join_session(
@@ -526,6 +555,17 @@ impl ConnectionHandler {
 
         let prev_id = client.set_session_id(0);
         self.handle_session_change(client, prev_id).await?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::await_holding_lock)]
+    async fn handle_check_room_state(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        if let Some(room) = &*client.lock_room() {
+            self.send_room_data(client, room).await?;
+        }
 
         Ok(())
     }
