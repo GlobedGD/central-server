@@ -28,6 +28,10 @@ impl SessionId {
     pub fn as_u64(&self) -> u64 {
         self.0
     }
+
+    pub fn is_zero(&self) -> bool {
+        self.0 == 0
+    }
 }
 
 impl From<u64> for SessionId {

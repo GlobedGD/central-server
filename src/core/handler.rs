@@ -1,7 +1,6 @@
 use std::{
     borrow::Cow,
     net::SocketAddr,
-    str::FromStr,
     sync::{Arc, OnceLock, Weak},
     time::Duration,
 };
@@ -16,9 +15,10 @@ use qunet::{
     },
 };
 use rand::{rng, seq::IteratorRandom};
+use rustc_hash::FxHashSet;
 use server_shared::{
     data::{GameServerData, PlayerIconData},
-    encoding::{DataDecodeError, heapless_str_from_reader},
+    encoding::heapless_str_from_reader,
 };
 use state::TypeMap;
 use thiserror::Error;
@@ -44,6 +44,7 @@ pub struct ConnectionHandler {
     config: Config,
 
     all_clients: DashMap<i32, WeakClientStateHandle>,
+    player_counts: DashMap<u64, usize>,
 }
 
 pub type ClientStateHandle = Arc<ClientState<ConnectionHandler>>;
@@ -107,6 +108,7 @@ impl AppHandler for ConnectionHandler {
 
         if account_id != 0 {
             self.all_clients.remove(&account_id);
+            let _ = self.handle_leave_session(client).await;
         }
     }
 
@@ -157,10 +159,36 @@ impl AppHandler for ConnectionHandler {
             },
 
             UpdateOwnData(message) => {
-                let icons = PlayerIconData::from_reader(message.get_icons()?)?;
-                client.set_icons(icons);
+                if message.has_icons() {
+                    let icons = PlayerIconData::from_reader(message.get_icons()?)?;
+                    client.set_icons(icons);
+                }
+
+                if message.has_friend_list() {
+                    let mut fl = FxHashSet::default();
+
+                    let friend_list = message.get_friend_list()?;
+                    for friend in friend_list.iter().take(500) { // limit to 500 friends to prevent evil stuff
+                        fl.insert(friend);
+                    }
+
+                    client.set_friends(fl);
+                }
 
                 Ok(())
+            },
+
+            RequestPlayerCounts(message) => {
+                let levels = message.get_levels()?;
+                let mut out_levels = heapless::Vec::<u64, 128>::new();
+
+                for level in levels.iter().take(out_levels.capacity()) {
+                    let _ = out_levels.push(level);
+                }
+
+                unpacked_data.reset(); // free up memory
+
+                self.handle_request_player_counts(client, &out_levels).await
             },
 
             CreateRoom(message) => {
@@ -230,6 +258,7 @@ impl ConnectionHandler {
             game_server_manager: GameServerManager::new(),
             config,
             all_clients: DashMap::new(),
+            player_counts: DashMap::new(),
         }
     }
 
@@ -403,6 +432,43 @@ impl ConnectionHandler {
         Ok(())
     }
 
+    async fn handle_request_player_counts(
+        &self,
+        client: &ClientStateHandle,
+        sessions: &[u64],
+    ) -> HandlerResult<()> {
+        let mut out_vals = heapless::Vec::<(u64, u16), 128>::new();
+        debug_assert!(sessions.len() <= out_vals.capacity());
+
+        for &sess in sessions {
+            if let Some(count) = self.player_counts.get(&sess) {
+                let _ = out_vals.push((sess, *count as u16));
+                // TODO: maybe do a zero optimization?
+            }
+        }
+
+        // TODO: benchmark size properly
+        let cap = 32 + out_vals.len() * 12;
+
+        let buf = data::encode_message_heap!(self, cap, msg => {
+            let mut player_counts = msg.reborrow().init_player_counts();
+
+            let mut level_ids = player_counts.reborrow().init_level_ids(out_vals.len() as u32);
+            for (n, (level_id, _)) in out_vals.iter().enumerate() {
+                level_ids.set(n as u32, *level_id);
+            }
+
+            let mut counts = player_counts.reborrow().init_counts(out_vals.len() as u32);
+            for (n, (_, count)) in out_vals.iter().enumerate() {
+                counts.set(n as u32, *count);
+            }
+        })?;
+
+        client.send_data_bufkind(buf);
+
+        Ok(())
+    }
+
     async fn handle_create_room(
         &self,
         client: &ClientStateHandle,
@@ -531,7 +597,7 @@ impl ConnectionHandler {
         }
 
         let prev_id = client.set_session_id(session_id.as_u64());
-        self.handle_session_change(client, prev_id).await?;
+        self.handle_session_change(client, SessionId::from(prev_id), session_id).await?;
 
         Ok(())
     }
@@ -554,7 +620,7 @@ impl ConnectionHandler {
         must_auth(client)?;
 
         let prev_id = client.set_session_id(0);
-        self.handle_session_change(client, prev_id).await?;
+        self.handle_session_change(client, SessionId::from(prev_id), SessionId(0)).await?;
 
         Ok(())
     }
@@ -573,14 +639,24 @@ impl ConnectionHandler {
     // internal, called when the session ID changes to update player counts in rooms and stuff
     async fn handle_session_change(
         &self,
-        client: &ClientStateHandle,
-        prev_session_id: u64,
+        _client: &ClientStateHandle,
+        prev_session: SessionId,
+        new_session: SessionId,
     ) -> HandlerResult<()> {
-        if prev_session_id == 0 {
-            return Ok(());
+        if !prev_session.is_zero() {
+            debug_assert!(self.player_counts.contains_key(&prev_session.as_u64()));
+
+            self.player_counts.remove_if_mut(&prev_session.as_u64(), |_, count| {
+                *count -= 1;
+                *count == 0
+            });
         }
 
-        // TODO: update player counts in the room
+        if !new_session.is_zero() {
+            let mut ent = self.player_counts.entry(new_session.as_u64()).or_insert(0);
+            *ent += 1;
+        }
+
         Ok(())
     }
 }
