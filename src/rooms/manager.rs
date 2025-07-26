@@ -127,7 +127,7 @@ pub struct RoomManager {
 impl RoomManager {
     pub(super) fn new() -> Self {
         let global_room =
-            Arc::new(Room::new(0, 0, "Global".try_into().unwrap(), RoomSettings::default()));
+            Arc::new(Room::new(0, 0, "Global Room".try_into().unwrap(), RoomSettings::default()));
 
         Self {
             rooms: DashMap::new(),

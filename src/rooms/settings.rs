@@ -33,4 +33,17 @@ impl RoomSettings {
             deathlink: reader.get_deathlink(),
         })
     }
+
+    pub fn encode(&self, mut writer: room_settings::Builder<'_>) {
+        writer.set_player_limit(self.player_limit);
+        writer.set_faster_reset(self.faster_reset);
+        writer.set_hidden(self.hidden);
+        writer.set_private_invites(self.private_invites);
+        writer.set_is_follower(self.is_follower);
+        writer.set_level_integrity(self.level_integrity);
+
+        writer.set_collision(self.collision);
+        writer.set_two_player_mode(self.two_player_mode);
+        writer.set_deathlink(self.deathlink);
+    }
 }

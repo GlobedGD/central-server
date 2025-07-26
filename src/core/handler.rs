@@ -496,6 +496,8 @@ impl ConnectionHandler {
     async fn handle_join_room(&self, client: &ClientStateHandle, id: u32) -> HandlerResult<()> {
         must_auth(client)?;
 
+        // TODO: yeah idk should send an error message instead of joining the global room on failure
+
         let rooms = self.module::<RoomModule>();
         let new_room = rooms.join_room_by_id(client, id);
 
@@ -508,19 +510,20 @@ impl ConnectionHandler {
     }
 
     async fn send_room_data(&self, client: &ClientStateHandle, room: &Room) -> HandlerResult<()> {
-        const BYTES_PER_PLAYER: usize = 64; // TODO
+        const BYTES_PER_PLAYER: usize = 64; // TODO (high)
 
         let players = self.pick_players_to_send(client, room);
 
-        // TODO: that 64 is uncertain
-        let cap = 64 + BYTES_PER_PLAYER * players.len();
+        // TODO (high): that number is uncertain
+        let cap = 96 + BYTES_PER_PLAYER * players.len();
 
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut room_state = msg.reborrow().init_room_state();
             room_state.set_room_id(room.id);
+            room_state.set_room_owner(room.owner);
             room_state.set_room_name(&room.name);
+            room.settings.encode(room_state.reborrow().init_settings());
 
-            // TODO: like globed, we should prioritize friends, and when the list is greater than the cap, show random players
             let mut players_ser = room_state.init_players(players.len() as u32);
 
             for (i, player) in players.iter().enumerate() {
