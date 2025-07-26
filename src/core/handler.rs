@@ -33,7 +33,7 @@ use crate::{
         game_server::{GameServerHandler, GameServerManager},
         module::ServerModule,
     },
-    rooms::{Room, RoomModule, SessionId},
+    rooms::{Room, RoomModule, RoomSettings, SessionId},
 };
 
 pub struct ConnectionHandler {
@@ -193,7 +193,9 @@ impl AppHandler for ConnectionHandler {
 
             CreateRoom(message) => {
                 let name = message.get_name()?.to_str()?;
-                self.handle_create_room(client, name).await
+                let settings = RoomSettings::from_reader(message.get_settings()?)?;
+
+                self.handle_create_room(client, name, settings).await
             },
 
             JoinRoom(message) => {
@@ -473,12 +475,13 @@ impl ConnectionHandler {
         &self,
         client: &ClientStateHandle,
         name: &str,
+        settings: RoomSettings,
     ) -> HandlerResult<()> {
         must_auth(client)?;
 
         let rooms = self.module::<RoomModule>();
 
-        match rooms.create_room_and_join(name, client) {
+        match rooms.create_room_and_join(name, settings, client) {
             Ok(new_room) => {
                 self.send_room_data(client, &new_room).await?;
             }
@@ -515,7 +518,7 @@ impl ConnectionHandler {
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut room_state = msg.reborrow().init_room_state();
             room_state.set_room_id(room.id);
-            room_state.set_name(&room.name);
+            room_state.set_room_name(&room.name);
 
             // TODO: like globed, we should prioritize friends, and when the list is greater than the cap, show random players
             let mut players_ser = room_state.init_players(players.len() as u32);

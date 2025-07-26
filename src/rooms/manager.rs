@@ -12,20 +12,24 @@ use dashmap::DashMap;
 use slab::Slab;
 use thiserror::Error;
 
-use crate::core::handler::ClientStateHandle;
+use crate::{core::handler::ClientStateHandle, rooms::RoomSettings};
 
 pub struct Room {
     pub id: u32,
     pub name: heapless::String<64>,
+    pub owner: i32,
+    pub settings: RoomSettings,
     players: ArcSwap<Slab<ClientStateHandle>>,
     player_count: AtomicUsize,
 }
 
 impl Room {
-    fn new(id: u32, name: heapless::String<64>) -> Self {
+    fn new(id: u32, owner: i32, name: heapless::String<64>, settings: RoomSettings) -> Self {
         Self {
             id,
+            owner,
             name,
+            settings,
             players: ArcSwap::new(Arc::new(Slab::new())),
             player_count: AtomicUsize::new(0),
         }
@@ -76,6 +80,10 @@ impl Room {
         self.player_count.load(Ordering::Relaxed)
     }
 
+    pub fn is_follower(&self) -> bool {
+        self.settings.is_follower
+    }
+
     pub fn with_players<F, R>(&self, f: F) -> R
     where
         F: FnOnce(usize, slab::Iter<'_, ClientStateHandle>) -> R,
@@ -118,7 +126,8 @@ pub struct RoomManager {
 
 impl RoomManager {
     pub(super) fn new() -> Self {
-        let global_room = Arc::new(Room::new(0, "Global".try_into().unwrap()));
+        let global_room =
+            Arc::new(Room::new(0, 0, "Global".try_into().unwrap(), RoomSettings::default()));
 
         Self {
             rooms: DashMap::new(),
@@ -138,7 +147,12 @@ impl RoomManager {
         self.get(id).unwrap_or_else(|| self.global().clone())
     }
 
-    pub(super) fn create_room(&self, name: &str) -> Result<Arc<Room>, RoomCreationError> {
+    pub(super) fn create_room(
+        &self,
+        name: &str,
+        owner: i32,
+        settings: RoomSettings,
+    ) -> Result<Arc<Room>, RoomCreationError> {
         let name = heapless::String::from_str(name).map_err(|_| RoomCreationError::NameTooLong)?;
 
         loop {
@@ -146,7 +160,7 @@ impl RoomManager {
 
             match self.rooms.entry(id) {
                 dashmap::Entry::Vacant(entry) => {
-                    let room = Arc::new(Room::new(id, name));
+                    let room = Arc::new(Room::new(id, owner, name, settings));
                     entry.insert(room.clone());
 
                     break Ok(room);

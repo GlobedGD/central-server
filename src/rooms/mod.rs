@@ -4,9 +4,11 @@ use crate::core::{handler::ClientStateHandle, module::ServerModule};
 
 mod manager;
 mod session_id;
+mod settings;
 pub use manager::{ClientRoomHandle, Room, RoomCreationError, RoomManager};
 use serde::{Deserialize, Serialize};
 pub use session_id::SessionId;
+pub use settings::RoomSettings;
 
 pub struct RoomModule {
     manager: RoomManager,
@@ -29,18 +31,24 @@ impl RoomModule {
         self.manager.clear();
     }
 
-    pub fn create_room(&self, name: &str) -> Result<Arc<Room>, RoomCreationError> {
-        self.manager.create_room(name)
+    pub fn create_room(
+        &self,
+        name: &str,
+        owner: i32,
+        settings: RoomSettings,
+    ) -> Result<Arc<Room>, RoomCreationError> {
+        self.manager.create_room(name, owner, settings)
     }
 
     pub fn create_room_and_join(
         &self,
         name: &str,
+        settings: RoomSettings,
         client: &ClientStateHandle,
     ) -> Result<Arc<Room>, RoomCreationError> {
         debug_assert!(client.authorized());
 
-        let room = self.create_room(name)?;
+        let room = self.create_room(name, client.account_id(), settings)?;
         Ok(self.join_room(client, room))
     }
 
