@@ -107,7 +107,11 @@ impl AppHandler for ConnectionHandler {
         let account_id = client.account_id();
 
         if account_id != 0 {
-            self.all_clients.remove(&account_id);
+            // remove only if the client has not been replaced by a newer login
+            self.all_clients.remove_if(&account_id, |_, current_client| {
+                Weak::ptr_eq(current_client, &Arc::downgrade(client))
+            });
+
             let _ = self.handle_leave_session(client).await;
         }
     }

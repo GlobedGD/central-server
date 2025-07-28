@@ -1,6 +1,6 @@
 use std::sync::{
     OnceLock,
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
 use parking_lot::{Mutex, MutexGuard};
@@ -18,12 +18,17 @@ pub struct ClientData {
     icons: Mutex<PlayerIconData>,
     room: Mutex<Option<ClientRoomHandle>>,
     session_id: AtomicU64,
+    deauthorized: AtomicBool,
 
     pub friend_list: Mutex<FxHashSet<i32>>,
 }
 
 impl ClientData {
     pub fn account_data(&self) -> Option<&ClientAccountData> {
+        if self.deauthorized.load(Ordering::Relaxed) {
+            return None;
+        }
+
         self.account_data.get()
     }
 
@@ -48,6 +53,11 @@ impl ClientData {
     /// Returns the username if the client is authorized, otherwise returns an empty string.
     pub fn username(&self) -> &str {
         self.account_data().map_or("", |x| x.username.as_str())
+    }
+
+    /// Deauthorizes the client
+    pub fn deauthorize(&self) {
+        self.deauthorized.store(true, Ordering::Relaxed);
     }
 
     /// Returns the room the client is in, or None if not in a room.
