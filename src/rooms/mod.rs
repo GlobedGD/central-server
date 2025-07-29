@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::core::{handler::ClientStateHandle, module::ServerModule};
+use crate::core::{data, handler::ClientStateHandle, module::ServerModule};
 
 mod manager;
 mod session_id;
@@ -49,23 +49,50 @@ impl RoomModule {
         debug_assert!(client.authorized());
 
         let room = self.create_room(name, client.account_id(), settings)?;
-        Ok(self.join_room(client, room))
+        self.force_join_room(client, room.clone());
+        Ok(room)
     }
 
-    /// clears the client's current room and sets it to the given room (or global if not found)
-    pub fn join_room_by_id(&self, client: &ClientStateHandle, room_id: u32) -> Arc<Room> {
-        let room = self.get_room_or_global(room_id);
-        self.join_room(client, room)
+    pub fn join_room_by_id(
+        &self,
+        client: &ClientStateHandle,
+        room_id: u32,
+        passcode: u32,
+    ) -> Result<Arc<Room>, data::RoomJoinFailedReason> {
+        let room = self.get_room(room_id).ok_or(data::RoomJoinFailedReason::NotFound)?;
+        self.join_room(client, room.clone(), passcode)?;
+
+        Ok(room)
     }
 
-    /// clears the client's current room and sets it to the given room
-    pub fn join_room(&self, client: &ClientStateHandle, room: Arc<Room>) -> Arc<Room> {
+    /// clears the client's current room and sets it to the given room,
+    /// verifying if the passcode is correct and if the room is not full
+    pub fn join_room(
+        &self,
+        client: &ClientStateHandle,
+        room: Arc<Room>,
+        passcode: u32,
+    ) -> Result<(), data::RoomJoinFailedReason> {
+        debug_assert!(client.authorized());
+
+        if room.has_player(client) {
+            return Ok(());
+        }
+
+        let handle = room.add_player(client.clone(), passcode)?;
+        self.clear_client_room(client);
+        client.set_room(handle);
+
+        Ok(())
+    }
+
+    /// clears the client's current room and sets it to the given room,
+    /// does not validate if the room is full or if the passcode is invalid unlike `join_room`
+    pub fn force_join_room(&self, client: &ClientStateHandle, room: Arc<Room>) {
         debug_assert!(client.authorized());
 
         self.clear_client_room(client);
-        self.set_client_room(client, room.clone());
-
-        room
+        self.set_client_room(client, room);
     }
 
     /// clears the client's room, does nothing if room is None
@@ -80,7 +107,7 @@ impl RoomModule {
     fn set_client_room(&self, client: &ClientStateHandle, room: Arc<Room>) {
         debug_assert!(client.authorized());
 
-        let handle = room.add_player(client.clone());
+        let handle = room.force_add_player(client.clone());
         client.set_room(handle);
     }
 }

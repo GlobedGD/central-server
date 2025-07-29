@@ -12,7 +12,10 @@ use dashmap::DashMap;
 use slab::Slab;
 use thiserror::Error;
 
-use crate::{core::handler::ClientStateHandle, rooms::RoomSettings};
+use crate::{
+    core::{data::RoomJoinFailedReason, handler::ClientStateHandle},
+    rooms::RoomSettings,
+};
 
 pub struct Room {
     pub id: u32,
@@ -51,8 +54,9 @@ impl Room {
         self.player_count.fetch_sub(1, Ordering::Relaxed);
     }
 
-    pub(super) fn add_player(self: Arc<Room>, player: ClientStateHandle) -> ClientRoomHandle {
+    pub(super) fn force_add_player(self: Arc<Room>, player: ClientStateHandle) -> ClientRoomHandle {
         let mut key = 0;
+
         self.players.rcu(|players| {
             let mut players = (**players).clone();
             key = players.insert(player.clone());
@@ -65,6 +69,19 @@ impl Room {
             room: self.clone(),
             room_key: key,
         }
+    }
+
+    pub(super) fn add_player(
+        self: Arc<Room>,
+        player: ClientStateHandle,
+        passcode: u32,
+    ) -> Result<ClientRoomHandle, RoomJoinFailedReason> {
+        // todo
+        todo!("check if the room is full and if the passcode is correct");
+    }
+
+    pub fn has_player(&self, player: &ClientStateHandle) -> bool {
+        player.get_room_id().is_some_and(|id| id == self.id)
     }
 
     fn clear(&self) {

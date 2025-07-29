@@ -115,7 +115,7 @@ impl AppHandler for ConnectionHandler {
                 Weak::ptr_eq(current_client, &Arc::downgrade(client))
             });
 
-            let _ = self.handle_leave_session(client).await;
+            let _ = self.handle_leave_session(client);
         }
     }
 
@@ -195,46 +195,48 @@ impl AppHandler for ConnectionHandler {
 
                 unpacked_data.reset(); // free up memory
 
-                self.handle_request_player_counts(client, &out_levels).await
+                self.handle_request_player_counts(client, &out_levels)
             },
 
             CreateRoom(message) => {
                 let name = message.get_name()?.to_str()?;
                 let settings = RoomSettings::from_reader(message.get_settings()?)?;
 
-                self.handle_create_room(client, name, settings).await
+                self.handle_create_room(client, name, settings)
             },
 
             JoinRoom(message) => {
                 let id = message.get_room_id();
+                let passcode = message.get_passcode();
+
                 unpacked_data.reset(); // free up memory
 
-                self.handle_join_room(client, id).await
+                self.handle_join_room(client, id, passcode)
             },
 
             LeaveRoom(_message) => {
                 unpacked_data.reset(); // free up memory
 
-                self.handle_leave_room(client).await
+                self.handle_leave_room(client)
             },
 
             CheckRoomState(_message) => {
                 unpacked_data.reset(); // free up memory
 
-                self.handle_check_room_state(client).await
+                self.handle_check_room_state(client)
             },
 
             JoinSession(message) => {
                 let id = message.get_session_id();
                 unpacked_data.reset(); // free up memory
 
-                self.handle_join_session(client, id).await
+                self.handle_join_session(client, id)
             },
 
             LeaveSession(_message) => {
                 unpacked_data.reset(); // free up memory
 
-                self.handle_leave_session(client).await
+                self.handle_leave_session(client)
             },
         });
 
@@ -360,18 +362,20 @@ impl ConnectionHandler {
 
         match auth.handle_login(kind).await {
             AuthVerdict::Success(data) => {
-                self.on_login_success(client, data).await?;
+                self.on_login_success(client, data)?;
                 client.set_icons(icons);
             }
 
             AuthVerdict::Failed(reason) => {
-                self.on_login_failed(client, reason).await?;
+                self.on_login_failed(client, reason)?;
             }
 
             AuthVerdict::LoginRequired => {
-                let buf = data::encode_message!(self, 128, msg => {
+                let argon_url = auth.argon_url().unwrap();
+
+                let buf = data::encode_message_heap!(self, 32 + argon_url.len(), msg => {
                     let mut login_req = msg.reborrow().init_login_required();
-                    login_req.set_argon_url(auth.argon_url().unwrap());
+                    login_req.set_argon_url(argon_url);
                 })?;
 
                 client.send_data_bufkind(buf);
@@ -381,7 +385,7 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    async fn on_login_success(
+    fn on_login_success(
         &self,
         client: &ClientStateHandle,
         data: ClientAccountData,
@@ -404,7 +408,7 @@ impl ConnectionHandler {
         client.set_account_data(data);
 
         // put the user in the global room
-        rooms.join_room(client, rooms.global_room());
+        rooms.force_join_room(client, rooms.global_room());
 
         // send login success message with all servers
         let servers = self.game_server_manager.servers();
@@ -427,12 +431,12 @@ impl ConnectionHandler {
     }
 
     #[inline]
-    async fn on_login_failed(
+    fn on_login_failed(
         &self,
         client: &ClientState<Self>,
         reason: data::LoginFailedReason,
     ) -> HandlerResult<()> {
-        let buf = data::encode_message!(self, 128, msg => {
+        let buf = data::encode_message!(self, 32, msg => {
             let mut login_failed = msg.reborrow().init_login_failed();
             login_failed.set_reason(reason);
         })?;
@@ -441,7 +445,7 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    async fn handle_request_player_counts(
+    fn handle_request_player_counts(
         &self,
         client: &ClientStateHandle,
         sessions: &[u64],
@@ -478,7 +482,7 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    async fn handle_create_room(
+    fn handle_create_room(
         &self,
         client: &ClientStateHandle,
         name: &str,
@@ -490,7 +494,7 @@ impl ConnectionHandler {
 
         match rooms.create_room_and_join(name, settings, client) {
             Ok(new_room) => {
-                self.send_room_data(client, &new_room).await?;
+                self.send_room_data(client, &new_room)?;
             }
 
             // TODO: send error to the user
@@ -500,23 +504,41 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    async fn handle_join_room(&self, client: &ClientStateHandle, id: u32) -> HandlerResult<()> {
+    fn handle_join_room(
+        &self,
+        client: &ClientStateHandle,
+        id: u32,
+        passcode: u32,
+    ) -> HandlerResult<()> {
         must_auth(client)?;
 
-        // TODO: yeah idk should send an error message instead of joining the global room on failure
-
         let rooms = self.module::<RoomModule>();
-        let new_room = rooms.join_room_by_id(client, id);
-
-        self.send_room_data(client, &new_room).await
+        match rooms.join_room_by_id(client, id, passcode) {
+            Ok(new_room) => self.send_room_data(client, &new_room),
+            Err(reason) => self.send_room_join_failed(client, reason),
+        }
     }
 
-    async fn handle_leave_room(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+    fn handle_leave_room(&self, client: &ClientStateHandle) -> HandlerResult<()> {
         // Leaving a room is the same as joining the global room
-        self.handle_join_room(client, 0).await
+        self.handle_join_room(client, 0, 0)
     }
 
-    async fn send_room_data(&self, client: &ClientStateHandle, room: &Room) -> HandlerResult<()> {
+    fn send_room_join_failed(
+        &self,
+        client: &ClientStateHandle,
+        reason: data::RoomJoinFailedReason,
+    ) -> HandlerResult<()> {
+        let buf = data::encode_message!(self, 32, msg => {
+            let mut join_failed = msg.reborrow().init_room_join_failed();
+            join_failed.set_reason(reason);
+        })?;
+
+        client.send_data_bufkind(buf);
+        Ok(())
+    }
+
+    fn send_room_data(&self, client: &ClientStateHandle, room: &Room) -> HandlerResult<()> {
         const BYTES_PER_PLAYER: usize = 64; // TODO (high)
 
         let players = self.pick_players_to_send(client, room);
@@ -596,7 +618,7 @@ impl ConnectionHandler {
         out
     }
 
-    async fn handle_join_session(
+    fn handle_join_session(
         &self,
         client: &ClientStateHandle,
         session_id: u64,
@@ -608,25 +630,25 @@ impl ConnectionHandler {
         // do some validation
 
         if client.get_room_id().is_none_or(|x| x != session_id.room_id()) {
-            return self.on_join_failed(client, data::JoinSessionFailedReason::InvalidRoom).await;
+            return self.on_join_failed(client, data::JoinSessionFailedReason::InvalidRoom);
         }
 
         if !self.game_server_manager.has_server(session_id.server_id()) {
-            return self.on_join_failed(client, data::JoinSessionFailedReason::InvalidServer).await;
+            return self.on_join_failed(client, data::JoinSessionFailedReason::InvalidServer);
         }
 
         let prev_id = client.set_session_id(session_id.as_u64());
-        self.handle_session_change(client, SessionId::from(prev_id), session_id).await?;
+        self.handle_session_change(client, SessionId::from(prev_id), session_id)?;
 
         Ok(())
     }
 
-    async fn on_join_failed(
+    fn on_join_failed(
         &self,
         client: &ClientStateHandle,
         reason: data::JoinSessionFailedReason,
     ) -> HandlerResult<()> {
-        let buf = data::encode_message!(self, 128, msg => {
+        let buf = data::encode_message!(self, 32, msg => {
             let mut join_failed = msg.reborrow().init_join_failed();
             join_failed.set_reason(reason);
         })?;
@@ -635,28 +657,28 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    async fn handle_leave_session(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+    fn handle_leave_session(&self, client: &ClientStateHandle) -> HandlerResult<()> {
         must_auth(client)?;
 
         let prev_id = client.set_session_id(0);
-        self.handle_session_change(client, SessionId::from(prev_id), SessionId(0)).await?;
+        self.handle_session_change(client, SessionId::from(prev_id), SessionId(0))?;
 
         Ok(())
     }
 
     #[allow(clippy::await_holding_lock)]
-    async fn handle_check_room_state(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+    fn handle_check_room_state(&self, client: &ClientStateHandle) -> HandlerResult<()> {
         must_auth(client)?;
 
         if let Some(room) = &*client.lock_room() {
-            self.send_room_data(client, room).await?;
+            self.send_room_data(client, room)?;
         }
 
         Ok(())
     }
 
     // internal, called when the session ID changes to update player counts in rooms and stuff
-    async fn handle_session_change(
+    fn handle_session_change(
         &self,
         _client: &ClientStateHandle,
         prev_session: SessionId,
