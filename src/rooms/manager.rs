@@ -84,6 +84,10 @@ impl Room {
         self.settings.is_follower
     }
 
+    pub fn is_global(&self) -> bool {
+        self.id == 0
+    }
+
     pub fn with_players<F, R>(&self, f: F) -> R
     where
         F: FnOnce(usize, slab::Iter<'_, ClientStateHandle>) -> R,

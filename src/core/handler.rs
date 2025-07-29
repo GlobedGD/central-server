@@ -553,11 +553,17 @@ impl ConnectionHandler {
         client: &ClientStateHandle,
         room: &Room,
     ) -> Vec<ClientStateHandle> {
-        const PLAYER_CAP: usize = 250;
+        const PLAYER_CAP: usize = 100;
 
         let players = room.get_players();
 
-        let mut out = Vec::with_capacity(players.len().min(PLAYER_CAP));
+        let player_count = if room.is_global() {
+            players.len().min(PLAYER_CAP)
+        } else {
+            players.len()
+        };
+
+        let mut out = Vec::with_capacity(player_count);
 
         // always push friends first
         let friend_list = client.friend_list.lock();
@@ -569,15 +575,15 @@ impl ConnectionHandler {
                 out.push(friend);
             }
 
-            if out.len() == PLAYER_CAP {
+            if out.len() == player_count {
                 break;
             }
         }
 
-        debug_assert!(out.len() <= PLAYER_CAP);
+        debug_assert!(out.len() <= player_count);
 
         // put a bunch of dummy values into the vec, as `choose_multiple_fill` requires a mutable slice of initialized Arcs
-        out.resize(out.capacity(), client.clone());
+        out.resize(player_count, client.clone());
         let begin = out.len();
         let written =
             players.iter().map(|x| x.1.clone()).choose_multiple_fill(&mut rng(), &mut out[begin..]);
