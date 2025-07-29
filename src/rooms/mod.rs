@@ -27,8 +27,8 @@ impl RoomModule {
         self.manager.global()
     }
 
-    pub fn cleanup_everything(&self) {
-        self.manager.clear();
+    pub async fn cleanup_everything(&self) {
+        self.manager.clear().await;
     }
 
     pub fn create_room(
@@ -40,7 +40,7 @@ impl RoomModule {
         self.manager.create_room(name, owner, settings)
     }
 
-    pub fn create_room_and_join(
+    pub async fn create_room_and_join(
         &self,
         name: &str,
         settings: RoomSettings,
@@ -49,25 +49,32 @@ impl RoomModule {
         debug_assert!(client.authorized());
 
         let room = self.create_room(name, client.account_id(), settings)?;
-        self.force_join_room(client, room.clone());
+        self.force_join_room(client, room.clone()).await;
         Ok(room)
     }
 
-    pub fn join_room_by_id(
+    pub async fn join_room_by_id(
         &self,
         client: &ClientStateHandle,
         room_id: u32,
         passcode: u32,
     ) -> Result<Arc<Room>, data::RoomJoinFailedReason> {
-        let room = self.get_room(room_id).ok_or(data::RoomJoinFailedReason::NotFound)?;
-        self.join_room(client, room.clone(), passcode)?;
+        let room = if room_id == 0 {
+            let room = self.global_room();
+            self.force_join_room(client, room.clone()).await;
+            room
+        } else {
+            let room = self.get_room(room_id).ok_or(data::RoomJoinFailedReason::NotFound)?;
+            self.join_room(client, room.clone(), passcode).await?;
+            room
+        };
 
         Ok(room)
     }
 
     /// clears the client's current room and sets it to the given room,
     /// verifying if the passcode is correct and if the room is not full
-    pub fn join_room(
+    pub async fn join_room(
         &self,
         client: &ClientStateHandle,
         room: Arc<Room>,
@@ -79,8 +86,8 @@ impl RoomModule {
             return Ok(());
         }
 
-        let handle = room.add_player(client.clone(), passcode)?;
-        self.clear_client_room(client);
+        let handle = room.add_player(client.clone(), passcode).await?;
+        self.clear_client_room(client).await;
         client.set_room(handle);
 
         Ok(())
@@ -88,26 +95,25 @@ impl RoomModule {
 
     /// clears the client's current room and sets it to the given room,
     /// does not validate if the room is full or if the passcode is invalid unlike `join_room`
-    pub fn force_join_room(&self, client: &ClientStateHandle, room: Arc<Room>) {
+    pub async fn force_join_room(&self, client: &ClientStateHandle, room: Arc<Room>) {
         debug_assert!(client.authorized());
 
-        self.clear_client_room(client);
-        self.set_client_room(client, room);
+        self.clear_client_room(client).await;
+        self.set_client_room(client, room).await;
     }
 
     /// clears the client's room, does nothing if room is None
-    fn clear_client_room(&self, client: &ClientStateHandle) {
+    async fn clear_client_room(&self, client: &ClientStateHandle) {
         debug_assert!(client.authorized());
 
-        // clear the room, this returns the room handle which will remove the player from the room when dropped
-        client.clear_room();
+        client.clear_room().await;
     }
 
     /// sets the client's room, does not handle leaving the previous room
-    fn set_client_room(&self, client: &ClientStateHandle, room: Arc<Room>) {
+    async fn set_client_room(&self, client: &ClientStateHandle, room: Arc<Room>) {
         debug_assert!(client.authorized());
 
-        let handle = room.force_add_player(client.clone());
+        let handle = room.force_add_player(client.clone()).await;
         client.set_room(handle);
     }
 }

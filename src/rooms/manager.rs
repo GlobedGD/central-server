@@ -7,7 +7,6 @@ use std::{
     },
 };
 
-use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use slab::Slab;
 use thiserror::Error;
@@ -17,12 +16,17 @@ use crate::{
     rooms::RoomSettings,
 };
 
+enum RoomPlayerStore {
+    Sync(parking_lot::RwLock<Slab<ClientStateHandle>>),
+    Async(tokio::sync::RwLock<Slab<ClientStateHandle>>),
+}
+
 pub struct Room {
     pub id: u32,
     pub name: heapless::String<64>,
     pub owner: i32,
     pub settings: RoomSettings,
-    players: ArcSwap<Slab<ClientStateHandle>>,
+    players: RoomPlayerStore,
     player_count: AtomicUsize,
 }
 
@@ -33,64 +37,130 @@ impl Room {
             owner,
             name,
             settings,
-            players: ArcSwap::new(Arc::new(Slab::new())),
+            // global room use async locks because there is way more contention
+            players: if id == 0 {
+                RoomPlayerStore::Async(tokio::sync::RwLock::new(Slab::new()))
+            } else {
+                RoomPlayerStore::Sync(parking_lot::RwLock::new(Slab::new()))
+            },
+
             player_count: AtomicUsize::new(0),
         }
     }
 
-    fn remove_player(&self, key: usize) {
-        self.players.rcu(|players| {
-            let mut players = (**players).clone();
-
-            // sometimes, this function can run already after the server has shut down and the room has been cleared
-            // this would result in a panic inside a dtor, which is quite bad, so let's check just to be sure
-            if players.contains(key) {
-                players.remove(key);
+    #[inline]
+    async fn run_write_action<R>(
+        &self,
+        action: impl FnOnce(&mut Slab<ClientStateHandle>) -> R,
+    ) -> R {
+        match &self.players {
+            RoomPlayerStore::Sync(lock) => {
+                let mut players = lock.write();
+                action(&mut players)
             }
 
-            players
-        });
-
-        self.player_count.fetch_sub(1, Ordering::Relaxed);
-    }
-
-    pub(super) fn force_add_player(self: Arc<Room>, player: ClientStateHandle) -> ClientRoomHandle {
-        let mut key = 0;
-
-        self.players.rcu(|players| {
-            let mut players = (**players).clone();
-            key = players.insert(player.clone());
-            players
-        });
-
-        self.player_count.fetch_add(1, Ordering::Relaxed);
-
-        ClientRoomHandle {
-            room: self.clone(),
-            room_key: key,
+            RoomPlayerStore::Async(lock) => {
+                let mut players = lock.write().await;
+                action(&mut players)
+            }
         }
     }
 
-    pub(super) fn add_player(
+    #[inline]
+    async fn run_read_action<R>(&self, action: impl FnOnce(&Slab<ClientStateHandle>) -> R) -> R {
+        match &self.players {
+            RoomPlayerStore::Sync(lock) => {
+                let players = lock.read();
+                action(&players)
+            }
+
+            RoomPlayerStore::Async(lock) => {
+                let players = lock.read().await;
+                action(&players)
+            }
+        }
+    }
+
+    async fn remove_player(&self, key: usize) {
+        self.run_write_action(|players| {
+            if players.contains(key) {
+                players.remove(key);
+                self.player_count.store(players.len(), Ordering::Relaxed);
+            }
+        })
+        .await;
+    }
+
+    fn make_handle(self: &Arc<Self>, key: usize) -> ClientRoomHandle {
+        ClientRoomHandle {
+            room: self.clone(),
+            room_key: key,
+            #[cfg(debug_assertions)]
+            disposed: false,
+        }
+    }
+
+    pub(super) async fn force_add_player(
+        self: Arc<Room>,
+        player: ClientStateHandle,
+    ) -> ClientRoomHandle {
+        let key = self.run_write_action(|players| players.insert(player)).await;
+
+        self.player_count.fetch_add(1, Ordering::Relaxed);
+
+        self.make_handle(key)
+    }
+
+    pub(super) async fn add_player(
         self: Arc<Room>,
         player: ClientStateHandle,
         passcode: u32,
     ) -> Result<ClientRoomHandle, RoomJoinFailedReason> {
-        // todo
-        todo!("check if the room is full and if the passcode is correct");
+        // TODO: passcode
+
+        if self.settings.player_limit != 0 {
+            // check if the room is full
+            let mut player_count = self.player_count.load(Ordering::Relaxed);
+
+            loop {
+                if player_count >= self.settings.player_limit as usize {
+                    return Err(RoomJoinFailedReason::Full);
+                }
+
+                match self.player_count.compare_exchange_weak(
+                    player_count,
+                    player_count + 1,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => break,
+                    Err(current_count) => {
+                        player_count = current_count;
+                        continue; // retry
+                    }
+                }
+            }
+        } else {
+            // no limit, just increment the count
+            self.player_count.fetch_add(1, Ordering::Relaxed);
+        }
+
+        let key = self.run_write_action(|players| players.insert(player)).await;
+
+        Ok(self.make_handle(key))
     }
 
     pub fn has_player(&self, player: &ClientStateHandle) -> bool {
         player.get_room_id().is_some_and(|id| id == self.id)
     }
 
-    fn clear(&self) {
-        self.players.store(Arc::new(Slab::new()));
-        self.player_count.store(0, Ordering::Relaxed);
-    }
+    async fn clear(&self) {
+        self.run_write_action(|players| {
+            *players = Slab::new();
+        })
+        .await;
 
-    pub fn get_players(&self) -> Arc<Slab<ClientStateHandle>> {
-        self.players.load_full()
+        self.player_count.store(0, Ordering::Relaxed);
     }
 
     pub fn player_count(&self) -> usize {
@@ -105,18 +175,50 @@ impl Room {
         self.id == 0
     }
 
-    pub fn with_players<F, R>(&self, f: F) -> R
+    pub async fn with_players<F, R>(&self, f: F) -> R
     where
         F: FnOnce(usize, slab::Iter<'_, ClientStateHandle>) -> R,
     {
-        let players = self.players.load_full();
-        f(players.len(), players.iter())
+        self.run_read_action(|players| f(players.len(), players.iter())).await
     }
 }
 
 pub struct ClientRoomHandle {
     room: Arc<Room>,
     room_key: usize,
+    #[cfg(debug_assertions)]
+    disposed: bool,
+}
+
+impl ClientRoomHandle {
+    pub async fn dispose(&mut self) {
+        self.room.remove_player(self.room_key).await;
+
+        #[cfg(debug_assertions)]
+        {
+            if self.disposed {
+                tracing::error!(
+                    "ClientRoomHandle::dispose() called multiple times for the same handle (room = {}, key = {})",
+                    self.room.id,
+                    self.room_key
+                );
+            }
+            self.disposed = true;
+        }
+    }
+}
+
+#[cfg(debug_assertions)]
+impl Drop for ClientRoomHandle {
+    fn drop(&mut self) {
+        if !self.disposed {
+            tracing::error!(
+                "ClientRoomHandle dropped without calling dispose() (room = {}, key = {})",
+                self.room.id,
+                self.room_key
+            );
+        }
+    }
 }
 
 impl Deref for ClientRoomHandle {
@@ -124,13 +226,6 @@ impl Deref for ClientRoomHandle {
 
     fn deref(&self) -> &Self::Target {
         &self.room
-    }
-}
-
-// Remove the player from the player list inside the room once the handle is dropped
-impl Drop for ClientRoomHandle {
-    fn drop(&mut self) {
-        self.room.remove_player(self.room_key);
     }
 }
 
@@ -195,13 +290,13 @@ impl RoomManager {
     }
 
     /// Deletes all rooms from the manager. The global room remains intact, but all players are removed from it.
-    pub(super) fn clear(&self) {
+    pub(super) async fn clear(&self) {
         for room in self.rooms.iter() {
-            room.clear();
+            room.clear().await;
         }
 
         self.rooms.clear();
 
-        self.global_room.clear();
+        self.global_room.clear().await;
     }
 }

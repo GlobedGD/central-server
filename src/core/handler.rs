@@ -107,7 +107,7 @@ impl AppHandler for ConnectionHandler {
         let account_id = client.account_id();
 
         debug!("[{} @ {}] client disconnected", account_id, client.address);
-        client.deauthorize();
+        client.deauthorize().await;
 
         if account_id != 0 {
             // remove only if the client has not been replaced by a newer login
@@ -123,7 +123,7 @@ impl AppHandler for ConnectionHandler {
         // by this point all connections have been dropped, we should clean up any resources
         info!("Cleaning up resources");
         let rooms = self.module::<RoomModule>();
-        rooms.cleanup_everything();
+        rooms.cleanup_everything().await;
 
         Ok(())
     }
@@ -202,7 +202,7 @@ impl AppHandler for ConnectionHandler {
                 let name = message.get_name()?.to_str()?;
                 let settings = RoomSettings::from_reader(message.get_settings()?)?;
 
-                self.handle_create_room(client, name, settings)
+                self.handle_create_room(client, name, settings).await
             },
 
             JoinRoom(message) => {
@@ -211,19 +211,19 @@ impl AppHandler for ConnectionHandler {
 
                 unpacked_data.reset(); // free up memory
 
-                self.handle_join_room(client, id, passcode)
+                self.handle_join_room(client, id, passcode).await
             },
 
             LeaveRoom(_message) => {
                 unpacked_data.reset(); // free up memory
 
-                self.handle_leave_room(client)
+                self.handle_leave_room(client).await
             },
 
             CheckRoomState(_message) => {
                 unpacked_data.reset(); // free up memory
 
-                self.handle_check_room_state(client)
+                self.handle_check_room_state(client).await
             },
 
             JoinSession(message) => {
@@ -362,7 +362,7 @@ impl ConnectionHandler {
 
         match auth.handle_login(kind).await {
             AuthVerdict::Success(data) => {
-                self.on_login_success(client, data)?;
+                self.on_login_success(client, data).await?;
                 client.set_icons(icons);
             }
 
@@ -385,7 +385,7 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    fn on_login_success(
+    async fn on_login_success(
         &self,
         client: &ClientStateHandle,
         data: ClientAccountData,
@@ -408,7 +408,7 @@ impl ConnectionHandler {
         client.set_account_data(data);
 
         // put the user in the global room
-        rooms.force_join_room(client, rooms.global_room());
+        rooms.force_join_room(client, rooms.global_room()).await;
 
         // send login success message with all servers
         let servers = self.game_server_manager.servers();
@@ -482,7 +482,7 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    fn handle_create_room(
+    async fn handle_create_room(
         &self,
         client: &ClientStateHandle,
         name: &str,
@@ -492,9 +492,9 @@ impl ConnectionHandler {
 
         let rooms = self.module::<RoomModule>();
 
-        match rooms.create_room_and_join(name, settings, client) {
+        match rooms.create_room_and_join(name, settings, client).await {
             Ok(new_room) => {
-                self.send_room_data(client, &new_room)?;
+                self.send_room_data(client, &new_room).await?;
             }
 
             // TODO: send error to the user
@@ -504,7 +504,7 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    fn handle_join_room(
+    async fn handle_join_room(
         &self,
         client: &ClientStateHandle,
         id: u32,
@@ -513,15 +513,15 @@ impl ConnectionHandler {
         must_auth(client)?;
 
         let rooms = self.module::<RoomModule>();
-        match rooms.join_room_by_id(client, id, passcode) {
-            Ok(new_room) => self.send_room_data(client, &new_room),
+        match rooms.join_room_by_id(client, id, passcode).await {
+            Ok(new_room) => self.send_room_data(client, &new_room).await,
             Err(reason) => self.send_room_join_failed(client, reason),
         }
     }
 
-    fn handle_leave_room(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+    async fn handle_leave_room(&self, client: &ClientStateHandle) -> HandlerResult<()> {
         // Leaving a room is the same as joining the global room
-        self.handle_join_room(client, 0, 0)
+        self.handle_join_room(client, 0, 0).await
     }
 
     fn send_room_join_failed(
@@ -538,10 +538,10 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    fn send_room_data(&self, client: &ClientStateHandle, room: &Room) -> HandlerResult<()> {
+    async fn send_room_data(&self, client: &ClientStateHandle, room: &Room) -> HandlerResult<()> {
         const BYTES_PER_PLAYER: usize = 64; // TODO (high)
 
-        let players = self.pick_players_to_send(client, room);
+        let players = self.pick_players_to_send(client, room).await;
 
         // TODO (high): that number is uncertain
         let cap = 96 + BYTES_PER_PLAYER * players.len();
@@ -573,35 +573,35 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    fn pick_players_to_send(
+    async fn pick_players_to_send(
         &self,
         client: &ClientStateHandle,
         room: &Room,
     ) -> Vec<ClientStateHandle> {
         const PLAYER_CAP: usize = 100;
 
-        let players = room.get_players();
-
         let player_count = if room.is_global() {
-            players.len().min(PLAYER_CAP)
+            room.player_count().min(PLAYER_CAP)
         } else {
-            players.len()
+            room.player_count()
         };
 
         let mut out = Vec::with_capacity(player_count);
 
         // always push friends first
-        let friend_list = client.friend_list.lock();
-        for friend in friend_list.iter() {
-            if let Some(friend) = self.all_clients.get(friend).and_then(|x| x.upgrade())
-                && let Some(room_id) = friend.get_room_id()
-                && room_id == room.id
-            {
-                out.push(friend);
-            }
+        {
+            let friend_list = client.friend_list.lock();
+            for friend in friend_list.iter() {
+                if let Some(friend) = self.all_clients.get(friend).and_then(|x| x.upgrade())
+                    && let Some(room_id) = friend.get_room_id()
+                    && room_id == room.id
+                {
+                    out.push(friend);
+                }
 
-            if out.len() == player_count {
-                break;
+                if out.len() == player_count {
+                    break;
+                }
             }
         }
 
@@ -610,8 +610,12 @@ impl ConnectionHandler {
         // put a bunch of dummy values into the vec, as `choose_multiple_fill` requires a mutable slice of initialized Arcs
         out.resize(player_count, client.clone());
         let begin = out.len();
-        let written =
-            players.iter().map(|x| x.1.clone()).choose_multiple_fill(&mut rng(), &mut out[begin..]);
+
+        let written = room
+            .with_players(|_, players| {
+                players.map(|x| x.1.clone()).choose_multiple_fill(&mut rng(), &mut out[begin..])
+            })
+            .await;
 
         out.truncate(begin + written);
 
@@ -667,11 +671,11 @@ impl ConnectionHandler {
     }
 
     #[allow(clippy::await_holding_lock)]
-    fn handle_check_room_state(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+    async fn handle_check_room_state(&self, client: &ClientStateHandle) -> HandlerResult<()> {
         must_auth(client)?;
 
         if let Some(room) = &*client.lock_room() {
-            self.send_room_data(client, room)?;
+            self.send_room_data(client, room).await?;
         }
 
         Ok(())

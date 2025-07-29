@@ -56,9 +56,9 @@ impl ClientData {
     }
 
     /// Deauthorizes the client, clearing the room
-    pub fn deauthorize(&self) {
+    pub async fn deauthorize(&self) {
         self.deauthorized.store(true, Ordering::Relaxed);
-        self.room.lock().take();
+        self.clear_room().await;
     }
 
     /// Returns the room the client is in, or None if not in a room.
@@ -81,10 +81,14 @@ impl ClientData {
         *lock = Some(room);
     }
 
-    /// Clears the room the client is in, returning the room.
+    /// Clears the room the client is in, removing them from it.
     /// Note: this puts a client into an invalid state, you should immediately call `set_room` with another room afterwards.
-    pub fn clear_room(&self) -> Option<ClientRoomHandle> {
-        self.room.lock().take()
+    pub async fn clear_room(&self) {
+        let handle = self.room.lock().take();
+
+        if let Some(mut handle) = handle {
+            handle.dispose().await;
+        }
     }
 
     /// Returns client's current session (aka which level they are in)
