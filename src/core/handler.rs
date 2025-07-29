@@ -106,6 +106,9 @@ impl AppHandler for ConnectionHandler {
     async fn on_client_disconnect(&self, _server: &QunetServer<Self>, client: &ClientStateHandle) {
         let account_id = client.account_id();
 
+        debug!("[{} @ {}] client disconnected", account_id, client.address);
+        client.deauthorize();
+
         if account_id != 0 {
             // remove only if the client has not been replaced by a newer login
             self.all_clients.remove_if(&account_id, |_, current_client| {

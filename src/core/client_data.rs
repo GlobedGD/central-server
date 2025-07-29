@@ -55,9 +55,10 @@ impl ClientData {
         self.account_data().map_or("", |x| x.username.as_str())
     }
 
-    /// Deauthorizes the client
+    /// Deauthorizes the client, clearing the room
     pub fn deauthorize(&self) {
         self.deauthorized.store(true, Ordering::Relaxed);
+        self.room.lock().take();
     }
 
     /// Returns the room the client is in, or None if not in a room.
