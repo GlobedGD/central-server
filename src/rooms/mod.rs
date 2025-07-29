@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use crate::core::{data, handler::ClientStateHandle, module::ServerModule};
+use crate::core::{
+    data, game_server::GameServerManager, handler::ClientStateHandle, module::ServerModule,
+};
 
 mod manager;
 mod session_id;
@@ -51,27 +53,29 @@ impl RoomModule {
         passcode: u32,
         settings: RoomSettings,
         client: &ClientStateHandle,
+        gsm: &GameServerManager,
     ) -> Result<Arc<Room>, RoomCreationError> {
         debug_assert!(client.authorized());
 
         let room = self.create_room(name, passcode, client.account_id(), settings)?;
-        self.force_join_room(client, room.clone()).await;
+        self.force_join_room(client, gsm, room.clone()).await;
         Ok(room)
     }
 
     pub async fn join_room_by_id(
         &self,
         client: &ClientStateHandle,
+        gsm: &GameServerManager,
         room_id: u32,
         passcode: u32,
     ) -> Result<Arc<Room>, data::RoomJoinFailedReason> {
         let room = if room_id == 0 {
             let room = self.global_room();
-            self.force_join_room(client, room.clone()).await;
+            self.force_join_room(client, gsm, room.clone()).await;
             room
         } else {
             let room = self.get_room(room_id).ok_or(data::RoomJoinFailedReason::NotFound)?;
-            self.join_room(client, room.clone(), passcode).await?;
+            self.join_room(client, gsm, room.clone(), passcode).await?;
             room
         };
 
@@ -83,6 +87,7 @@ impl RoomModule {
     pub async fn join_room(
         &self,
         client: &ClientStateHandle,
+        gsm: &GameServerManager,
         room: Arc<Room>,
         passcode: u32,
     ) -> Result<(), data::RoomJoinFailedReason> {
@@ -93,7 +98,7 @@ impl RoomModule {
         }
 
         let handle = room.add_player(client.clone(), passcode).await?;
-        self.clear_client_room(client).await;
+        self.clear_client_room(client, gsm).await;
         client.set_room(handle);
 
         Ok(())
@@ -101,21 +106,27 @@ impl RoomModule {
 
     /// clears the client's current room and sets it to the given room,
     /// does not validate if the room is full or if the passcode is invalid unlike `join_room`
-    pub async fn force_join_room(&self, client: &ClientStateHandle, room: Arc<Room>) {
+    pub async fn force_join_room(
+        &self,
+        client: &ClientStateHandle,
+        gsm: &GameServerManager,
+        room: Arc<Room>,
+    ) {
         debug_assert!(client.authorized());
 
-        self.clear_client_room(client).await;
+        self.clear_client_room(client, gsm).await;
         self.set_client_room(client, room).await;
     }
 
     /// clears the client's room, does nothing if room is None
-    async fn clear_client_room(&self, client: &ClientStateHandle) {
+    async fn clear_client_room(&self, client: &ClientStateHandle, gsm: &GameServerManager) {
         debug_assert!(client.authorized());
 
         if let Some(room) = client.clear_room().await {
             // if the room has no more players, remove it
             if room.player_count() == 0 {
                 self.manager.remove_room(room.id);
+                let _ = gsm.notify_room_deleted(room.settings.server_id, room.id).await;
             }
         }
     }

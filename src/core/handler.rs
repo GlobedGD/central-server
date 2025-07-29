@@ -434,7 +434,7 @@ impl ConnectionHandler {
         client.set_account_data(data);
 
         // put the user in the global room
-        rooms.force_join_room(client, rooms.global_room()).await;
+        rooms.force_join_room(client, &self.game_server_manager, rooms.global_room()).await;
 
         // send login success message with all servers
         let servers = self.game_server_manager.servers();
@@ -526,7 +526,10 @@ impl ConnectionHandler {
                 .send_room_create_failed(client, data::RoomCreateFailedReason::InvalidServer);
         }
 
-        let new_room = match rooms.create_room_and_join(name, passcode, settings, client).await {
+        let new_room = match rooms
+            .create_room_and_join(name, passcode, settings, client, &self.game_server_manager)
+            .await
+        {
             Ok(new_room) => new_room,
 
             // TODO: send error to the user
@@ -580,7 +583,7 @@ impl ConnectionHandler {
         must_auth(client)?;
 
         let rooms = self.module::<RoomModule>();
-        match rooms.join_room_by_id(client, id, passcode).await {
+        match rooms.join_room_by_id(client, &self.game_server_manager, id, passcode).await {
             Ok(new_room) => self.send_room_data(client, &new_room).await,
             Err(reason) => self.send_room_join_failed(client, reason),
         }

@@ -159,4 +159,27 @@ impl GameServerManager {
             req.tx.send(());
         }
     }
+
+    pub async fn notify_room_deleted(
+        &self,
+        server_id: u8,
+        room_id: u32,
+    ) -> Result<(), GameServerError> {
+        let servers = self.servers.load();
+        let server = servers
+            .iter()
+            .find(|s| s.data.id == server_id)
+            .ok_or(GameServerError::ServerNotFound)?;
+
+        let buf = data::encode_message_unsafe!(self, 32, msg => {
+            let mut room_deleted = msg.init_notify_room_deleted();
+            room_deleted.set_room_id(room_id);
+        })?;
+
+        server.qclient.send_data_bufkind(buf);
+
+        // we don't wait for an ack, that doesn't matter to us
+
+        Ok(())
+    }
 }
