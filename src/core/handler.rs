@@ -78,6 +78,15 @@ impl AppHandler for ConnectionHandler {
             .schedule(status_intv, |server| async move {
                 server.print_server_status();
                 // TODO: shrink server buffer pool here to reclaim memory?
+                info!(" - Authorized clients: {}", server.handler().all_clients.len());
+                info!(
+                    " - Active game sessions: {} (total players: {})",
+                    server.handler().player_counts.len(),
+                    server.handler().player_counts.iter().map(|mref| *mref.value()).sum::<usize>()
+                );
+
+                let rooms = server.handler().module::<RoomModule>();
+                info!(" - Room count: {}", rooms.get_room_count());
             })
             .await;
 

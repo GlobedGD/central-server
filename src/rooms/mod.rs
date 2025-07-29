@@ -31,6 +31,10 @@ impl RoomModule {
         self.manager.clear().await;
     }
 
+    pub fn get_room_count(&self) -> usize {
+        self.manager.room_count()
+    }
+
     pub fn create_room(
         &self,
         name: &str,
@@ -106,7 +110,12 @@ impl RoomModule {
     async fn clear_client_room(&self, client: &ClientStateHandle) {
         debug_assert!(client.authorized());
 
-        client.clear_room().await;
+        if let Some(room) = client.clear_room().await {
+            // if the room has no more players, remove it
+            if room.player_count() == 0 {
+                self.manager.remove_room(room.id);
+            }
+        }
     }
 
     /// sets the client's room, does not handle leaving the previous room

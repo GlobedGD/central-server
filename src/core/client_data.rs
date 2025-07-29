@@ -1,5 +1,5 @@
 use std::sync::{
-    OnceLock,
+    Arc, OnceLock,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
@@ -81,13 +81,15 @@ impl ClientData {
         *lock = Some(room);
     }
 
-    /// Clears the room the client is in, removing them from it.
+    /// Clears the room the client is in, removing them from it and returning the room.
     /// Note: this puts a client into an invalid state, you should immediately call `set_room` with another room afterwards.
-    pub async fn clear_room(&self) {
+    pub async fn clear_room(&self) -> Option<Arc<Room>> {
         let handle = self.room.lock().take();
 
         if let Some(mut handle) = handle {
-            handle.dispose().await;
+            Some(handle.dispose().await)
+        } else {
+            None
         }
     }
 

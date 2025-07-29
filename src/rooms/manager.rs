@@ -191,7 +191,7 @@ pub struct ClientRoomHandle {
 }
 
 impl ClientRoomHandle {
-    pub async fn dispose(&mut self) {
+    pub async fn dispose(&mut self) -> Arc<Room> {
         self.room.remove_player(self.room_key).await;
 
         #[cfg(debug_assertions)]
@@ -205,6 +205,8 @@ impl ClientRoomHandle {
             }
             self.disposed = true;
         }
+
+        self.room.clone()
     }
 }
 
@@ -251,6 +253,10 @@ impl RoomManager {
         }
     }
 
+    pub(super) fn room_count(&self) -> usize {
+        self.rooms.len()
+    }
+
     pub(super) fn get(&self, id: u32) -> Option<Arc<Room>> {
         self.rooms.get(&id).map(|r| r.clone())
     }
@@ -287,6 +293,10 @@ impl RoomManager {
                 }
             }
         }
+    }
+
+    pub(super) fn remove_room(&self, id: u32) -> Option<Arc<Room>> {
+        self.rooms.remove(&id).map(|entry| entry.1)
     }
 
     /// Deletes all rooms from the manager. The global room remains intact, but all players are removed from it.
