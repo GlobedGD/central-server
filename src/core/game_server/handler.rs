@@ -36,6 +36,8 @@ pub type ClientStateHandle = Arc<ClientState<GameServerHandler>>;
 enum HandlerError {
     #[error("failed to encode message: {0}")]
     Encoder(#[from] EncodeMessageError),
+    #[error("unauthorized client")]
+    Unauthorized,
 }
 
 type HandlerResult<T> = Result<T, HandlerError>;
@@ -144,6 +146,20 @@ impl GameServerHandler {
 
         self.main_server().handler().handle_game_server_disconnect(client.clone()).await;
     }
+
+    async fn handle_room_created_ack(
+        &self,
+        client: &ClientStateHandle,
+        room_id: u32,
+    ) -> HandlerResult<()> {
+        if !client.authorized() {
+            return Err(HandlerError::Unauthorized);
+        }
+
+        self.main_server().handler().handle_game_server_room_created(room_id).await;
+
+        Ok(())
+    }
 }
 
 impl AppHandler for GameServerHandler {
@@ -151,6 +167,7 @@ impl AppHandler for GameServerHandler {
 
     async fn on_launch(&self, server: QunetServerHandle<Self>) -> AppResult<()> {
         let _ = self.server.set(server.make_weak());
+        self.main_server().handler().notify_game_server_handler_started(server).await;
 
         debug!("Game server handler launched");
 
@@ -200,6 +217,12 @@ impl AppHandler for GameServerHandler {
 
                 self.handle_login(client, password, data).await
             },
+
+            RoomCreatedAck(message) => {
+                let room_id = message.get_room_id();
+
+                self.handle_room_created_ack(client, room_id).await
+            }
         });
 
         match result {

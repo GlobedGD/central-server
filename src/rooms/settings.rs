@@ -6,6 +6,7 @@ use crate::core::data::room_settings;
 // otherwise manually implement Default
 #[derive(Default)]
 pub struct RoomSettings {
+    pub server_id: u8,
     pub player_limit: u16,
     pub faster_reset: bool,
     pub hidden: bool,
@@ -21,6 +22,7 @@ pub struct RoomSettings {
 impl RoomSettings {
     pub fn from_reader(reader: room_settings::Reader<'_>) -> Result<Self, DataDecodeError> {
         Ok(Self {
+            server_id: reader.get_server_id(),
             player_limit: reader.get_player_limit(),
             faster_reset: reader.get_faster_reset(),
             hidden: reader.get_hidden(),
@@ -35,6 +37,7 @@ impl RoomSettings {
     }
 
     pub fn encode(&self, mut writer: room_settings::Builder<'_>) {
+        writer.set_server_id(self.server_id);
         writer.set_player_limit(self.player_limit);
         writer.set_faster_reset(self.faster_reset);
         writer.set_hidden(self.hidden);

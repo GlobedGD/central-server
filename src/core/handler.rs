@@ -33,7 +33,7 @@ use crate::{
         game_server::{GameServerHandler, GameServerManager},
         module::ServerModule,
     },
-    rooms::{Room, RoomModule, RoomSettings, SessionId},
+    rooms::{Room, RoomCreationError, RoomModule, RoomSettings, SessionId},
 };
 
 pub struct ConnectionHandler {
@@ -169,6 +169,8 @@ impl AppHandler for ConnectionHandler {
                 let username = heapless_str_from_reader(data.get_username()?)?;
                 let icons = PlayerIconData::from_reader(message.get_icons()?)?;
 
+                unpacked_data.reset(); // free up memory
+
                 self.handle_login_attempt(client, LoginKind::Plain(ClientAccountData {
                     account_id, user_id, username
                 }), icons).await
@@ -208,10 +210,13 @@ impl AppHandler for ConnectionHandler {
             },
 
             CreateRoom(message) => {
-                let name = message.get_name()?.to_str()?;
+                let name: heapless::String<64> = heapless_str_from_reader(message.get_name()?)?;
                 let settings = RoomSettings::from_reader(message.get_settings()?)?;
+                let passcode = message.get_passcode();
 
-                self.handle_create_room(client, name, settings).await
+                unpacked_data.reset(); // free up memory
+
+                self.handle_create_room(client, &name, passcode, settings).await
             },
 
             JoinRoom(message) => {
@@ -316,6 +321,13 @@ impl ConnectionHandler {
 
     // Handling of game servers.
 
+    pub async fn notify_game_server_handler_started(
+        &self,
+        server: QunetServerHandle<GameServerHandler>,
+    ) {
+        self.game_server_manager.set_server(server.make_weak());
+    }
+
     pub async fn handle_game_server_connect(
         &self,
         client: Arc<ClientState<GameServerHandler>>,
@@ -330,13 +342,18 @@ impl ConnectionHandler {
     pub async fn handle_game_server_disconnect(&self, client: Arc<ClientState<GameServerHandler>>) {
         if let Some(_srv) = self.game_server_manager.remove_server(&client) {
             // TODO: notify all clients about the change
-            // TODO: reset active session of clients that were connected to this server
+            // TODO: reset active session of clients that were connected to this server ?
         } else {
             error!(
                 "[{} @ {}] unknown game server disconnected!",
                 client.connection_id, client.address
             );
         }
+    }
+
+    #[inline]
+    pub async fn handle_game_server_room_created(&self, room_id: u32) {
+        self.game_server_manager.ack_room_created(room_id).await;
     }
 
     // Misc encoding stuff
@@ -495,21 +512,62 @@ impl ConnectionHandler {
         &self,
         client: &ClientStateHandle,
         name: &str,
+        passcode: u32,
         settings: RoomSettings,
     ) -> HandlerResult<()> {
         must_auth(client)?;
 
         let rooms = self.module::<RoomModule>();
+        let server_id = settings.server_id;
 
-        match rooms.create_room_and_join(name, settings, client).await {
-            Ok(new_room) => {
+        // check if the requested server is valid
+        if !self.game_server_manager.has_server(server_id) {
+            return self
+                .send_room_create_failed(client, data::RoomCreateFailedReason::InvalidServer);
+        }
+
+        let new_room = match rooms.create_room_and_join(name, passcode, settings, client).await {
+            Ok(new_room) => new_room,
+
+            // TODO: send error to the user
+            Err(RoomCreationError::NameTooLong) => {
+                return self
+                    .send_room_create_failed(client, data::RoomCreateFailedReason::InvalidName);
+            }
+        };
+
+        // notify the game server about the new room being created and wait for the response
+        match self.game_server_manager.notify_room_created(server_id, new_room.id, passcode).await {
+            Ok(()) => {
                 self.send_room_data(client, &new_room).await?;
             }
 
-            // TODO: send error to the user
-            Err(e) => warn!("failed to create room: {e}"),
+            Err(e) => {
+                // failed :(
+                warn!(
+                    "[{}] failed to create room on game server {}: {}",
+                    client.address, server_id, e
+                );
+
+                // leave back to the global room
+                return self.handle_leave_room(client).await;
+            }
         }
 
+        Ok(())
+    }
+
+    fn send_room_create_failed(
+        &self,
+        client: &ClientStateHandle,
+        reason: data::RoomCreateFailedReason,
+    ) -> HandlerResult<()> {
+        let buf = data::encode_message!(self, 32, msg => {
+            let mut create_failed = msg.reborrow().init_room_create_failed();
+            create_failed.set_reason(reason);
+        })?;
+
+        client.send_data_bufkind(buf);
         Ok(())
     }
 

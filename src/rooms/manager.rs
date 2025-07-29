@@ -24,6 +24,7 @@ enum RoomPlayerStore {
 pub struct Room {
     pub id: u32,
     pub name: heapless::String<64>,
+    pub passcode: u32,
     pub owner: i32,
     pub settings: RoomSettings,
     players: RoomPlayerStore,
@@ -31,12 +32,19 @@ pub struct Room {
 }
 
 impl Room {
-    fn new(id: u32, owner: i32, name: heapless::String<64>, settings: RoomSettings) -> Self {
+    fn new(
+        id: u32,
+        owner: i32,
+        name: heapless::String<64>,
+        passcode: u32,
+        settings: RoomSettings,
+    ) -> Self {
         Self {
             id,
             owner,
             name,
             settings,
+            passcode,
             // global room use async locks because there is way more contention
             players: if id == 0 {
                 RoomPlayerStore::Async(tokio::sync::RwLock::new(Slab::new()))
@@ -116,7 +124,9 @@ impl Room {
         player: ClientStateHandle,
         passcode: u32,
     ) -> Result<ClientRoomHandle, RoomJoinFailedReason> {
-        // TODO: passcode
+        if self.passcode != 0 && self.passcode != passcode {
+            return Err(RoomJoinFailedReason::InvalidPasscode);
+        }
 
         if self.settings.player_limit != 0 {
             // check if the room is full
@@ -244,8 +254,13 @@ pub struct RoomManager {
 
 impl RoomManager {
     pub(super) fn new() -> Self {
-        let global_room =
-            Arc::new(Room::new(0, 0, "Global Room".try_into().unwrap(), RoomSettings::default()));
+        let global_room = Arc::new(Room::new(
+            0,
+            0,
+            "Global Room".try_into().unwrap(),
+            0,
+            RoomSettings::default(),
+        ));
 
         Self {
             rooms: DashMap::new(),
@@ -272,6 +287,7 @@ impl RoomManager {
     pub(super) fn create_room(
         &self,
         name: &str,
+        passcode: u32,
         owner: i32,
         settings: RoomSettings,
     ) -> Result<Arc<Room>, RoomCreationError> {
@@ -282,7 +298,7 @@ impl RoomManager {
 
             match self.rooms.entry(id) {
                 dashmap::Entry::Vacant(entry) => {
-                    let room = Arc::new(Room::new(id, owner, name, settings));
+                    let room = Arc::new(Room::new(id, owner, name, passcode, settings));
                     entry.insert(room.clone());
 
                     break Ok(room);

@@ -38,21 +38,23 @@ impl RoomModule {
     pub fn create_room(
         &self,
         name: &str,
+        passcode: u32,
         owner: i32,
         settings: RoomSettings,
     ) -> Result<Arc<Room>, RoomCreationError> {
-        self.manager.create_room(name, owner, settings)
+        self.manager.create_room(name, passcode, owner, settings)
     }
 
     pub async fn create_room_and_join(
         &self,
         name: &str,
+        passcode: u32,
         settings: RoomSettings,
         client: &ClientStateHandle,
     ) -> Result<Arc<Room>, RoomCreationError> {
         debug_assert!(client.authorized());
 
-        let room = self.create_room(name, client.account_id(), settings)?;
+        let room = self.create_room(name, passcode, client.account_id(), settings)?;
         self.force_join_room(client, room.clone()).await;
         Ok(room)
     }
