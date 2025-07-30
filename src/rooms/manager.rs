@@ -12,6 +12,7 @@ use dashmap::DashMap;
 use parking_lot::{RawRwLock, RwLock, lock_api::RwLockReadGuard};
 use slab::Slab;
 use thiserror::Error;
+use tracing::error;
 
 use crate::{
     core::{data::RoomJoinFailedReason, handler::ClientStateHandle},
@@ -369,22 +370,14 @@ impl RoomManager {
 
     #[allow(clippy::mutable_key_type)] // this is okay, because we use room ID as the secondary key, which is immutable
     fn do_remove_from_sorted(&self, room: &Arc<Room>, sorted: &mut BTreeSet<(usize, Arc<Room>)>) {
-        let mut iter = 0;
+        let kpc = room.key_player_count.load(Ordering::Acquire);
 
-        while iter < 128 {
-            let kpc = room.key_player_count.load(Ordering::Acquire);
-
-            if sorted.remove(&(kpc, room.clone())) {
-                return;
-            }
-
-            iter += 1;
+        if !sorted.remove(&(kpc, room.clone())) {
+            error!(
+                "internal inconsistency: key ({}, {}) couldn't be found in the sorted rooms set",
+                kpc, room.id
+            );
         }
-
-        panic!(
-            "internal inconsistency: room {} couldn't be found in the sorted rooms set",
-            room.id
-        );
     }
 }
 
