@@ -1,6 +1,6 @@
 use std::sync::{
     Arc, OnceLock,
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering},
 };
 
 use parking_lot::{Mutex, MutexGuard};
@@ -15,6 +15,7 @@ use crate::{
 #[derive(Default)]
 pub struct ClientData {
     account_data: OnceLock<ClientAccountData>,
+    account_id: AtomicI32, // redundant, for faster access
     icons: Mutex<PlayerIconData>,
     room: Mutex<Option<ClientRoomHandle>>,
     session_id: AtomicU64,
@@ -33,7 +34,14 @@ impl ClientData {
     }
 
     pub fn set_account_data(&self, data: ClientAccountData) -> bool {
-        self.account_data.set(data).is_ok()
+        let account_id = data.account_id;
+
+        if self.account_data.set(data).is_ok() {
+            self.account_id.store(account_id, Ordering::Relaxed);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn authorized(&self) -> bool {
@@ -42,7 +50,7 @@ impl ClientData {
 
     /// Returns the account ID if the client is authorized, otherwise returns 0.
     pub fn account_id(&self) -> i32 {
-        self.account_data().map(|x| x.account_id).unwrap_or(0)
+        self.account_id.load(Ordering::Relaxed)
     }
 
     /// Returns the account ID if the client is authorized, otherwise returns 0.
