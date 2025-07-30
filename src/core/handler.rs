@@ -145,8 +145,6 @@ impl AppHandler for ConnectionHandler {
         client: &ClientStateHandle,
         data: MsgData<'_>,
     ) {
-        info!("Received {} bytes from client {}", data.len(), client.address);
-
         let result = decode_message_match!(self, data, unpacked_data, {
             LoginUToken(message) => {
                 let account_id = message.get_account_id();
@@ -664,7 +662,7 @@ impl ConnectionHandler {
             room.player_count()
         };
 
-        let mut out = Vec::with_capacity(player_count);
+        let mut out = Vec::with_capacity(player_count + 2); // +2 to decrease the chance of reallocation
 
         // always push friends first
         {
@@ -685,13 +683,18 @@ impl ConnectionHandler {
 
         debug_assert!(out.len() <= player_count);
 
+        let begin = out.len();
+
         // put a bunch of dummy values into the vec, as `choose_multiple_fill` requires a mutable slice of initialized Arcs
         out.resize(player_count, client.clone());
-        let begin = out.len();
+        let account_id = client.account_id();
 
         let written = room
             .with_players(|_, players| {
-                players.map(|x| x.1.clone()).choose_multiple_fill(&mut rng(), &mut out[begin..])
+                players
+                    .map(|x| x.1.clone())
+                    .filter(|x| x.account_id() != account_id)
+                    .choose_multiple_fill(&mut rng(), &mut out[begin..])
             })
             .await;
 
