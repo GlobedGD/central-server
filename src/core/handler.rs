@@ -242,6 +242,12 @@ impl AppHandler for ConnectionHandler {
                 self.handle_check_room_state(client).await
             },
 
+            RequestRoomList(_message) => {
+                unpacked_data.reset(); // free up memory
+
+                self.handle_request_room_list(client)
+            },
+
             JoinSession(message) => {
                 let id = message.get_session_id();
                 unpacked_data.reset(); // free up memory
@@ -749,6 +755,47 @@ impl ConnectionHandler {
         if let Some(room) = &*client.lock_room() {
             self.send_room_data(client, room).await?;
         }
+
+        Ok(())
+    }
+
+    fn handle_request_room_list(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let rooms = self.module::<RoomModule>();
+
+        // TODO: filtering
+        // TODO: pagination
+
+        let sorted = rooms.get_top_rooms(0, 100);
+        self.send_room_list(client, &sorted)?;
+
+        Ok(())
+    }
+
+    fn send_room_list(&self, client: &ClientStateHandle, rooms: &[Arc<Room>]) -> HandlerResult<()> {
+        const BYTES_PER_ROOM: usize = 96; // TODO (high)
+
+        // TODO:
+        let cap = 32 + BYTES_PER_ROOM * rooms.len();
+
+        let buf = data::encode_message_heap!(self, cap, msg => {
+            let room_list = msg.reborrow().init_room_list();
+            let mut enc_rooms = room_list.init_rooms(rooms.len() as u32);
+
+            for (i, room) in rooms.iter().enumerate() {
+                let mut room_ser = enc_rooms.reborrow().get(i as u32);
+                room_ser.set_room_id(room.id);
+                room_ser.set_room_name(&room.name);
+                room_ser.set_player_count(room.player_count() as u32);
+                room_ser.set_has_password(room.has_password());
+                // TODO
+                // room_ser.set_room_owner(room.owner);
+                room.settings.encode(room_ser.reborrow().init_settings());
+            }
+        })?;
+
+        client.send_data_bufkind(buf);
 
         Ok(())
     }

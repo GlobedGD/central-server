@@ -90,15 +90,13 @@ impl RoomModule {
         room: Arc<Room>,
         passcode: u32,
     ) -> Result<(), data::RoomJoinFailedReason> {
-        debug_assert!(client.authorized());
-
         if room.has_player(client) {
             return Ok(());
         }
 
         let handle = room.add_player(client.clone(), passcode).await?;
-        self.clear_client_room(client, gsm).await;
-        client.set_room(handle);
+        self.clear_client_room(client, gsm).await; // leave after adding to the new room, since it can fail
+        self.set_client_room(client, handle).await;
 
         Ok(())
     }
@@ -111,10 +109,14 @@ impl RoomModule {
         gsm: &GameServerManager,
         room: Arc<Room>,
     ) {
-        debug_assert!(client.authorized());
+        self.clear_client_room(client, gsm).await; // leave before adding to the new room, since it cannot fail
+        let handle = room.force_add_player(client.clone()).await;
+        self.set_client_room(client, handle).await;
+    }
 
-        self.clear_client_room(client, gsm).await;
-        self.set_client_room(client, room).await;
+    pub fn get_top_rooms(&self, skip: usize, count: usize) -> Vec<Arc<Room>> {
+        let sorted = self.manager.lock_sorted();
+        sorted.iter().rev().skip(skip).take(count).map(|x| x.1.clone()).collect()
     }
 
     pub async fn cleanup_player(&self, client: &ClientStateHandle, gsm: &GameServerManager) {
@@ -127,19 +129,29 @@ impl RoomModule {
 
         if let Some(room) = client.clear_room().await {
             // if the room has no more players, remove it
-            if room.player_count() == 0 && !room.is_global() {
-                self.manager.remove_room(room.id);
-                let _ = gsm.notify_room_deleted(room.settings.server_id, room.id).await;
+            if !room.is_global() {
+                let player_count = room.player_count();
+
+                if player_count == 0 {
+                    self.manager.remove_room(room.id);
+                    let _ = gsm.notify_room_deleted(room.settings.server_id, room.id).await;
+                } else {
+                    self.manager.update_room_set(&room);
+                }
             }
         }
     }
 
     /// sets the client's room, does not handle leaving the previous room
-    async fn set_client_room(&self, client: &ClientStateHandle, room: Arc<Room>) {
+    async fn set_client_room(&self, client: &ClientStateHandle, handle: ClientRoomHandle) {
         debug_assert!(client.authorized());
 
-        let handle = room.force_add_player(client.clone()).await;
+        let room = handle.room.clone();
         client.set_room(handle);
+
+        if !room.is_global() {
+            self.manager.update_room_set(&room);
+        }
     }
 }
 

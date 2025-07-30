@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     ops::Deref,
     str::FromStr,
     sync::{
@@ -8,6 +9,7 @@ use std::{
 };
 
 use dashmap::DashMap;
+use parking_lot::{RawRwLock, RwLock, lock_api::RwLockReadGuard};
 use slab::Slab;
 use thiserror::Error;
 
@@ -29,6 +31,7 @@ pub struct Room {
     pub settings: RoomSettings,
     players: RoomPlayerStore,
     player_count: AtomicUsize,
+    key_player_count: AtomicUsize,
 }
 
 impl Room {
@@ -53,6 +56,7 @@ impl Room {
             },
 
             player_count: AtomicUsize::new(0),
+            key_player_count: AtomicUsize::new(0),
         }
     }
 
@@ -92,8 +96,8 @@ impl Room {
     async fn remove_player(&self, key: usize) {
         self.run_write_action(|players| {
             if players.contains(key) {
+                self.player_count.store(players.len() - 1, Ordering::Relaxed);
                 players.remove(key);
-                self.player_count.store(players.len(), Ordering::Relaxed);
             }
         })
         .await;
@@ -112,9 +116,12 @@ impl Room {
         self: Arc<Room>,
         player: ClientStateHandle,
     ) -> ClientRoomHandle {
-        let key = self.run_write_action(|players| players.insert(player)).await;
-
-        self.player_count.fetch_add(1, Ordering::Relaxed);
+        let key = self
+            .run_write_action(|players| {
+                self.player_count.store(players.len() + 1, Ordering::Relaxed);
+                players.insert(player)
+            })
+            .await;
 
         self.make_handle(key)
     }
@@ -150,12 +157,16 @@ impl Room {
                     }
                 }
             }
-        } else {
-            // no limit, just increment the count
-            self.player_count.fetch_add(1, Ordering::Relaxed);
         }
 
-        let key = self.run_write_action(|players| players.insert(player)).await;
+        let key = self
+            .run_write_action(|players| {
+                // re-update the player count, as it may have changed after the check (and the check is only done if there is a limit anyway)
+                self.player_count.store(players.len() + 1, Ordering::Relaxed);
+
+                players.insert(player)
+            })
+            .await;
 
         Ok(self.make_handle(key))
     }
@@ -185,6 +196,10 @@ impl Room {
         self.id == 0
     }
 
+    pub fn has_password(&self) -> bool {
+        self.passcode != 0
+    }
+
     pub async fn with_players<F, R>(&self, f: F) -> R
     where
         F: FnOnce(usize, slab::Iter<'_, ClientStateHandle>) -> R,
@@ -194,7 +209,7 @@ impl Room {
 }
 
 pub struct ClientRoomHandle {
-    room: Arc<Room>,
+    pub(super) room: Arc<Room>,
     room_key: usize,
     #[cfg(debug_assertions)]
     disposed: bool,
@@ -249,6 +264,7 @@ pub enum RoomCreationError {
 
 pub struct RoomManager {
     rooms: DashMap<u32, Arc<Room>>,
+    rooms_sorted: RwLock<BTreeSet<(usize, Arc<Room>)>>,
     global_room: Arc<Room>,
 }
 
@@ -265,6 +281,7 @@ impl RoomManager {
         Self {
             rooms: DashMap::new(),
             global_room,
+            rooms_sorted: RwLock::new(BTreeSet::new()),
         }
     }
 
@@ -284,6 +301,12 @@ impl RoomManager {
         self.get(id).unwrap_or_else(|| self.global().clone())
     }
 
+    pub(super) fn lock_sorted(
+        &self,
+    ) -> RwLockReadGuard<'_, RawRwLock, BTreeSet<(usize, Arc<Room>)>> {
+        self.rooms_sorted.read()
+    }
+
     pub(super) fn create_room(
         &self,
         name: &str,
@@ -299,7 +322,9 @@ impl RoomManager {
             match self.rooms.entry(id) {
                 dashmap::Entry::Vacant(entry) => {
                     let room = Arc::new(Room::new(id, owner, name, passcode, settings));
+
                     entry.insert(room.clone());
+                    self.rooms_sorted.write().insert((0, room.clone()));
 
                     break Ok(room);
                 }
@@ -312,7 +337,22 @@ impl RoomManager {
     }
 
     pub(super) fn remove_room(&self, id: u32) -> Option<Arc<Room>> {
-        self.rooms.remove(&id).map(|entry| entry.1)
+        if let Some(room) = self.rooms.remove(&id).map(|entry| entry.1) {
+            self.do_remove_from_sorted(&room, &mut self.rooms_sorted.write());
+            Some(room)
+        } else {
+            None
+        }
+    }
+
+    /// Updates the room set, re-adjusting this room's position in the sorted set based on the current player count.
+    pub(super) fn update_room_set(&self, room: &Arc<Room>) {
+        let mut sorted = self.rooms_sorted.write();
+
+        self.do_remove_from_sorted(room, &mut sorted);
+        let count = room.player_count();
+        room.key_player_count.store(count, Ordering::Release);
+        sorted.insert((count, room.clone()));
     }
 
     /// Deletes all rooms from the manager. The global room remains intact, but all players are removed from it.
@@ -322,7 +362,48 @@ impl RoomManager {
         }
 
         self.rooms.clear();
+        self.rooms_sorted.write().clear();
 
         self.global_room.clear().await;
+    }
+
+    #[allow(clippy::mutable_key_type)] // this is okay, because we use room ID as the secondary key, which is immutable
+    fn do_remove_from_sorted(&self, room: &Arc<Room>, sorted: &mut BTreeSet<(usize, Arc<Room>)>) {
+        let mut iter = 0;
+
+        while iter < 128 {
+            let kpc = room.key_player_count.load(Ordering::Acquire);
+
+            if sorted.remove(&(kpc, room.clone())) {
+                return;
+            }
+
+            iter += 1;
+        }
+
+        panic!(
+            "internal inconsistency: room {} couldn't be found in the sorted rooms set",
+            room.id
+        );
+    }
+}
+
+impl PartialEq for Room {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl PartialOrd for Room {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for Room {}
+
+impl Ord for Room {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.id.cmp(&other.id)
     }
 }
