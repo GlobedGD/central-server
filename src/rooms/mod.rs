@@ -5,11 +5,10 @@ use crate::core::{
 };
 
 mod manager;
-mod session_id;
 mod settings;
 pub use manager::{ClientRoomHandle, Room, RoomCreationError, RoomManager};
 use serde::{Deserialize, Serialize};
-pub use session_id::SessionId;
+pub use server_shared::SessionId;
 pub use settings::RoomSettings;
 
 pub struct RoomModule {
@@ -118,13 +117,17 @@ impl RoomModule {
         self.set_client_room(client, room).await;
     }
 
+    pub async fn cleanup_player(&self, client: &ClientStateHandle, gsm: &GameServerManager) {
+        self.clear_client_room(client, gsm).await;
+    }
+
     /// clears the client's room, does nothing if room is None
     async fn clear_client_room(&self, client: &ClientStateHandle, gsm: &GameServerManager) {
         debug_assert!(client.authorized());
 
         if let Some(room) = client.clear_room().await {
             // if the room has no more players, remove it
-            if room.player_count() == 0 {
+            if room.player_count() == 0 && !room.is_global() {
                 self.manager.remove_room(room.id);
                 let _ = gsm.notify_room_deleted(room.settings.server_id, room.id).await;
             }

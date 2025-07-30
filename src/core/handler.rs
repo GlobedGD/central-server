@@ -116,9 +116,11 @@ impl AppHandler for ConnectionHandler {
         let account_id = client.account_id();
 
         debug!("[{} @ {}] client disconnected", account_id, client.address);
-        client.deauthorize().await;
 
         if account_id != 0 {
+            let rooms = self.module::<RoomModule>();
+            rooms.cleanup_player(client, &self.game_server_manager).await;
+
             // remove only if the client has not been replaced by a newer login
             self.all_clients.remove_if(&account_id, |_, current_client| {
                 Weak::ptr_eq(current_client, &Arc::downgrade(client))
