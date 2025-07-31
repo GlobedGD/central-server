@@ -126,7 +126,7 @@ impl AppHandler for ConnectionHandler {
                 Weak::ptr_eq(current_client, &Arc::downgrade(client))
             });
 
-            let _ = self.handle_leave_session(client);
+            let _ = self.handle_leave_session(client).await;
         }
     }
 
@@ -250,13 +250,13 @@ impl AppHandler for ConnectionHandler {
                 let id = message.get_session_id();
                 unpacked_data.reset(); // free up memory
 
-                self.handle_join_session(client, id)
+                self.handle_join_session(client, id).await
             },
 
             LeaveSession(_message) => {
                 unpacked_data.reset(); // free up memory
 
-                self.handle_leave_session(client)
+                self.handle_leave_session(client).await
             },
         });
 
@@ -703,7 +703,7 @@ impl ConnectionHandler {
         out
     }
 
-    fn handle_join_session(
+    async fn handle_join_session(
         &self,
         client: &ClientStateHandle,
         session_id: u64,
@@ -723,7 +723,7 @@ impl ConnectionHandler {
         }
 
         let prev_id = client.set_session_id(session_id.as_u64());
-        self.handle_session_change(client, SessionId::from(prev_id), session_id)?;
+        self.handle_session_change(client, SessionId::from(prev_id), session_id).await?;
 
         Ok(())
     }
@@ -742,11 +742,11 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    fn handle_leave_session(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+    async fn handle_leave_session(&self, client: &ClientStateHandle) -> HandlerResult<()> {
         must_auth(client)?;
 
         let prev_id = client.set_session_id(0);
-        self.handle_session_change(client, SessionId::from(prev_id), SessionId(0))?;
+        self.handle_session_change(client, SessionId::from(prev_id), SessionId(0)).await?;
 
         Ok(())
     }
@@ -780,7 +780,9 @@ impl ConnectionHandler {
         const BYTES_PER_ROOM: usize = 96; // TODO (high)
 
         // TODO:
-        let cap = 32 + BYTES_PER_ROOM * rooms.len();
+        let cap = 48 + BYTES_PER_ROOM * rooms.len();
+
+        debug!("encoding {} rooms, cap: {}", rooms.len(), cap);
 
         let buf = data::encode_message_heap!(self, cap, msg => {
             let room_list = msg.reborrow().init_room_list();
@@ -804,9 +806,10 @@ impl ConnectionHandler {
     }
 
     // internal, called when the session ID changes to update player counts in rooms and stuff
-    fn handle_session_change(
+    #[allow(clippy::await_holding_lock)]
+    async fn handle_session_change(
         &self,
-        _client: &ClientStateHandle,
+        client: &ClientStateHandle,
         prev_session: SessionId,
         new_session: SessionId,
     ) -> HandlerResult<()> {
@@ -822,6 +825,29 @@ impl ConnectionHandler {
         if !new_session.is_zero() {
             let mut ent = self.player_counts.entry(new_session.as_u64()).or_insert(0);
             *ent += 1;
+        }
+
+        // if this is a follower room and the owner changed the level, warp all other players
+        let room = client.lock_room(); // this is held across .await but it's fine because it's local to the user
+
+        let do_warp =
+            room.as_ref().is_some_and(|x| x.is_follower() && x.owner == client.account_id());
+
+        if do_warp {
+            room.as_ref()
+                .unwrap()
+                .with_players(|_, players| {
+                    let buf = data::encode_message!(self, 64, msg => {
+                        let mut warp = msg.reborrow().init_warp_player();
+                        warp.set_session(new_session.as_u64());
+                    })
+                    .expect("failed to encode warp message");
+
+                    for (_, p) in players {
+                        p.send_data_bufkind(buf.clone_into_small());
+                    }
+                })
+                .await;
         }
 
         Ok(())
