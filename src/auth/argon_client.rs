@@ -215,7 +215,10 @@ impl InnerState {
         let (mut socket, _) = tokio_tungstenite::connect_async(to_ws_url(&self.url)).await?;
 
         // Send auth message
-        let msg = Message::text(format!(r#"{{"token":"{}","proto":"binary-v1"}}"#, self.api_token));
+        let msg = Message::text(format!(
+            r#"{{"type":"Auth","data":{{"token":"{}","proto":"binary-v1"}}}}"#,
+            self.api_token
+        ));
 
         socket.send(msg).await?;
 
@@ -286,7 +289,7 @@ impl InnerState {
             account_id: i32,
         }
 
-        let mut data_buf = [0u8; 64];
+        let mut data_buf = [0u8; 256];
 
         loop {
             tokio::select! {
@@ -296,7 +299,13 @@ impl InnerState {
                         writer.write_u8(ArgonMessageType::ValidateCheckDataMany as u8);
                         writer.write_u16(1); // number of accounts
                         writer.write_i32(msg.account_id);
-                        writer.write_string_u16(&msg.token);
+
+                        if writer.try_write_string_u16(&msg.token).is_err() {
+                            msg.tx.send(ArgonValidateResponse {
+                                result: Err("".to_owned())
+                            });
+                            continue;
+                        }
 
                         // send a ws message
                         socket.send(Message::Binary(Bytes::copy_from_slice(writer.written()))).await?;

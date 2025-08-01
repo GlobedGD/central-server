@@ -22,7 +22,7 @@ use server_shared::{
 };
 use state::TypeMap;
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::{
     auth::{AuthModule, AuthVerdict, ClientAccountData, LoginKind},
@@ -405,7 +405,7 @@ impl ConnectionHandler {
             AuthVerdict::LoginRequired => {
                 let argon_url = auth.argon_url().unwrap();
 
-                let buf = data::encode_message_heap!(self, 32 + argon_url.len(), msg => {
+                let buf = data::encode_message_heap!(self, 48 + argon_url.len(), msg => {
                     let mut login_req = msg.reborrow().init_login_required();
                     login_req.set_argon_url(argon_url);
                 })?;
@@ -813,6 +813,14 @@ impl ConnectionHandler {
         prev_session: SessionId,
         new_session: SessionId,
     ) -> HandlerResult<()> {
+        #[cfg(debug_assertions)]
+        trace!(
+            "[{}] session change: {} -> {}",
+            client.account_id(),
+            prev_session.as_u64(),
+            new_session.as_u64()
+        );
+
         if !prev_session.is_zero() {
             debug_assert!(self.player_counts.contains_key(&prev_session.as_u64()));
 
