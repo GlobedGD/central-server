@@ -73,6 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut builder = QunetServer::builder()
         .with_memory_options(make_memory_limits(core.memory_usage))
+        .with_max_messages_per_second(10) // allow 10 messages, client does not really need more than this
         .with_app_handler(handler);
 
     if core.enable_quic {
