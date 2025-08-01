@@ -538,7 +538,6 @@ impl ConnectionHandler {
         {
             Ok(new_room) => new_room,
 
-            // TODO: send error to the user
             Err(RoomCreationError::NameTooLong) => {
                 return self
                     .send_room_create_failed(client, data::RoomCreateFailedReason::InvalidName);
@@ -614,6 +613,17 @@ impl ConnectionHandler {
         Ok(())
     }
 
+    fn encode_room_player(player: &ClientStateHandle, mut builder: data::room_player::Builder<'_>) {
+        builder.set_cube(player.icons().cube);
+        builder.reborrow().set_session(player.session_id());
+
+        let mut accdata = builder.reborrow().init_account_data();
+        let account = player.account_data().expect("client must have account data");
+        accdata.set_account_id(account.account_id);
+        accdata.set_user_id(account.user_id);
+        accdata.set_username(&account.username);
+    }
+
     async fn send_room_data(&self, client: &ClientStateHandle, room: &Room) -> HandlerResult<()> {
         const BYTES_PER_PLAYER: usize = 64; // TODO (high)
 
@@ -633,14 +643,7 @@ impl ConnectionHandler {
 
             for (i, player) in players.iter().enumerate() {
                 let mut player_ser = players_ser.reborrow().get(i as u32);
-                player_ser.set_cube(player.icons().cube);
-                player_ser.reborrow().set_session(player.session_id());
-
-                let mut accdata = player_ser.reborrow().init_account_data();
-                let account = player.account_data().expect("client must have account data");
-                accdata.set_account_id(account.account_id);
-                accdata.set_user_id(account.user_id);
-                accdata.set_username(&account.username);
+                Self::encode_room_player(player, player_ser.reborrow());
             }
         })?;
 
@@ -794,9 +797,13 @@ impl ConnectionHandler {
                 room_ser.set_room_name(&room.name);
                 room_ser.set_player_count(room.player_count() as u32);
                 room_ser.set_has_password(room.has_password());
-                // TODO
-                // room_ser.set_room_owner(room.owner);
                 room.settings.encode(room_ser.reborrow().init_settings());
+
+                let owner = self.all_clients.get(&room.owner).and_then(|x| x.upgrade());
+                if let Some(owner) = owner {
+                    let mut owner_ser = room_ser.reborrow().init_room_owner();
+                    Self::encode_room_player(&owner, owner_ser.reborrow());
+                }
             }
         })?;
 
