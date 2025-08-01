@@ -10,7 +10,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use thiserror::Error;
 use tokio::{net::TcpStream, task::JoinHandle};
@@ -171,6 +171,11 @@ struct InnerState {
     req_rx: channel::Receiver<ArgonValidateRequest>,
 }
 
+struct InFlightReq {
+    tx: channel::Sender<ArgonValidateResponse>,
+    account_id: i32,
+}
+
 impl InnerState {
     pub fn new(url: String, api_token: String) -> Self {
         let (req_tx, req_rx) = channel::new_channel(128);
@@ -275,8 +280,6 @@ impl InnerState {
         &self,
         mut socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
     ) -> Result<(), ArgonClientError> {
-        // TODO: this function is hell please refactor it
-
         self.req_rx.drain();
         self.connected.store(true, Ordering::SeqCst);
 
@@ -284,37 +287,16 @@ impl InnerState {
 
         let mut in_flight = VecDeque::new();
 
-        struct InFlightReq {
-            tx: channel::Sender<ArgonValidateResponse>,
-            account_id: i32,
-        }
-
-        let mut data_buf = [0u8; 256];
+        let mut last_ping = Instant::now();
 
         loop {
+            // TODO: make this configurable
+            let until_ping = Duration::from_secs(25).saturating_sub(last_ping.elapsed());
+
             tokio::select! {
                 msg = self.req_rx.recv() => match msg {
                     Some(msg) => {
-                        let mut writer = ByteWriter::new(&mut data_buf);
-                        writer.write_u8(ArgonMessageType::ValidateCheckDataMany as u8);
-                        writer.write_u16(1); // number of accounts
-                        writer.write_i32(msg.account_id);
-
-                        if writer.try_write_string_u16(&msg.token).is_err() {
-                            msg.tx.send(ArgonValidateResponse {
-                                result: Err("".to_owned())
-                            });
-                            continue;
-                        }
-
-                        // send a ws message
-                        socket.send(Message::Binary(Bytes::copy_from_slice(writer.written()))).await?;
-
-                        // add to in-flight queue
-                        in_flight.push_back(InFlightReq {
-                            tx: msg.tx,
-                            account_id: msg.account_id,
-                        });
+                        self.send_req(msg, &mut socket, &mut in_flight).await?;
                     },
 
                     None => panic!("Argon request channel closed unexpectedly"),
@@ -322,74 +304,7 @@ impl InnerState {
 
                 msg = socket.next() => match msg {
                     Some(Ok(msg)) => {
-                        if !msg.is_binary() {
-                            // holy shit non binary
-                            error!("argon server sent a non-binary message: {:?}", msg);
-                            return Err(ArgonClientError::InvalidMessage);
-                        }
-
-                        let Message::Binary(data) = msg else { unreachable!() };
-
-                        let mut reader = ByteReader::new(data.as_ref());
-                        let msg = reader.read_u8()?;
-
-                        if msg != ArgonMessageType::ValidateCheckDataManyResponse as u8 {
-                            if msg == ArgonMessageType::Error as u8 {
-                                let err = reader.read_string_u16()?;
-                                error!("argon server sent an Error message: {err}");
-                                continue;
-                            } else {
-                                error!("argon server sent unexpected message: {msg}");
-                                return Err(ArgonClientError::InvalidMessage);
-                            }
-                        }
-
-                        let num_accounts = reader.read_u16()?;
-                        if num_accounts != 1 {
-                            error!("argon server sent unexpected number of accounts: {num_accounts}");
-                            return Err(ArgonClientError::InvalidMessage);
-                        }
-
-                        let account_id = reader.read_i32()?;
-                        let valid = reader.read_bool()?;
-
-                        let resp = if valid {
-                            let user_id = reader.read_i32()?;
-                            let username = reader.read_string_u16()?;
-
-                            ArgonValidateResponse {
-                                result: Ok(ClientAccountData {
-                                    account_id,
-                                    user_id,
-                                    username: heapless::String::from_str(username).map_err(|_| ArgonClientError::InvalidMessage)?,
-                                }),
-                            }
-                        } else {
-                            let cause = reader.read_string_u16()?;
-
-                            ArgonValidateResponse {
-                                result: Err(cause.to_owned()),
-                            }
-                        };
-
-                        match in_flight.pop_front() {
-                            Some(InFlightReq { tx, account_id: expected_id }) => {
-                                // this should never really happen
-                                if account_id != expected_id {
-                                    error!("argon server sent response for unexpected account ID: {account_id}, expected: {expected_id}");
-                                    return Err(ArgonClientError::UnexpectedAccountId);
-                                }
-
-                                if !tx.send(resp) {
-                                    warn!("argon validation response channel closed, dropping response");
-                                }
-                            },
-
-                            None => {
-                                error!("argon server sent response for an unknown request");
-                                return Err(ArgonClientError::InvalidMessage);
-                            },
-                        }
+                        self.handle_message(msg, &mut in_flight).await?;
                     },
 
                     Some(Err(e)) => {
@@ -401,8 +316,125 @@ impl InnerState {
                         warn!("argon server connection closed");
                         return Ok(());
                     },
+                },
+
+                _ = tokio::time::sleep(until_ping) => {
+                    socket.send(Message::Ping(Bytes::new())).await?;
+                    last_ping = Instant::now();
                 }
             };
+        }
+    }
+
+    async fn send_req(
+        &self,
+        msg: ArgonValidateRequest,
+        socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        in_flight: &mut VecDeque<InFlightReq>,
+    ) -> Result<(), ArgonClientError> {
+        let mut data_buf = [0u8; 256];
+
+        let mut writer = ByteWriter::new(&mut data_buf);
+        writer.write_u8(ArgonMessageType::ValidateCheckDataMany as u8);
+        writer.write_u16(1); // number of accounts
+        writer.write_i32(msg.account_id);
+
+        if writer.try_write_string_u16(&msg.token).is_err() {
+            msg.tx.send(ArgonValidateResponse { result: Err("".to_owned()) });
+            return Ok(());
+        }
+
+        // send a ws message
+        socket.send(Message::Binary(Bytes::copy_from_slice(writer.written()))).await?;
+
+        // add to in-flight queue
+        in_flight.push_back(InFlightReq {
+            tx: msg.tx,
+            account_id: msg.account_id,
+        });
+
+        Ok(())
+    }
+
+    async fn handle_message(
+        &self,
+        msg: Message,
+        in_flight: &mut VecDeque<InFlightReq>,
+    ) -> Result<(), ArgonClientError> {
+        if msg.is_pong() {
+            return Ok(());
+        }
+
+        if !msg.is_binary() {
+            // holy shit non binary
+            error!("argon server sent a non-binary message: {:?}", msg);
+            return Err(ArgonClientError::InvalidMessage);
+        }
+
+        let Message::Binary(data) = msg else { unreachable!() };
+
+        let mut reader = ByteReader::new(data.as_ref());
+        let msg = reader.read_u8()?;
+
+        if msg != ArgonMessageType::ValidateCheckDataManyResponse as u8 {
+            if msg == ArgonMessageType::Error as u8 {
+                let err = reader.read_string_u16()?;
+                error!("argon server sent an Error message: {err}");
+                return Ok(());
+            } else {
+                error!("argon server sent unexpected message: {msg}");
+                return Err(ArgonClientError::InvalidMessage);
+            }
+        }
+
+        let num_accounts = reader.read_u16()?;
+        if num_accounts != 1 {
+            error!("argon server sent unexpected number of accounts: {num_accounts}");
+            return Err(ArgonClientError::InvalidMessage);
+        }
+
+        let account_id = reader.read_i32()?;
+        let valid = reader.read_bool()?;
+
+        let resp = if valid {
+            let user_id = reader.read_i32()?;
+            let username = reader.read_string_u16()?;
+
+            ArgonValidateResponse {
+                result: Ok(ClientAccountData {
+                    account_id,
+                    user_id,
+                    username: heapless::String::from_str(username)
+                        .map_err(|_| ArgonClientError::InvalidMessage)?,
+                }),
+            }
+        } else {
+            let cause = reader.read_string_u16()?;
+
+            ArgonValidateResponse { result: Err(cause.to_owned()) }
+        };
+
+        match in_flight.pop_front() {
+            Some(InFlightReq { tx, account_id: expected_id }) => {
+                // this should never really happen
+                if account_id != expected_id {
+                    error!(
+                        "argon server sent response for unexpected account ID: {account_id}, expected: {expected_id}"
+                    );
+                    return Err(ArgonClientError::UnexpectedAccountId);
+                }
+
+                if !tx.send(resp) {
+                    warn!("argon validation response channel closed, dropping response");
+                }
+
+                Ok(())
+            }
+
+            None => {
+                error!("argon server sent response for an unknown request");
+                Err(ArgonClientError::InvalidMessage)
+            }
         }
     }
 }
