@@ -1,4 +1,4 @@
-use crate::core::module::ServerModule;
+use crate::core::module::{ModuleInitResult, ServerModule};
 
 mod account_data;
 mod argon_client;
@@ -115,7 +115,7 @@ impl AuthModule {
 impl ServerModule for AuthModule {
     type Config = Config;
 
-    fn new(config: &Self::Config) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    async fn new(config: &Self::Config) -> ModuleInitResult<Self> {
         let token_issuer = TokenIssuer::new(&config.secret_key)?;
 
         let argon_client = config

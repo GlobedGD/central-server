@@ -780,10 +780,10 @@ impl ConnectionHandler {
     }
 
     fn send_room_list(&self, client: &ClientStateHandle, rooms: &[Arc<Room>]) -> HandlerResult<()> {
-        const BYTES_PER_ROOM: usize = 96; // TODO (high)
+        const BYTES_PER_ROOM: usize = 112; // TODO (high)
 
         // TODO:
-        let cap = 48 + BYTES_PER_ROOM * rooms.len();
+        let cap = 64 + BYTES_PER_ROOM * rooms.len();
 
         debug!("encoding {} rooms, cap: {}", rooms.len(), cap);
 

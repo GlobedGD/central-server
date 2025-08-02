@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use crate::core::{
-    data, game_server::GameServerManager, handler::ClientStateHandle, module::ServerModule,
+    data,
+    game_server::GameServerManager,
+    handler::ClientStateHandle,
+    module::{ModuleInitResult, ServerModule},
 };
 
 mod manager;
@@ -164,7 +167,7 @@ pub struct Config {
 impl ServerModule for RoomModule {
     type Config = Config;
 
-    fn new(_config: &Self::Config) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    async fn new(_config: &Self::Config) -> ModuleInitResult<Self> {
         Ok(Self { manager: RoomManager::new() })
     }
 

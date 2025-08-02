@@ -19,6 +19,7 @@ use crate::{
         module::ServerModule,
     },
     rooms::RoomModule,
+    users::UsersModule,
 };
 
 #[cfg(all(not(target_env = "msvc"), not(debug_assertions)))]
@@ -31,8 +32,9 @@ static GLOBAL: Jemalloc = Jemalloc;
 pub mod auth;
 pub mod core;
 pub mod rooms;
+pub mod users;
 
-fn setup_logger(config: &CoreConfig) -> WorkerGuard {
+fn setup_logger(config: &CoreConfig) -> (WorkerGuard, WorkerGuard) {
     server_shared::logging::setup_logger(
         config.log_rolling,
         &config.log_directory,
@@ -55,11 +57,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _guard = setup_logger(config.core());
 
+    // this is needed for tokio tungstenite :/
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install default crypto provider");
+
     let mut handler = ConnectionHandler::new(config);
 
     // Add necessary modules
-    init_module::<AuthModule>(&handler);
-    init_module::<RoomModule>(&handler);
+    init_module::<AuthModule>(&handler).await;
+    init_module::<RoomModule>(&handler).await;
+    init_module::<UsersModule>(&handler).await;
 
     // Add optional modules
     // todo
@@ -191,7 +199,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn init_module<T: ServerModule>(handler: &ConnectionHandler) -> &T {
+async fn init_module<T: ServerModule>(handler: &ConnectionHandler) -> &T {
     let config = handler.config();
 
     if let Err(e) = config.init_module::<T>() {
@@ -201,7 +209,7 @@ fn init_module<T: ServerModule>(handler: &ConnectionHandler) -> &T {
 
     let conf = config.module::<T>();
 
-    let module = match T::new(conf) {
+    let module = match T::new(conf).await {
         Ok(m) => m,
         Err(e) => {
             error!("Failed to initialize module {} ({}): {e}", T::name(), T::id());

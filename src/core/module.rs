@@ -1,9 +1,11 @@
 use serde::{Serialize, de::DeserializeOwned};
 
+pub type ModuleInitResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
 pub trait ServerModule: Send + Sync + 'static {
     type Config: DeserializeOwned + Serialize + Default + Send + Sync + 'static;
 
-    fn new(config: &Self::Config) -> Result<Self, Box<dyn std::error::Error + Send + Sync>>
+    fn new(config: &Self::Config) -> impl Future<Output = ModuleInitResult<Self>> + Send
     where
         Self: Sized;
 
