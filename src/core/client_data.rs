@@ -10,6 +10,7 @@ use server_shared::data::PlayerIconData;
 use crate::{
     auth::ClientAccountData,
     rooms::{ClientRoomHandle, Room},
+    users::{ComputedRole, UserPunishment},
 };
 
 #[derive(Default)]
@@ -17,11 +18,16 @@ pub struct ClientData {
     account_data: OnceLock<ClientAccountData>,
     account_id: AtomicI32, // redundant, for faster access
     icons: Mutex<PlayerIconData>,
+    pub friend_list: Mutex<FxHashSet<i32>>,
+
     room: Mutex<Option<ClientRoomHandle>>,
     session_id: AtomicU64,
     deauthorized: AtomicBool,
 
-    pub friend_list: Mutex<FxHashSet<i32>>,
+    pub active_mute: Mutex<Option<UserPunishment>>,
+    pub active_room_ban: Mutex<Option<UserPunishment>>,
+    admin_password_hash: Mutex<Option<String>>,
+    role: OnceLock<ComputedRole>,
 }
 
 impl ClientData {
@@ -123,5 +129,30 @@ impl ClientData {
     pub fn set_friends(&self, friends: FxHashSet<i32>) {
         let mut lock = self.friend_list.lock();
         *lock = friends;
+    }
+
+    pub fn set_active_punishments(
+        &self,
+        mute: Option<UserPunishment>,
+        room_ban: Option<UserPunishment>,
+    ) {
+        let mut active_mute = self.active_mute.lock();
+        let mut active_room_ban = self.active_room_ban.lock();
+
+        *active_mute = mute;
+        *active_room_ban = room_ban;
+    }
+
+    pub fn set_admin_password_hash(&self, hash: Option<String>) {
+        let mut lock = self.admin_password_hash.lock();
+        *lock = hash;
+    }
+
+    pub fn role(&self) -> Option<&ComputedRole> {
+        self.role.get()
+    }
+
+    pub fn set_role(&self, role: ComputedRole) {
+        let _ = self.role.set(role);
     }
 }

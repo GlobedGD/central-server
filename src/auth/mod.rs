@@ -47,9 +47,10 @@ impl AuthModule {
         &self,
         account_id: i32,
         user_id: i32,
-        username: heapless::String<16>,
+        username: &str,
+        roles_str: &str,
     ) -> String {
-        self.token_issuer.generate(&TokenData { account_id, user_id, username })
+        self.token_issuer.generate(account_id, user_id, username, roles_str)
     }
 
     pub async fn handle_login(&self, kind: LoginKind<'_>) -> AuthVerdict {

@@ -22,6 +22,7 @@ use super::data;
 use crate::{
     auth::AuthModule,
     core::{data::heapless_str_from_reader, handler::ConnectionHandler},
+    users::UsersModule,
 };
 
 pub struct GameServerHandler {
@@ -113,21 +114,31 @@ impl GameServerHandler {
             return self.send_login_failed(client, "invalid password").await;
         }
 
+        let server = self.main_server();
+
         // successful login! tell the main server to add this game server
         info!("[{}] New game server connected! ({})", client.address, data.string_id);
-        if let Err(e) =
-            self.main_server().handler().handle_game_server_connect(client.clone(), data).await
-        {
+        if let Err(e) = server.handler().handle_game_server_connect(client.clone(), data).await {
             warn!("[{}] failed to handle game server connect: {e}", client.address);
             return self.send_login_failed(client, &format!("internal error: {e}")).await;
         }
 
+        let roles = server.handler().module::<UsersModule>().get_roles();
+
         let buf = data::encode_message!(self, 164, msg => {
             let mut login_ok = msg.reborrow().init_login_ok();
-            let server = self.main_server();
             let secret_key = &server.handler().config().module::<AuthModule>().secret_key;
 
             login_ok.set_token_key(secret_key);
+            let mut roles_ser = login_ok.init_roles(roles.len() as u32);
+
+            for (i, role) in roles.iter().enumerate() {
+                assert!(i < 256, "too many roles, must be below 256");
+
+                let mut role_ser = roles_ser.reborrow().get(i as u32);
+                role_ser.set_id(i as u8);
+                role_ser.set_string_id(&role.id);
+            }
         })
         .expect("failed to encode login success message");
 

@@ -1,6 +1,6 @@
 use sea_orm_migration::{
     prelude::*,
-    schema::{boolean, date_time_null, integer, integer_null, pk_auto, string, string_null},
+    schema::{big_integer_null, boolean, integer, integer_null, pk_auto, string, string_null},
 };
 
 pub struct Migration;
@@ -22,9 +22,9 @@ impl MigrationTrait for Migration {
                     .col(integer(Punishment::AccountId))
                     .col(string(Punishment::Type))
                     .col(string(Punishment::Reason))
-                    .col(date_time_null(Punishment::ExpiresAt).null())
+                    .col(big_integer_null(Punishment::ExpiresAt))
                     .col(integer(Punishment::IssuedBy))
-                    .col(date_time_null(Punishment::IssuedAt).null())
+                    .col(big_integer_null(Punishment::IssuedAt))
                     .to_owned(),
             )
             .await?;
@@ -38,7 +38,7 @@ impl MigrationTrait for Migration {
                     .col(string_null(User::NameColor))
                     .col(boolean(User::IsWhitelisted).default(false))
                     .col(string_null(User::AdminPasswordHash))
-                    .col(string_null(User::UserRoles))
+                    .col(string_null(User::Roles))
                     .col(integer_null(User::ActiveMute))
                     .col(integer_null(User::ActiveBan))
                     .col(integer_null(User::ActiveRoomBan))
@@ -82,7 +82,7 @@ pub enum User {
     NameColor,
     IsWhitelisted,
     AdminPasswordHash,
-    UserRoles,
+    Roles,
     ActiveMute,
     ActiveBan,
     ActiveRoomBan,

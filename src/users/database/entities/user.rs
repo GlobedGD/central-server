@@ -11,7 +11,7 @@ pub struct Model {
     pub name_color: Option<String>,
     pub is_whitelisted: bool,
     pub admin_password_hash: Option<String>,
-    pub user_roles: Option<String>,
+    pub roles: Option<String>,
     pub active_mute: Option<i32>,
     pub active_ban: Option<i32>,
     pub active_room_ban: Option<i32>,

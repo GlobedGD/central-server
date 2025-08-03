@@ -10,9 +10,9 @@ pub struct Model {
     pub account_id: i32,
     pub r#type: String,
     pub reason: String,
-    pub expires_at: Option<DateTime>,
+    pub expires_at: Option<i64>,
     pub issued_by: i32,
-    pub issued_at: Option<DateTime>,
+    pub issued_at: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

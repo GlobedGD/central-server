@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     net::SocketAddr,
+    num::NonZeroI64,
     sync::{Arc, OnceLock, Weak},
     time::Duration,
 };
@@ -34,6 +35,7 @@ use crate::{
         module::ServerModule,
     },
     rooms::{Room, RoomCreationError, RoomModule, RoomSettings, SessionId},
+    users::UsersModule,
 };
 
 pub struct ConnectionHandler {
@@ -177,23 +179,26 @@ impl AppHandler for ConnectionHandler {
             },
 
             UpdateOwnData(message) => {
-                if message.has_icons() {
-                    let icons = PlayerIconData::from_reader(message.get_icons()?)?;
-                    client.set_icons(icons);
-                }
+                let icons = if message.has_icons() {
+                    Some(PlayerIconData::from_reader(message.get_icons()?)?)
+                } else {
+                    None
+                };
 
-                if message.has_friend_list() {
+
+                let fl = if message.has_friend_list() {
                     let mut fl = FxHashSet::default();
-
                     let friend_list = message.get_friend_list()?;
                     for friend in friend_list.iter().take(500) { // limit to 500 friends to prevent evil stuff
                         fl.insert(friend);
                     }
 
-                    client.set_friends(fl);
-                }
+                    Some(fl)
+                } else {
+                    None
+                };
 
-                Ok(())
+                self.handle_update_own_data(client, icons, fl)
             },
 
             RequestPlayerCounts(message) => {
@@ -394,8 +399,7 @@ impl ConnectionHandler {
 
         match auth.handle_login(kind).await {
             AuthVerdict::Success(data) => {
-                self.on_login_success(client, data).await?;
-                client.set_icons(icons);
+                self.on_login_success(client, data, icons).await?;
             }
 
             AuthVerdict::Failed(reason) => {
@@ -421,14 +425,56 @@ impl ConnectionHandler {
         &self,
         client: &ClientStateHandle,
         data: ClientAccountData,
+        icons: PlayerIconData,
     ) -> HandlerResult<()> {
-        // refresh the user's user token (or generate a new one)
         let auth = self.module::<AuthModule>();
         let rooms = self.module::<RoomModule>();
+        let users = self.module::<UsersModule>();
+
+        // query the database to check the user's data
+        let user = match users.get_user(data.account_id).await {
+            Ok(user) => user,
+            Err(e) => {
+                warn!("[{}] failed to get user data: {}", client.address, e);
+                return self.on_login_failed(client, data::LoginFailedReason::InternalDbError);
+            }
+        };
+
+        if let Some(user) = user {
+            // do some checks
+
+            if let Some(username) = user.username
+                && username.as_str() != data.username.as_str()
+            {
+                // update the username in the database
+                let _ = users.update_username(data.account_id, &data.username).await;
+            }
+
+            if let Some(ban) = user.active_ban {
+                // user is banned
+                return self.send_banned(client, &ban.reason, ban.expires_at);
+            }
+
+            // update various stuff
+            client.set_active_punishments(user.active_mute, user.active_room_ban);
+            client.set_admin_password_hash(user.admin_password_hash);
+
+            let computed_role = users.compute_from_roles(
+                user.roles.as_deref().unwrap_or("").split(",").filter(|s| !s.is_empty()),
+            );
+
+            client.set_role(computed_role);
+        } else {
+            client.set_role(users.compute_from_roles(std::iter::empty()));
+        }
 
         info!("[{}] {} ({}) logged in", client.address, data.username, data.account_id);
+        client.set_icons(icons);
 
-        let token = auth.generate_user_token(data.account_id, data.user_id, data.username.clone());
+        // refresh the user's user token (or generate a new one)
+        let roles_str = users.make_role_string(&client.role().unwrap().roles);
+        let token =
+            auth.generate_user_token(data.account_id, data.user_id, &data.username, &roles_str);
 
         if let Some(old_client) = self.all_clients.insert(data.account_id, Arc::downgrade(client)) {
             // there already was a client with this account ID, disconnect them
@@ -477,11 +523,50 @@ impl ConnectionHandler {
         Ok(())
     }
 
+    fn send_banned(
+        &self,
+        client: &ClientStateHandle,
+        reason: &str,
+        expires_at: Option<NonZeroI64>,
+    ) -> HandlerResult<()> {
+        let buf = data::encode_message_heap!(self, 64 + reason.len(), msg => {
+            let mut banned = msg.reborrow().init_banned();
+            banned.set_reason(reason);
+            banned.set_expires_at(expires_at.map_or(0, |x| x.get()));
+        })?;
+
+        client.send_data_bufkind(buf);
+        client.disconnect(Cow::Borrowed("user is banned"));
+
+        Ok(())
+    }
+
+    fn handle_update_own_data(
+        &self,
+        client: &ClientStateHandle,
+        icons: Option<PlayerIconData>,
+        friends: Option<FxHashSet<i32>>,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        if let Some(icons) = icons {
+            client.set_icons(icons);
+        };
+
+        if let Some(friends) = friends {
+            client.set_friends(friends);
+        };
+
+        Ok(())
+    }
+
     fn handle_request_player_counts(
         &self,
         client: &ClientStateHandle,
         sessions: &[u64],
     ) -> HandlerResult<()> {
+        must_auth(client)?;
+
         let mut out_vals = heapless::Vec::<(u64, u16), 128>::new();
         debug_assert!(sessions.len() <= out_vals.capacity());
 
@@ -522,6 +607,11 @@ impl ConnectionHandler {
         settings: RoomSettings,
     ) -> HandlerResult<()> {
         must_auth(client)?;
+
+        if let Some(p) = client.active_room_ban.lock().as_ref() {
+            // user is room banned, don't allow creating rooms
+            return self.send_room_banned(client, &p.reason, p.expires_at);
+        }
 
         let rooms = self.module::<RoomModule>();
         let server_id = settings.server_id;
@@ -573,6 +663,22 @@ impl ConnectionHandler {
         let buf = data::encode_message!(self, 32, msg => {
             let mut create_failed = msg.reborrow().init_room_create_failed();
             create_failed.set_reason(reason);
+        })?;
+
+        client.send_data_bufkind(buf);
+        Ok(())
+    }
+
+    fn send_room_banned(
+        &self,
+        client: &ClientStateHandle,
+        reason: &str,
+        expires_at: Option<NonZeroI64>,
+    ) -> HandlerResult<()> {
+        let buf = data::encode_message!(self, 32, msg => {
+            let mut room_banned = msg.reborrow().init_room_banned();
+            room_banned.set_reason(reason);
+            room_banned.set_expires_at(expires_at.map_or(0, |x| x.get()));
         })?;
 
         client.send_data_bufkind(buf);
