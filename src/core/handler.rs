@@ -534,7 +534,7 @@ impl ConnectionHandler {
         client: &ClientState<Self>,
         reason: data::LoginFailedReason,
     ) -> HandlerResult<()> {
-        let buf = data::encode_message!(self, 32, msg => {
+        let buf = data::encode_message!(self, 40, msg => {
             let mut login_failed = msg.reborrow().init_login_failed();
             login_failed.set_reason(reason);
         })?;
@@ -598,7 +598,7 @@ impl ConnectionHandler {
         }
 
         // TODO: benchmark size properly
-        let cap = 32 + out_vals.len() * 12;
+        let cap = 40 + out_vals.len() * 12;
 
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut player_counts = msg.reborrow().init_player_counts();
@@ -680,7 +680,7 @@ impl ConnectionHandler {
         client: &ClientStateHandle,
         reason: data::RoomCreateFailedReason,
     ) -> HandlerResult<()> {
-        let buf = data::encode_message!(self, 32, msg => {
+        let buf = data::encode_message!(self, 40, msg => {
             let mut create_failed = msg.reborrow().init_room_create_failed();
             create_failed.set_reason(reason);
         })?;
@@ -695,7 +695,7 @@ impl ConnectionHandler {
         reason: &str,
         expires_at: Option<NonZeroI64>,
     ) -> HandlerResult<()> {
-        let buf = data::encode_message!(self, 32, msg => {
+        let buf = data::encode_message!(self, 40, msg => {
             let mut room_banned = msg.reborrow().init_room_banned();
             room_banned.set_reason(reason);
             room_banned.set_expires_at(expires_at.map_or(0, |x| x.get()));
@@ -730,7 +730,7 @@ impl ConnectionHandler {
         client: &ClientStateHandle,
         reason: data::RoomJoinFailedReason,
     ) -> HandlerResult<()> {
-        let buf = data::encode_message!(self, 32, msg => {
+        let buf = data::encode_message!(self, 40, msg => {
             let mut join_failed = msg.reborrow().init_room_join_failed();
             join_failed.set_reason(reason);
         })?;
@@ -756,7 +756,7 @@ impl ConnectionHandler {
         let players = self.pick_players_to_send(client, room).await;
 
         // TODO (high): that number is uncertain
-        let cap = 96 + BYTES_PER_PLAYER * players.len();
+        let cap = 128 + BYTES_PER_PLAYER * players.len();
 
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut room_state = msg.reborrow().init_room_state();
@@ -862,7 +862,7 @@ impl ConnectionHandler {
         client: &ClientStateHandle,
         reason: data::JoinSessionFailedReason,
     ) -> HandlerResult<()> {
-        let buf = data::encode_message!(self, 32, msg => {
+        let buf = data::encode_message!(self, 40, msg => {
             let mut join_failed = msg.reborrow().init_join_failed();
             join_failed.set_reason(reason);
         })?;
@@ -909,7 +909,7 @@ impl ConnectionHandler {
         const BYTES_PER_ROOM: usize = 112; // TODO (high)
 
         // TODO:
-        let cap = 64 + BYTES_PER_ROOM * rooms.len();
+        let cap = 48 + BYTES_PER_ROOM * rooms.len();
 
         debug!("encoding {} rooms, cap: {}", rooms.len(), cap);
 

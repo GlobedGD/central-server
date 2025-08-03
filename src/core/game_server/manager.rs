@@ -129,7 +129,7 @@ impl GameServerManager {
             .find(|s| s.data.id == server_id)
             .ok_or(GameServerError::ServerNotFound)?;
 
-        let buf = data::encode_message_unsafe!(self, 32, msg => {
+        let buf = data::encode_message_unsafe!(self, 40, msg => {
             let mut room_created = msg.init_notify_room_created();
             room_created.set_room_id(room_id);
             room_created.set_passcode(passcode);
@@ -171,7 +171,7 @@ impl GameServerManager {
             .find(|s| s.data.id == server_id)
             .ok_or(GameServerError::ServerNotFound)?;
 
-        let buf = data::encode_message_unsafe!(self, 32, msg => {
+        let buf = data::encode_message_unsafe!(self, 40, msg => {
             let mut room_deleted = msg.init_notify_room_deleted();
             room_deleted.set_room_id(room_id);
         })?;
