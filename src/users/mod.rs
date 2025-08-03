@@ -97,6 +97,10 @@ impl UsersModule {
 
     /// Converts a slice of role IDs into a comma-separated string of string IDs
     pub fn make_role_string(&self, roles: &[u8]) -> String {
+        if roles.is_empty() {
+            return String::new();
+        }
+
         itertools::join(roles.iter().filter_map(|id| self.get_role(*id).map(|role| &role.id)), ",")
     }
 }
