@@ -472,7 +472,8 @@ impl ConnectionHandler {
         client.set_icons(icons);
 
         // refresh the user's user token (or generate a new one)
-        let roles_str = users.make_role_string(&client.role().unwrap().roles);
+        let client_roles = &client.role().unwrap().roles;
+        let roles_str = users.make_role_string(client_roles);
         let token =
             auth.generate_user_token(data.account_id, data.user_id, &data.username, &roles_str);
 
@@ -490,8 +491,12 @@ impl ConnectionHandler {
 
         // send login success message with all servers
         let servers = self.game_server_manager.servers();
+        let all_roles = users.get_roles();
 
-        let buf = data::encode_message!(self, 1024, msg => {
+        // roughly estimate how many bytes will it take to encode the response
+        let cap = 80 + token.len() + servers.len() * 256 + all_roles.len() * 128;
+
+        let buf = data::encode_message_heap!(self, cap, msg => {
             let mut login_ok = msg.reborrow().init_login_ok();
             login_ok.set_new_token(&token);
 
@@ -500,6 +505,21 @@ impl ConnectionHandler {
             for (i, srv) in servers.iter().enumerate() {
                 let server = srvs.reborrow().get(i as u32);
                 self.encode_game_server(&srv.data, server);
+            }
+
+            // encode all roles
+            let mut all_roles_ser = login_ok.reborrow().init_all_roles(all_roles.len() as u32);
+
+            for (i, role) in all_roles.iter().enumerate() {
+                let mut role_ser = all_roles_ser.reborrow().get(i as u32);
+                role_ser.set_string_id(&role.id);
+                role_ser.set_icon(&role.icon);
+                role_ser.set_name_color(&role.name_color);
+            }
+
+            // encode user's roles
+            if let Err(e) = login_ok.reborrow().set_user_roles(client_roles.as_slice()) {
+                warn!("[{}] failed to encode user roles: {}", client.address, e);
             }
         })?;
 
