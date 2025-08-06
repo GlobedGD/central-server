@@ -136,6 +136,8 @@ pub enum ArgonClientError {
     UnexpectedAccountId,
     #[error("Failed to decode server response: {0}")]
     DecodeError(#[from] ByteReaderError),
+    #[error("Invalid token provided by the user")]
+    InvalidToken,
     #[error("{0}")]
     Other(String),
 }
@@ -171,11 +173,6 @@ struct InnerState {
     req_rx: channel::Receiver<ArgonValidateRequest>,
 }
 
-struct InFlightReq {
-    tx: channel::Sender<ArgonValidateResponse>,
-    account_id: i32,
-}
-
 impl InnerState {
     pub fn new(url: String, api_token: String) -> Self {
         let (req_tx, req_rx) = channel::new_channel(128);
@@ -193,23 +190,43 @@ impl InnerState {
         tokio::spawn(async move {
             // websocket thread will keep trying to connect to the argon server, sleeping on failure
             loop {
-                match self._try_connect().await {
-                    Ok(conn) => match self._conn_loop(conn).await {
-                        Ok(()) => {}
+                let mut in_flight = VecDeque::new();
+
+                let (do_sleep, do_clear) = match self._try_connect().await {
+                    Ok(conn) => match self._conn_loop(conn, &mut in_flight).await {
+                        Ok(()) => (false, false),
                         Err(e) => {
                             warn!("argon connection loop failed: {e}");
+                            (
+                                false,
+                                // clear all requests if the state of request queue is invalid, this should never happen
+                                // otherwise, we want to keep all requests and try to handle them after reconnecting
+                                matches!(
+                                    e,
+                                    ArgonClientError::UnexpectedAccountId
+                                        | ArgonClientError::InvalidMessage
+                                ),
+                            )
                         }
                     },
+
                     Err(e) => {
                         warn!("connection to argon server failed: {e}");
+                        (true, true)
                     }
+                };
+
+                self.connected.store(false, Ordering::Release);
+
+                if do_clear {
+                    // clear all requests, but only if the initial connection failed
+                    in_flight.clear();
+                    self.req_rx.drain();
                 }
 
-                // do cleanup
-                self.connected.store(false, Ordering::Release);
-                self.req_rx.drain();
-
-                tokio::time::sleep(Duration::from_secs(15)).await;
+                if do_sleep {
+                    tokio::time::sleep(Duration::from_secs(15)).await;
+                }
             }
         })
     }
@@ -279,24 +296,38 @@ impl InnerState {
     async fn _conn_loop(
         &self,
         mut socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
+        in_flight: &mut VecDeque<ArgonValidateRequest>,
     ) -> Result<(), ArgonClientError> {
-        self.req_rx.drain();
         self.connected.store(true, Ordering::SeqCst);
 
         info!("Argon client successfully connected to {}", self.url);
 
-        let mut in_flight = VecDeque::new();
+        // if there are any requests from the previous connection, resend them
+        for req in in_flight.iter() {
+            self.send_req(req, &mut socket).await?;
+        }
 
         let mut last_ping = Instant::now();
 
         loop {
             // TODO: make this configurable
-            let until_ping = Duration::from_secs(25).saturating_sub(last_ping.elapsed());
+            let until_ping = Duration::from_secs(40).saturating_sub(last_ping.elapsed());
 
             tokio::select! {
                 msg = self.req_rx.recv() => match msg {
-                    Some(msg) => {
-                        self.send_req(msg, &mut socket, &mut in_flight).await?;
+                    Some(msg) => match self.send_req(&msg, &mut socket).await {
+                        Ok(()) => {
+                            in_flight.push_back(msg);
+                        }
+
+                        Err(ArgonClientError::InvalidToken) => {
+                            msg.tx.send(ArgonValidateResponse { result: Err("invalid token".to_owned()) });
+                        }
+
+                        Err(e) => {
+                            warn!("failed to send argon request: {e}");
+                            return Err(e);
+                        }
                     },
 
                     None => panic!("Argon request channel closed unexpectedly"),
@@ -304,11 +335,10 @@ impl InnerState {
 
                 msg = socket.next() => match msg {
                     Some(Ok(msg)) => {
-                        self.handle_message(msg, &mut in_flight).await?;
+                        self.handle_message(msg, in_flight).await?;
                     },
 
                     Some(Err(e)) => {
-                        error!("argon server connection error: {e}");
                         return Err(ArgonClientError::ConnectionError(Box::new(e)));
                     },
 
@@ -328,9 +358,8 @@ impl InnerState {
 
     async fn send_req(
         &self,
-        msg: ArgonValidateRequest,
+        msg: &ArgonValidateRequest,
         socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
-        in_flight: &mut VecDeque<InFlightReq>,
     ) -> Result<(), ArgonClientError> {
         let mut data_buf = [0u8; 256];
 
@@ -340,18 +369,11 @@ impl InnerState {
         writer.write_i32(msg.account_id);
 
         if writer.try_write_string_u16(&msg.token).is_err() {
-            msg.tx.send(ArgonValidateResponse { result: Err("".to_owned()) });
-            return Ok(());
+            return Err(ArgonClientError::InvalidToken);
         }
 
         // send a ws message
         socket.send(Message::Binary(Bytes::copy_from_slice(writer.written()))).await?;
-
-        // add to in-flight queue
-        in_flight.push_back(InFlightReq {
-            tx: msg.tx,
-            account_id: msg.account_id,
-        });
 
         Ok(())
     }
@@ -359,7 +381,7 @@ impl InnerState {
     async fn handle_message(
         &self,
         msg: Message,
-        in_flight: &mut VecDeque<InFlightReq>,
+        in_flight: &mut VecDeque<ArgonValidateRequest>,
     ) -> Result<(), ArgonClientError> {
         if msg.is_pong() {
             return Ok(());
@@ -415,7 +437,11 @@ impl InnerState {
         };
 
         match in_flight.pop_front() {
-            Some(InFlightReq { tx, account_id: expected_id }) => {
+            Some(ArgonValidateRequest {
+                tx,
+                account_id: expected_id,
+                token: _,
+            }) => {
                 // this should never really happen
                 if account_id != expected_id {
                     error!(
