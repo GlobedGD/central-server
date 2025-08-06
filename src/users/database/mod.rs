@@ -99,7 +99,7 @@ impl UsersDb {
             Some(p) => Some(UserPunishment {
                 id: p.id,
                 account_id: p.account_id,
-                r#type: match p.r#type.as_str() {
+                r#type: match p.r#type.as_deref().unwrap_or_default() {
                     "mute" => UserPunishmentType::Mute,
                     "ban" => UserPunishmentType::Ban,
                     "roomban" => UserPunishmentType::RoomBan,

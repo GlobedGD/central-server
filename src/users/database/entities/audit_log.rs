@@ -3,17 +3,18 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
-#[sea_orm(table_name = "punishment")]
+#[sea_orm(table_name = "audit_log")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub account_id: i32,
-    #[sea_orm(column_type = "custom(\"enum_text\")", nullable)]
-    pub r#type: Option<String>,
-    pub reason: String,
-    pub expires_at: Option<i64>,
-    pub issued_by: i32,
-    pub issued_at: Option<i64>,
+    #[sea_orm(column_type = "custom(\"enum_text\")")]
+    pub r#type: String,
+    pub timestamp: i64,
+    pub target_account_id: Option<i32>,
+    pub message: Option<String>,
+    pub duration: Option<i32>,
+    pub rolediff: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
