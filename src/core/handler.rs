@@ -58,6 +58,8 @@ pub enum HandlerError {
     Encoder(#[from] EncodeMessageError),
     #[error("cannot handle this message while unauthorized")]
     Unauthorized,
+    #[error("sensitive message received from a non-moderator")]
+    NotAdmin,
 }
 
 type HandlerResult<T> = Result<T, HandlerError>;
@@ -263,6 +265,52 @@ impl AppHandler for ConnectionHandler {
 
                 self.handle_leave_session(client).await
             },
+
+            AdminLogin(message) => {
+                let password = message.get_password()?.to_str()?;
+
+                self.handle_admin_login(client, password).await
+            },
+
+            AdminKick(message) => {
+                let account_id = message.get_account_id();
+                let reason = message.get_message()?.to_str()?;
+
+                self.handle_admin_kick(client, account_id, reason).await
+            },
+
+            AdminNotice(message) => {
+                let account_id = message.get_account_id();
+                let can_reply = message.get_can_reply();
+                let message = message.get_message()?.to_str()?;
+
+                self.handle_admin_notice(client, Some(account_id), message, can_reply)
+            },
+
+            AdminNoticeEveryone(message) => {
+                let message = message.get_message()?.to_str()?;
+                self.handle_admin_notice(client, None, message, false)
+            },
+
+            AdminFetchUser(message) => {
+                let account_id = message.get_account_id();
+
+                self.handle_admin_fetch_user(client, account_id)
+            },
+
+            AdminBan(message) => {
+                let account_id = message.get_account_id();
+                let reason = message.get_reason()?.to_str()?;
+                let expires_at = message.get_expires_at();
+
+                self.handle_admin_ban(client, account_id, reason, expires_at).await
+            },
+
+            AdminUnban(message) => {
+                let account_id = message.get_account_id();
+
+                self.handle_admin_unban(client, account_id).await
+            },
         });
 
         match result {
@@ -283,6 +331,14 @@ fn must_auth(client: &ClientState<ConnectionHandler>) -> HandlerResult<()> {
         Ok(())
     } else {
         Err(HandlerError::Unauthorized)
+    }
+}
+
+fn must_admin_auth(client: &ClientState<ConnectionHandler>) -> HandlerResult<()> {
+    if client.data().authorized_admin() {
+        Ok(())
+    } else {
+        Err(HandlerError::NotAdmin)
     }
 }
 
@@ -382,6 +438,10 @@ impl ConnectionHandler {
     }
 
     // Handling of clients.
+
+    fn find_client(&self, account_id: i32) -> Option<ClientStateHandle> {
+        self.all_clients.get(&account_id).and_then(|x| x.upgrade())
+    }
 
     async fn handle_login_attempt(
         &self,
@@ -797,7 +857,7 @@ impl ConnectionHandler {
         {
             let friend_list = client.friend_list.lock();
             for friend in friend_list.iter() {
-                if let Some(friend) = self.all_clients.get(friend).and_then(|x| x.upgrade())
+                if let Some(friend) = self.find_client(*friend)
                     && let Some(room_id) = friend.get_room_id()
                     && room_id == room.id
                 {
@@ -925,8 +985,7 @@ impl ConnectionHandler {
                 room_ser.set_has_password(room.has_password());
                 room.settings.encode(room_ser.reborrow().init_settings());
 
-                let owner = self.all_clients.get(&room.owner).and_then(|x| x.upgrade());
-                if let Some(owner) = owner {
+                if let Some(owner) = self.find_client(room.owner) {
                     let mut owner_ser = room_ser.reborrow().init_room_owner();
                     Self::encode_room_player(&owner, owner_ser.reborrow());
                 }
@@ -990,6 +1049,164 @@ impl ConnectionHandler {
                 })
                 .await;
         }
+
+        Ok(())
+    }
+
+    // Moderation utilities
+
+    fn send_admin_result<Fr: AsRef<str>>(
+        &self,
+        client: &ClientStateHandle,
+        result: Result<(), Fr>,
+    ) -> HandlerResult<()> {
+        let buf = data::encode_message!(self, 40, msg => {
+            let mut admin_result = msg.reborrow().init_admin_result();
+
+            match result {
+                Ok(()) => admin_result.set_success(true),
+                Err(e) => {
+                    admin_result.set_success(false);
+                    admin_result.set_error(e.as_ref())
+                }
+            }
+        })?;
+
+        client.send_data_bufkind(buf);
+        Ok(())
+    }
+
+    async fn handle_admin_login(
+        &self,
+        client: &ClientStateHandle,
+        password: &str,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let users = self.module::<UsersModule>();
+
+        let result = match users.admin_login(client.account_id(), password).await {
+            Ok(true) => Ok(()),
+
+            Ok(false) => Err("invalid credentials"),
+
+            Err(e) => {
+                warn!("[{} @ {}] admin login failed: {}", client.account_id(), client.address, e);
+                Err("internal error")
+            }
+        };
+
+        if result.is_ok() {
+            client.set_authorized_admin();
+        }
+
+        self.send_admin_result(client, result)?;
+
+        Ok(())
+    }
+
+    async fn handle_admin_kick(
+        &self,
+        client: &ClientStateHandle,
+        account_id: i32,
+        reason: &str,
+    ) -> HandlerResult<()> {
+        must_admin_auth(client)?;
+
+        let result = if let Some(client) = self.find_client(account_id) {
+            // kick the person
+            client.disconnect(Cow::Owned(reason.to_owned()));
+            Ok(())
+        } else {
+            Err("failed to find the target person")
+        };
+
+        self.send_admin_result(client, result)?;
+
+        Ok(())
+    }
+
+    fn handle_admin_notice(
+        &self,
+        client: &ClientStateHandle,
+        account_id: Option<i32>,
+        message: &str,
+        can_reply: bool,
+    ) -> HandlerResult<()> {
+        must_admin_auth(client)?;
+
+        if let Some(user) = account_id.and_then(|id| self.find_client(id)) {
+            self.send_notice(client, &user, message, can_reply, false)?; // TODO: show_sender
+        } else {
+            // send a notice to everyone!
+            for user in self.all_clients.iter().filter_map(|x| x.value().upgrade()) {
+                self.send_notice(client, &user, message, can_reply, false)?; // TODO: show_sender
+            }
+        }
+
+        Ok(())
+    }
+
+    fn send_notice(
+        &self,
+        sender: &ClientStateHandle,
+        target: &ClientStateHandle,
+        message: &str,
+        can_reply: bool,
+        show_sender: bool,
+    ) -> HandlerResult<()> {
+        let buf = data::encode_message_heap!(self, 64 + message.len(), msg => {
+            let mut notice = msg.init_notice();
+            notice.set_message(message);
+            notice.set_can_reply(can_reply);
+
+            if show_sender {
+                let account_data = sender.account_data().expect("must have account data");
+
+                notice.set_sender_id(account_data.account_id);
+                notice.set_sender_name(&account_data.username);
+            } else {
+                notice.set_sender_id(0);
+            }
+        })?;
+
+        target.send_data_bufkind(buf);
+
+        Ok(())
+    }
+
+    fn handle_admin_fetch_user(
+        &self,
+        client: &ClientStateHandle,
+        account_id: i32,
+    ) -> HandlerResult<()> {
+        must_admin_auth(client)?;
+
+        if let Some(user) = self.find_client(account_id) {
+            // TODO
+        }
+
+        Ok(())
+    }
+
+    async fn handle_admin_ban(
+        &self,
+        client: &ClientStateHandle,
+        account_id: i32,
+        reason: &str,
+        expires_at: i64,
+    ) -> HandlerResult<()> {
+        must_admin_auth(client)?;
+
+        Ok(())
+    }
+
+    async fn handle_admin_unban(
+        &self,
+        client: &ClientStateHandle,
+        account_id: i32,
+    ) -> HandlerResult<()> {
+        must_admin_auth(client)?;
 
         Ok(())
     }

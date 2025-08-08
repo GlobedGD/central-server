@@ -22,6 +22,7 @@ pub struct ClientData {
 
     room: Mutex<Option<ClientRoomHandle>>,
     session_id: AtomicU64,
+    authorized_admin: AtomicBool,
     deauthorized: AtomicBool,
 
     pub active_mute: Mutex<Option<UserPunishment>>,
@@ -154,5 +155,13 @@ impl ClientData {
 
     pub fn set_role(&self, role: ComputedRole) {
         let _ = self.role.set(role);
+    }
+
+    pub fn authorized_admin(&self) -> bool {
+        self.authorized_admin.load(Ordering::Relaxed)
+    }
+
+    pub fn set_authorized_admin(&self) {
+        self.authorized_admin.store(true, Ordering::Relaxed);
     }
 }

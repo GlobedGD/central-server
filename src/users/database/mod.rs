@@ -1,24 +1,35 @@
-use std::{
-    num::NonZeroI64,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::num::NonZeroI64;
 
-use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectOptions, Database, DatabaseConnection,
-    EntityTrait, IntoActiveModel, QueryFilter, prelude::*,
-};
-use sea_orm_migration::MigratorTrait;
 use thiserror::Error;
+#[cfg(feature = "database")]
+use {
+    sea_orm::{
+        ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectOptions, Database,
+        DatabaseConnection, EntityTrait, IntoActiveModel, QueryFilter, prelude::*,
+    },
+    sea_orm_migration::MigratorTrait,
+    std::time::{SystemTime, UNIX_EPOCH},
+};
 
+mod log_action;
+pub use log_action::LogAction;
+
+#[allow(warnings)]
+#[cfg(feature = "database")]
 mod entities;
+#[cfg(feature = "database")]
 mod migrations;
 
+#[cfg(feature = "database")]
 pub use entities::prelude::*;
+#[cfg(feature = "database")]
 use entities::*;
+#[cfg(feature = "database")]
 use migrations::Migrator;
 
 #[derive(Error, Debug)]
 pub enum DatabaseError {
+    #[cfg(feature = "database")]
     #[error("Database error: {0}")]
     Db(#[from] sea_orm::DbErr),
     #[error("Invalid punishment type in the database")]
@@ -29,10 +40,12 @@ pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
 pub struct UsersDb {
     // slightly misleading name but this is a connection pool, not a single connection
+    #[cfg(feature = "database")]
     conn: DatabaseConnection,
 }
 
 impl UsersDb {
+    #[cfg(feature = "database")]
     pub async fn new(url: &str, pool_size: u32) -> DatabaseResult<Self> {
         let mut opt = ConnectOptions::new(url);
         opt.max_connections(pool_size).min_connections(1);
@@ -42,11 +55,23 @@ impl UsersDb {
         Ok(Self { conn: db })
     }
 
+    #[cfg(not(feature = "database"))]
+    pub async fn new(_url: &str, _pool_size: u32) -> DatabaseResult<Self> {
+        Ok(Self {})
+    }
+
+    #[cfg(feature = "database")]
     pub async fn run_migrations(&self) -> DatabaseResult<()> {
         Migrator::up(&self.conn, None).await?;
         Ok(())
     }
 
+    #[cfg(not(feature = "database"))]
+    pub async fn run_migrations(&self) -> DatabaseResult<()> {
+        Ok(())
+    }
+
+    #[cfg(feature = "database")]
     pub async fn get_user(&self, account_id: i32) -> DatabaseResult<Option<DbUser>> {
         let user = User::find_by_id(account_id).one(&self.conn).await?;
 
@@ -91,6 +116,12 @@ impl UsersDb {
         Ok(Some(user))
     }
 
+    #[cfg(not(feature = "database"))]
+    pub async fn get_user(&self, _account_id: i32) -> DatabaseResult<Option<DbUser>> {
+        Ok(None)
+    }
+
+    #[cfg(feature = "database")]
     pub async fn get_punishment(&self, id: i32) -> DatabaseResult<Option<UserPunishment>> {
         let punishment = Punishment::find_by_id(id).one(&self.conn).await?;
 
@@ -113,6 +144,12 @@ impl UsersDb {
         })
     }
 
+    #[cfg(not(feature = "database"))]
+    pub async fn get_punishment(&self, _id: i32) -> DatabaseResult<Option<UserPunishment>> {
+        Ok(None)
+    }
+
+    #[cfg(feature = "database")]
     pub async fn update_username(&self, account_id: i32, new_username: &str) -> DatabaseResult<()> {
         User::update_many()
             .filter(user::Column::AccountId.eq(account_id))
@@ -123,7 +160,13 @@ impl UsersDb {
         Ok(())
     }
 
+    #[cfg(not(feature = "database"))]
+    pub async fn update_username(&self, _: i32, _: &str) -> DatabaseResult<()> {
+        Ok(())
+    }
+
     /// Returns whether the user was modified
+    #[cfg(feature = "database")]
     fn expire_punishments(&self, user: &mut DbUser) -> bool {
         let mut modified = false;
 
@@ -143,11 +186,70 @@ impl UsersDb {
         modified
     }
 
-    pub async fn run<R, F>(&self, f: F) -> DatabaseResult<R>
-    where
-        F: AsyncFnOnce(&DatabaseConnection) -> DatabaseResult<R>,
-    {
-        f(&self.conn).await
+    #[cfg(feature = "database")]
+    pub async fn get_admin_password_hash(&self, account_id: i32) -> DatabaseResult<Option<String>> {
+        let user = User::find_by_id(account_id).one(&self.conn).await?;
+
+        Ok(user.and_then(|u| u.admin_password_hash))
+    }
+
+    #[cfg(not(feature = "database"))]
+    pub async fn get_admin_password_hash(&self, _: i32) -> DatabaseResult<Option<String>> {
+        Ok(None)
+    }
+
+    #[cfg(feature = "database")]
+    pub async fn log_action(&self, account_id: i32, action: LogAction<'_>) -> DatabaseResult<()> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+
+        let mut entry = audit_log::ActiveModel {
+            account_id: Set(account_id),
+            r#type: Set(action.type_str().to_owned()),
+            timestamp: Set(timestamp),
+            target_account_id: Set(Some(action.account_id())),
+            ..Default::default()
+        };
+
+        match action {
+            LogAction::Kick { reason, .. } => {
+                entry.message = Set(Some(reason.to_owned()));
+            }
+
+            LogAction::Notice { message, .. } => {
+                entry.message = Set(Some(message.to_owned()));
+            }
+
+            LogAction::Ban { reason, duration, .. }
+            | LogAction::Mute { reason, duration, .. }
+            | LogAction::EditBan { reason, duration, .. }
+            | LogAction::EditMute { reason, duration, .. }
+            | LogAction::RoomBan { reason, duration, .. }
+            | LogAction::EditRoomBan { reason, duration, .. } => {
+                entry.message = Set(Some(reason.to_owned()));
+                entry.duration = Set(duration.map(|x| x.as_secs() as i64));
+            }
+
+            LogAction::Unban { .. } | LogAction::Unmute { .. } | LogAction::RoomUnban { .. } => {
+                // no extra fields
+            }
+
+            LogAction::EditRoles { rolediff, .. } => {
+                entry.message = Set(Some(rolediff.to_owned()));
+            }
+
+            LogAction::EditPassword { .. } => {
+                // no extra fields
+            }
+        }
+
+        entry.insert(&self.conn).await?;
+
+        Ok(())
+    }
+
+    #[cfg(not(feature = "database"))]
+    pub async fn log_action(&self, _: i32, _: LogAction<'_>) -> DatabaseResult<()> {
+        Ok(())
     }
 }
 

@@ -4,5 +4,6 @@ logs
 *.qdb
 quic
 /config
+.vscode
 
 db.sqlite

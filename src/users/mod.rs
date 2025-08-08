@@ -7,6 +7,7 @@ use crate::{
 
 mod config;
 mod database;
+mod pwhash;
 
 pub use config::Config;
 use database::UsersDb;
@@ -102,6 +103,14 @@ impl UsersModule {
         }
 
         itertools::join(roles.iter().filter_map(|id| self.get_role(*id).map(|role| &role.id)), ",")
+    }
+
+    // Moderation utilities
+
+    pub async fn admin_login(&self, account_id: i32, password: &str) -> DatabaseResult<bool> {
+        let hash = self.db.get_admin_password_hash(account_id).await?;
+
+        Ok(hash.map(|hash| pwhash::verify(password, &hash)).unwrap_or(false))
     }
 }
 

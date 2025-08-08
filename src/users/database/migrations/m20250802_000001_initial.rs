@@ -64,8 +64,7 @@ impl MigrationTrait for Migration {
                     .col(big_integer(AuditLog::Timestamp))
                     .col(integer_null(AuditLog::TargetAccountId))
                     .col(string_null(AuditLog::Message))
-                    .col(integer_null(AuditLog::Duration))
-                    .col(string_null(AuditLog::Rolediff))
+                    .col(big_integer_null(AuditLog::Duration))
                     .to_owned(),
             )
             .await?;
@@ -156,7 +155,6 @@ pub enum AuditLog {
     Type,
     Timestamp,
     TargetAccountId, // applies to all, target of the punishment/action
-    Message,         // for notices/kicks it's the message, for punishments it's the reason
-    Duration,        // in seconds, applies to mutes/bans/roombans
-    Rolediff,        // applies to editroles, string formatted like "+role1,-role2"
+    Message, // for notices/kicks it's the message, for punishments it's the reason, for editroles it's the rolediff (string in format "+role1,-role2")
+    Duration, // in seconds, applies to mutes/bans/roombans
 }
