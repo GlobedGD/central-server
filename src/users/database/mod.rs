@@ -44,6 +44,11 @@ pub struct UsersDb {
     conn: DatabaseConnection,
 }
 
+fn timestamp() -> NonZeroI64 {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+    NonZeroI64::new(now).unwrap()
+}
+
 impl UsersDb {
     #[cfg(feature = "database")]
     pub async fn new(url: &str, pool_size: u32) -> DatabaseResult<Self> {
@@ -151,11 +156,23 @@ impl UsersDb {
 
     #[cfg(feature = "database")]
     pub async fn update_username(&self, account_id: i32, new_username: &str) -> DatabaseResult<()> {
-        User::update_many()
+        let result = User::update_many()
             .filter(user::Column::AccountId.eq(account_id))
             .col_expr(user::Column::Username, Expr::value(new_username))
             .exec(&self.conn)
             .await?;
+
+        if result.rows_affected == 0 {
+            // user does not exist, insert a new one
+            let new_user = user::ActiveModel {
+                account_id: Set(account_id),
+                username: Set(Some(new_username.to_owned())),
+                is_whitelisted: Set(false),
+                ..Default::default()
+            };
+
+            new_user.insert(&self.conn).await?;
+        }
 
         Ok(())
     }
@@ -199,6 +216,145 @@ impl UsersDb {
     }
 
     #[cfg(feature = "database")]
+    pub async fn set_admin_password_hash(&self, account_id: i32, hash: &str) -> DatabaseResult<()> {
+        User::update_many()
+            .filter(user::Column::AccountId.eq(account_id))
+            .col_expr(user::Column::AdminPasswordHash, Expr::value(hash))
+            .exec(&self.conn)
+            .await?;
+
+        Ok(())
+    }
+
+    #[cfg(not(feature = "database"))]
+    pub async fn set_admin_password_hash(&self, _: i32, _: &str) -> DatabaseResult<()> {
+        Ok(())
+    }
+
+    /// Punish a user, returns whether the user was already punished and the punishment was updated.
+    /// If the user does not exist, it will return `Ok(None)`.
+    pub async fn punish_user(
+        &self,
+        issuer_id: i32,
+        account_id: i32,
+        r#type: UserPunishmentType,
+        reason: &str,
+        expires_at: Option<NonZeroI64>,
+    ) -> DatabaseResult<Option<bool>> {
+        // check if the user exists and already has a punishment
+        let Some(user) = self.get_user(account_id).await? else {
+            return Ok(None);
+        };
+
+        let active_pun = match r#type {
+            UserPunishmentType::Mute => user.active_mute,
+            UserPunishmentType::Ban => user.active_ban,
+            UserPunishmentType::RoomBan => user.active_room_ban,
+        };
+
+        let updating = active_pun.is_some();
+        let mut punishment = active_pun.unwrap_or_else(|| UserPunishment {
+            id: 0,
+            account_id,
+            r#type,
+            reason: String::new(),
+            expires_at: None,
+            issued_by: 0,
+            issued_at: None,
+        });
+
+        punishment.reason = reason.to_owned();
+        punishment.expires_at = expires_at;
+        punishment.issued_by = issuer_id;
+        punishment.issued_at = Some(timestamp());
+
+        self.insert_or_update_punishment(punishment, updating).await?;
+
+        Ok(Some(updating))
+    }
+
+    #[cfg(feature = "database")]
+    pub async fn unpunish_user(
+        &self,
+        account_id: i32,
+        r#type: UserPunishmentType,
+    ) -> DatabaseResult<()> {
+        self.update_active_punishment(account_id, r#type, None).await
+    }
+
+    #[cfg(feature = "database")]
+    async fn insert_or_update_punishment(
+        &self,
+        p: UserPunishment,
+        updating: bool,
+    ) -> DatabaseResult<()> {
+        let pun = punishment::ActiveModel {
+            id: if updating { Set(p.id) } else { Set(0) },
+            account_id: Set(p.account_id),
+            r#type: Set(Some(
+                match p.r#type {
+                    UserPunishmentType::Mute => "mute",
+                    UserPunishmentType::Ban => "ban",
+                    UserPunishmentType::RoomBan => "roomban",
+                }
+                .to_owned(),
+            )),
+            reason: Set(p.reason),
+            expires_at: Set(p.expires_at.map(|x| x.get())),
+            issued_by: Set(p.issued_by),
+            issued_at: Set(p.issued_at.map(|x| x.get())),
+        };
+
+        let pun_id = if updating {
+            pun.update(&self.conn).await?.id
+        } else {
+            pun.insert(&self.conn).await?.id
+        };
+
+        // update active mute / ban / room ban
+        self.update_active_punishment(p.account_id, p.r#type, Some(pun_id)).await?;
+
+        Ok(())
+    }
+
+    async fn update_active_punishment(
+        &self,
+        account_id: i32,
+        punishment_type: UserPunishmentType,
+        punishment_id: Option<i32>,
+    ) -> DatabaseResult<()> {
+        let stmt = User::update_many().filter(user::Column::AccountId.eq(account_id));
+
+        let stmt = match punishment_type {
+            UserPunishmentType::Mute => {
+                stmt.col_expr(user::Column::ActiveMute, Expr::value(punishment_id))
+            }
+
+            UserPunishmentType::Ban => {
+                stmt.col_expr(user::Column::ActiveBan, Expr::value(punishment_id))
+            }
+
+            UserPunishmentType::RoomBan => {
+                stmt.col_expr(user::Column::ActiveRoomBan, Expr::value(punishment_id))
+            }
+        };
+
+        stmt.exec(&self.conn).await?;
+
+        Ok(())
+    }
+
+    pub async fn update_roles(&self, account_id: i32, roles: &str) -> DatabaseResult<()> {
+        User::update_many()
+            .filter(user::Column::AccountId.eq(account_id))
+            .col_expr(user::Column::Roles, Expr::value(roles))
+            .exec(&self.conn)
+            .await?;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "database")]
     pub async fn log_action(&self, account_id: i32, action: LogAction<'_>) -> DatabaseResult<()> {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
 
@@ -219,14 +375,14 @@ impl UsersDb {
                 entry.message = Set(Some(message.to_owned()));
             }
 
-            LogAction::Ban { reason, duration, .. }
-            | LogAction::Mute { reason, duration, .. }
-            | LogAction::EditBan { reason, duration, .. }
-            | LogAction::EditMute { reason, duration, .. }
-            | LogAction::RoomBan { reason, duration, .. }
-            | LogAction::EditRoomBan { reason, duration, .. } => {
+            LogAction::Ban { reason, expires_at, .. }
+            | LogAction::Mute { reason, expires_at, .. }
+            | LogAction::EditBan { reason, expires_at, .. }
+            | LogAction::EditMute { reason, expires_at, .. }
+            | LogAction::RoomBan { reason, expires_at, .. }
+            | LogAction::EditRoomBan { reason, expires_at, .. } => {
                 entry.message = Set(Some(reason.to_owned()));
-                entry.duration = Set(duration.map(|x| x.as_secs() as i64));
+                entry.expires_at = Set(NonZeroI64::new(expires_at).map(|x| x.get()));
             }
 
             LogAction::Unban { .. } | LogAction::Unmute { .. } | LogAction::RoomUnban { .. } => {
@@ -246,13 +402,9 @@ impl UsersDb {
 
         Ok(())
     }
-
-    #[cfg(not(feature = "database"))]
-    pub async fn log_action(&self, _: i32, _: LogAction<'_>) -> DatabaseResult<()> {
-        Ok(())
-    }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UserPunishmentType {
     Mute,
     Ban,

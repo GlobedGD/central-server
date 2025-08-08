@@ -27,6 +27,8 @@ pub struct Role {
     pub can_mute: Option<bool>,
     #[serde(default)]
     pub can_ban: Option<bool>,
+    #[serde(default)]
+    pub can_set_password: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize)]

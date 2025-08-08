@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 pub enum LogAction<'a> {
     Kick {
         account_id: i32,
@@ -14,13 +12,13 @@ pub enum LogAction<'a> {
     Mute {
         account_id: i32,
         reason: &'a str,
-        duration: Option<Duration>,
+        expires_at: i64,
     },
 
     EditMute {
         account_id: i32,
         reason: &'a str,
-        duration: Option<Duration>,
+        expires_at: i64,
     },
 
     Unmute {
@@ -30,13 +28,13 @@ pub enum LogAction<'a> {
     Ban {
         account_id: i32,
         reason: &'a str,
-        duration: Option<Duration>,
+        expires_at: i64,
     },
 
     EditBan {
         account_id: i32,
         reason: &'a str,
-        duration: Option<Duration>,
+        expires_at: i64,
     },
 
     Unban {
@@ -46,13 +44,13 @@ pub enum LogAction<'a> {
     RoomBan {
         account_id: i32,
         reason: &'a str,
-        duration: Option<Duration>,
+        expires_at: i64,
     },
 
     EditRoomBan {
         account_id: i32,
         reason: &'a str,
-        duration: Option<Duration>,
+        expires_at: i64,
     },
 
     RoomUnban {

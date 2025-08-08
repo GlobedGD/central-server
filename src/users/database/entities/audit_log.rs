@@ -13,7 +13,7 @@ pub struct Model {
     pub timestamp: i64,
     pub target_account_id: Option<i32>,
     pub message: Option<String>,
-    pub duration: Option<i64>,
+    pub expires_at: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
