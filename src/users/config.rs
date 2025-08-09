@@ -12,6 +12,10 @@ fn default_roles() -> Vec<Role> {
     vec![]
 }
 
+fn default_super_admins() -> Vec<i32> {
+    vec![]
+}
+
 #[derive(Deserialize, Serialize, Clone)]
 pub struct Role {
     pub id: String,
@@ -29,6 +33,8 @@ pub struct Role {
     pub can_ban: Option<bool>,
     #[serde(default)]
     pub can_set_password: Option<bool>,
+    #[serde(default)]
+    pub can_notice_everyone: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -39,6 +45,8 @@ pub struct Config {
     pub database_pool_size: u32,
     #[serde(default = "default_roles")]
     pub roles: Vec<Role>,
+    #[serde(default = "default_super_admins")]
+    pub super_admins: Vec<i32>,
 }
 
 impl Default for Config {
@@ -47,6 +55,7 @@ impl Default for Config {
             database_url: default_database_url(),
             database_pool_size: default_database_pool_size(),
             roles: default_roles(),
+            super_admins: default_super_admins(),
         }
     }
 }

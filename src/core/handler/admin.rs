@@ -1,12 +1,18 @@
-use std::{borrow::Cow, fmt::Display};
+use std::{borrow::Cow, f32::consts::E, fmt::Display};
 
-use crate::users::{UserPunishmentType, UsersModule};
+use server_shared::SessionId;
+
+use crate::{
+    rooms::RoomModule,
+    users::{UserPunishmentType, UsersModule},
+};
 
 use super::{ConnectionHandler, util::*};
 
 enum ActionType {
     Kick,
     Notice,
+    NoticeEveryone,
     Ban,
     RoomBan,
     Mute,
@@ -24,6 +30,7 @@ fn must_be_able(client: &ClientStateHandle, action: ActionType) -> HandlerResult
     let can = match action {
         ActionType::Kick => role.can_kick,
         ActionType::Notice => true, // anyone can send notices
+        ActionType::NoticeEveryone => role.can_notice_everyone,
         ActionType::Ban => role.can_ban,
         ActionType::RoomBan => role.can_ban,
         ActionType::Mute => role.can_mute,
@@ -128,24 +135,106 @@ impl ConnectionHandler {
     pub async fn handle_admin_notice(
         &self,
         client: &ClientStateHandle,
-        account_id: Option<i32>,
+        target_user: &str,
+        room_id: u32,
+        level_id: i32,
         message: &str,
         can_reply: bool,
     ) -> HandlerResult<()> {
-        must_be_able(client, ActionType::Notice)?;
+        must_be_able(
+            client,
+            if room_id == 0 {
+                ActionType::NoticeEveryone
+            } else {
+                ActionType::Notice
+            },
+        )?;
 
         let users = self.module::<UsersModule>();
 
-        if let Some(user) = account_id.and_then(|id| self.find_client(id)) {
-            let _ = users.log_notice(client.account_id(), user.account_id(), message).await;
-            self.send_notice(client, &user, message, can_reply, false)?; // TODO: show_sender
-        } else {
-            // send a notice to everyone!
-            let _ = users.log_notice(client.account_id(), 0, message).await;
+        let targets = if let Some(target) =
+            target_user.parse::<i32>().ok().and_then(|id| self.find_client(id))
+        {
+            vec![target]
+        } else if !target_user.is_empty() {
+            self.all_clients
+                .iter()
+                .filter_map(|x| {
+                    x.value().upgrade().and_then(|c| {
+                        c.clone().account_data().and_then(|d| {
+                            if d.username.eq_ignore_ascii_case(target_user) {
+                                Some(c)
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                })
+                .collect()
+        } else if room_id != 0 {
+            let rooms = self.module::<RoomModule>();
+            let Some(room) = rooms.get_room(room_id) else {
+                self.send_admin_result(client, Err("failed to find the room"))?;
+                return Ok(());
+            };
 
-            for user in self.all_clients.iter().filter_map(|x| x.value().upgrade()) {
-                self.send_notice(client, &user, message, can_reply, false)?; // TODO: show_sender
-            }
+            room.with_players(|_, players| {
+                let mut out = Vec::new();
+
+                if level_id == 0 {
+                    out.extend(players.map(|(_, p)| p.clone()));
+                } else {
+                    players.for_each(|(_, p)| {
+                        if SessionId::from(p.session_id()).level_id() == level_id {
+                            out.push(p.clone());
+                        }
+                    });
+                }
+
+                out
+            })
+            .await
+        } else if level_id != 0 {
+            self.all_clients
+                .iter()
+                .filter_map(|x| x.value().upgrade())
+                .filter(|c| SessionId::from(c.session_id()).level_id() == level_id)
+                .collect()
+        } else {
+            self.send_admin_result(client, Err("no target specified"))?;
+            return Ok(());
+        };
+
+        if targets.is_empty() {
+            self.send_admin_result(client, Err("failed to find any targets for the notice"))?;
+            return Ok(());
+        }
+
+        if targets.len() == 1 {
+            let _ = users.log_notice(client.account_id(), targets[0].account_id(), message).await;
+        } else {
+            let _ = users.log_notice(client.account_id(), 0, message).await;
+        }
+
+        for target in targets {
+            self.send_notice(client, &target, message, can_reply, true)?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn handle_admin_notice_everyone(
+        &self,
+        client: &ClientStateHandle,
+        message: &str,
+    ) -> HandlerResult<()> {
+        must_be_able(client, ActionType::NoticeEveryone)?;
+
+        let users = self.module::<UsersModule>();
+        let _ = users.log_notice(client.account_id(), 0, message).await;
+
+        for user in self.all_clients.iter().filter_map(|x| x.value().upgrade()) {
+            self.send_notice(client, &user, message, false, false)?; // TODO: show_sender
         }
 
         Ok(())
@@ -173,6 +262,15 @@ impl ConnectionHandler {
                 notice.set_sender_id(0);
             }
         })?;
+
+        info!(
+            "[{} ({})] sent notice to {} ({}): \"{}\"",
+            sender.username(),
+            sender.account_id(),
+            target.username(),
+            target.account_id(),
+            message
+        );
 
         target.send_data_bufkind(buf);
 

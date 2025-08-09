@@ -35,17 +35,23 @@ pub struct ComputedRole {
     pub can_mute: bool,
     pub can_ban: bool,
     pub can_set_password: bool,
+    pub can_notice_everyone: bool,
 }
 
 impl ComputedRole {
     pub fn can_moderate(&self) -> bool {
-        self.can_kick || self.can_mute || self.can_ban || self.can_set_password
+        self.can_kick
+            || self.can_mute
+            || self.can_ban
+            || self.can_set_password
+            || self.can_notice_everyone
     }
 }
 
 pub struct UsersModule {
     db: UsersDb,
-    roles: Vec<Role>, // index = numeric role ID
+    roles: Vec<Role>,       // index = numeric role ID
+    super_admins: Vec<i32>, // account IDs of super admins
 }
 
 impl UsersModule {
@@ -81,8 +87,22 @@ impl UsersModule {
 
     pub fn compute_from_roles<'a>(
         &'a self,
+        account_id: i32,
         mut iter: impl Iterator<Item = &'a str>,
     ) -> ComputedRole {
+        // super admin has the highest possible priority and perms
+        if self.super_admins.contains(&account_id) {
+            return ComputedRole {
+                priority: i32::MAX,
+                can_kick: true,
+                can_mute: true,
+                can_ban: true,
+                can_set_password: true,
+                can_notice_everyone: true,
+                ..Default::default()
+            };
+        }
+
         // start with a baseline user role with minimum priority and no permissions
         let mut out_role = ComputedRole {
             priority: i32::MIN,
@@ -93,6 +113,7 @@ impl UsersModule {
         let mut can_kick = None;
         let mut can_ban = None;
         let mut can_set_password = None;
+        let mut can_notice_everyone = None;
 
         while let Some((role_index, role)) = iter.next().and_then(|s| self.get_role_by_str_id(s)) {
             // determine if this role is stronger than the current strongest role
@@ -111,6 +132,7 @@ impl UsersModule {
             apply_permission(&mut can_kick, role.can_kick);
             apply_permission(&mut can_ban, role.can_ban);
             apply_permission(&mut can_set_password, role.can_set_password);
+            apply_permission(&mut can_notice_everyone, role.can_notice_everyone);
 
             out_role.priority = role.priority;
             let _ = out_role.roles.push(role_index as u8);
@@ -124,6 +146,7 @@ impl UsersModule {
         out_role.can_kick = can_kick.unwrap_or(false);
         out_role.can_ban = can_ban.unwrap_or(false);
         out_role.can_set_password = can_set_password.unwrap_or(false);
+        out_role.can_notice_everyone = can_notice_everyone.unwrap_or(false);
 
         // sort roles by priority descending
         out_role.roles.sort_unstable_by_key(|&id| {
@@ -131,6 +154,13 @@ impl UsersModule {
         });
 
         out_role
+    }
+
+    pub fn compute_from_user(&self, user: &DbUser) -> ComputedRole {
+        self.compute_from_roles(
+            user.account_id,
+            user.roles.as_deref().unwrap_or("").split(',').filter(|x| !x.is_empty()),
+        )
     }
 
     /// Converts a slice of role IDs into a comma-separated string of string IDs
@@ -145,6 +175,11 @@ impl UsersModule {
     // Moderation utilities
 
     pub async fn admin_login(&self, account_id: i32, password: &str) -> DatabaseResult<bool> {
+        // super admins can log in without a password
+        if self.super_admins.contains(&account_id) {
+            return Ok(true);
+        }
+
         let hash = self.db.get_admin_password_hash(account_id).await?;
 
         Ok(hash.map(|hash| pwhash::verify(password, &hash)).unwrap_or(false))
@@ -343,13 +378,8 @@ impl UsersModule {
     }
 
     fn has_stronger_role(&self, issuer: &DbUser, target: &DbUser) -> bool {
-        let issuer_role = self.compute_from_roles(
-            issuer.roles.as_deref().unwrap_or("").split(',').filter(|x| !x.is_empty()),
-        );
-
-        let target_role = self.compute_from_roles(
-            target.roles.as_deref().unwrap_or("").split(',').filter(|x| !x.is_empty()),
-        );
+        let issuer_role = self.compute_from_user(issuer);
+        let target_role = self.compute_from_user(target);
 
         issuer_role.priority > target_role.priority
     }
@@ -370,7 +400,11 @@ impl ServerModule for UsersModule {
         // sort roles by priority descending
         roles.sort_by_key(|role| Reverse(role.priority));
 
-        Ok(Self { db, roles })
+        Ok(Self {
+            db,
+            roles,
+            super_admins: config.super_admins.clone(),
+        })
     }
 
     fn id() -> &'static str {

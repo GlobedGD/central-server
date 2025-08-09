@@ -71,29 +71,25 @@ impl ConnectionHandler {
         if let Some(user) = user {
             // do some checks
 
-            if let Some(username) = user.username
+            if let Some(username) = &user.username
                 && username.as_str() != data.username.as_str()
             {
                 // update the username in the database
                 let _ = users.update_username(data.account_id, &data.username).await;
             }
 
-            if let Some(ban) = user.active_ban {
+            if let Some(ban) = &user.active_ban {
                 // user is banned
                 return self.send_banned(client, &ban.reason, ban.expires_at);
             }
 
             // update various stuff
+            client.set_role(users.compute_from_user(&user));
+
             client.set_active_punishments(user.active_mute, user.active_room_ban);
             client.set_admin_password_hash(user.admin_password_hash);
-
-            let computed_role = users.compute_from_roles(
-                user.roles.as_deref().unwrap_or("").split(",").filter(|s| !s.is_empty()),
-            );
-
-            client.set_role(computed_role);
         } else {
-            client.set_role(users.compute_from_roles(std::iter::empty()));
+            client.set_role(users.compute_from_roles(data.account_id, std::iter::empty()));
         }
 
         info!("[{}] {} ({}) logged in", client.address, data.username, data.account_id);
@@ -122,7 +118,7 @@ impl ConnectionHandler {
         let all_roles = users.get_roles();
 
         // roughly estimate how many bytes will it take to encode the response
-        let cap = 80 + token.len() + servers.len() * 256 + all_roles.len() * 128;
+        let cap = 88 + token.len() + servers.len() * 256 + all_roles.len() * 128;
 
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut login_ok = msg.reborrow().init_login_ok();
@@ -150,7 +146,7 @@ impl ConnectionHandler {
                 warn!("[{}] failed to encode user roles: {}", client.address, e);
             }
 
-            login_ok.set_is_moderator(client.role().is_some_and(|role| role.can_moderate()))
+            login_ok.set_is_moderator(client.role().is_some_and(|role| role.can_moderate()));
         })?;
 
         client.send_data_bufkind(buf);
