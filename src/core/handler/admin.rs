@@ -55,7 +55,7 @@ impl ConnectionHandler {
         client: &ClientStateHandle,
         result: Result<(), Fr>,
     ) -> HandlerResult<()> {
-        let cap = 40 + result.err().map_or(0, |e| e.as_ref().len());
+        let cap = 40 + result.as_ref().err().map_or(0, |e| e.as_ref().len());
 
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut admin_result = msg.reborrow().init_admin_result();
