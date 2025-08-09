@@ -37,6 +37,12 @@ pub struct ComputedRole {
     pub can_set_password: bool,
 }
 
+impl ComputedRole {
+    pub fn can_moderate(&self) -> bool {
+        self.can_kick || self.can_mute || self.can_ban || self.can_set_password
+    }
+}
+
 pub struct UsersModule {
     db: UsersDb,
     roles: Vec<Role>, // index = numeric role ID
@@ -118,6 +124,11 @@ impl UsersModule {
         out_role.can_kick = can_kick.unwrap_or(false);
         out_role.can_ban = can_ban.unwrap_or(false);
         out_role.can_set_password = can_set_password.unwrap_or(false);
+
+        // sort roles by priority descending
+        out_role.roles.sort_unstable_by_key(|&id| {
+            Reverse(self.get_role(id).map_or(i32::MIN, |r| r.priority))
+        });
 
         out_role
     }

@@ -149,6 +149,8 @@ impl ConnectionHandler {
             if let Err(e) = login_ok.reborrow().set_user_roles(client_roles.as_slice()) {
                 warn!("[{}] failed to encode user roles: {}", client.address, e);
             }
+
+            login_ok.set_is_moderator(client.role().is_some_and(|role| role.can_moderate()))
         })?;
 
         client.send_data_bufkind(buf);
