@@ -269,12 +269,13 @@ impl AppHandler for ConnectionHandler {
 
             AdminNotice(message) => {
                 let target_user = message.get_target_user()?.to_str()?;
-                let can_reply = message.get_can_reply();
                 let room_id = message.get_room_id();
                 let level_id = message.get_level_id();
+                let can_reply = message.get_can_reply();
+                let show_sender = message.get_show_sender();
                 let message = message.get_message()?.to_str()?;
 
-                self.handle_admin_notice(client, target_user, room_id, level_id, message, can_reply).await
+                self.handle_admin_notice(client, target_user, room_id, level_id, message, can_reply, show_sender).await
             },
 
             AdminNoticeEveryone(message) => {

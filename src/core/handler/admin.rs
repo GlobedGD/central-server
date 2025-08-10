@@ -55,7 +55,7 @@ impl ConnectionHandler {
         client: &ClientStateHandle,
         result: Result<(), Fr>,
     ) -> HandlerResult<()> {
-        let cap = 40 + result.as_ref().err().map_or(0, |e| e.as_ref().len());
+        let cap = 48 + result.as_ref().err().map_or(0, |e| e.as_ref().len());
 
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut admin_result = msg.reborrow().init_admin_result();
@@ -134,6 +134,7 @@ impl ConnectionHandler {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn handle_admin_notice(
         &self,
         client: &ClientStateHandle,
@@ -142,6 +143,7 @@ impl ConnectionHandler {
         level_id: i32,
         message: &str,
         can_reply: bool,
+        show_sender: bool,
     ) -> HandlerResult<()> {
         must_be_able(
             client,
@@ -219,7 +221,7 @@ impl ConnectionHandler {
         }
 
         for target in targets {
-            self.send_notice(client, &target, message, can_reply, true)?;
+            self.send_notice(client, &target, message, can_reply, show_sender)?;
         }
 
         Ok(())
@@ -236,7 +238,7 @@ impl ConnectionHandler {
         let _ = users.log_notice(client.account_id(), 0, message).await;
 
         for user in self.all_clients.iter().filter_map(|x| x.value().upgrade()) {
-            self.send_notice(client, &user, message, false, false)?; // TODO: show_sender
+            self.send_notice(client, &user, message, false, false)?;
         }
 
         Ok(())
