@@ -359,6 +359,7 @@ dependencies = [
  "serde_json",
  "server-shared",
  "slab",
+ "smallvec",
  "state",
  "thiserror 2.0.12",
  "tikv-jemallocator",

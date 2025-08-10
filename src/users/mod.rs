@@ -359,10 +359,10 @@ impl UsersModule {
         };
 
         for model in logs.iter() {
-            push_user(model.account_id);
+            push_user(model.account_id).await?;
 
             if let Some(target_id) = model.target_account_id {
-                push_user(target_id);
+                push_user(target_id).await?;
             }
         }
 

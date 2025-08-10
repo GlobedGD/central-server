@@ -98,7 +98,7 @@ impl ConnectionHandler {
                     .expect("failed to encode warp message");
 
                     for (_, p) in players {
-                        p.send_data_bufkind(buf.clone_into_small());
+                        p.handle.send_data_bufkind(buf.clone_into_small());
                     }
                 })
                 .await;

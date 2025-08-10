@@ -6,6 +6,8 @@ use crate::rooms::{Room, RoomCreationError, RoomModule, RoomSettings};
 
 use super::{ConnectionHandler, util::*};
 
+const BYTES_PER_PLAYER: usize = 72; // TODO (high)
+
 impl ConnectionHandler {
     pub async fn handle_create_room(
         &self,
@@ -136,11 +138,13 @@ impl ConnectionHandler {
         accdata.set_account_id(account.account_id);
         accdata.set_user_id(account.user_id);
         accdata.set_username(&account.username);
+
+        if let Some(room) = player.lock_room().as_ref() {
+            builder.set_team_id(room.team_id());
+        }
     }
 
     async fn send_room_data(&self, client: &ClientStateHandle, room: &Room) -> HandlerResult<()> {
-        const BYTES_PER_PLAYER: usize = 64; // TODO (high)
-
         let players = self.pick_players_to_send(client, room).await;
 
         // TODO (high): that number is uncertain
@@ -209,7 +213,7 @@ impl ConnectionHandler {
         let written = room
             .with_players(|_, players| {
                 players
-                    .map(|x| x.1.clone())
+                    .map(|x| x.1.handle.clone())
                     .filter(|x| x.account_id() != account_id)
                     .choose_multiple_fill(&mut rand::rng(), &mut out[begin..])
             })
@@ -241,6 +245,147 @@ impl ConnectionHandler {
 
         let sorted = rooms.get_top_rooms(0, 100);
         self.send_room_list(client, &sorted)?;
+
+        Ok(())
+    }
+
+    pub fn handle_assign_team(
+        &self,
+        client: &ClientStateHandle,
+        mut player_id: i32,
+        team_id: u16,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let room = client.lock_room();
+
+        if room.as_ref().is_none_or(|r| r.is_global()) {
+            // cannot do this in a global room
+            return Ok(());
+        }
+
+        let room = room.as_ref().unwrap();
+
+        if player_id == 0 {
+            player_id = client.account_id();
+        } else {
+            // only room owner can assign other players
+            if client.account_id() != room.owner {
+                return Ok(());
+            }
+        }
+
+        if !room.assign_team_to_player(team_id, player_id) {
+            return self.send_warn(
+                client,
+                format!("failed to assign player {player_id} to team {team_id}"),
+            );
+        }
+
+        // notify that player
+        if let Some(player) = self.find_client(player_id) {
+            let buf = data::encode_message!(self, 48, msg => {
+                let mut changed = msg.reborrow().init_team_changed();
+                changed.set_team_id(team_id);
+            })?;
+
+            player.send_data_bufkind(buf);
+        }
+
+        Ok(())
+    }
+
+    pub fn handle_create_team(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let room = client.lock_room();
+
+        if room.as_ref().is_none_or(|r| r.is_global() || r.owner != client.account_id()) {
+            // cannot do this in a global room or if not the room owner
+            return Ok(());
+        }
+
+        let room = room.as_ref().unwrap();
+
+        let (success, team_count) = match room.create_team() {
+            Ok(count) => (true, count),
+            Err(e) => {
+                debug!("team creation failed in room {}: {e}", room.id);
+                (false, room.team_count())
+            }
+        };
+
+        let buf = data::encode_message!(self, 56, msg => {
+            let mut result = msg.init_team_creation_result();
+            result.set_success(success);
+            result.set_team_count(team_count as u16);
+        })?;
+
+        client.send_data_bufkind(buf);
+
+        Ok(())
+    }
+
+    pub fn handle_delete_team(
+        &self,
+        client: &ClientStateHandle,
+        team_id: u16,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let room = client.lock_room();
+
+        if room.as_ref().is_none_or(|r| r.is_global() || r.owner != client.account_id()) {
+            // cannot do this in a global room or if not the room owner
+            return Ok(());
+        }
+
+        let room = room.as_ref().unwrap();
+
+        let Ok(players) = room.delete_team(team_id) else {
+            return Ok(());
+        };
+
+        for player in players {
+            player.handle.send_data_bufkind(data::encode_message!(self, 48, msg => {
+                let mut changed = msg.reborrow().init_team_changed();
+                changed.set_team_id(player.team_id);
+            })?);
+        }
+
+        Ok(())
+    }
+
+    pub fn handle_get_team_members(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let room = client.lock_room();
+
+        if room.as_ref().is_none_or(|r| r.is_global()) {
+            // cannot do this in a global room
+            return Ok(());
+        }
+
+        let room = room.as_ref().unwrap();
+        let team_id = room.team_id();
+
+        let Ok(players) = room.get_players_on_team(team_id) else {
+            return self
+                .send_warn(client, format!("failed to find team {team_id} in the current room"));
+        };
+
+        let cap = 48 + BYTES_PER_PLAYER * players.len();
+        let buf = data::encode_message_heap!(self, cap, msg => {
+            let members = msg.init_team_members();
+            let mut players_ser = members.init_members(players.len() as u32);
+
+            for (i, player) in players.iter().enumerate() {
+                let mut player_ser = players_ser.reborrow().get(i as u32);
+                Self::encode_room_player(&player.handle, player_ser.reborrow());
+            }
+        })?;
+
+        client.send_data_bufkind(buf);
 
         Ok(())
     }

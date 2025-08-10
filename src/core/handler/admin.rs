@@ -186,11 +186,11 @@ impl ConnectionHandler {
                 let mut out = Vec::new();
 
                 if level_id == 0 {
-                    out.extend(players.map(|(_, p)| p.clone()));
+                    out.extend(players.map(|(_, p)| p.handle.clone()));
                 } else {
                     players.for_each(|(_, p)| {
-                        if SessionId::from(p.session_id()).level_id() == level_id {
-                            out.push(p.clone());
+                        if SessionId::from(p.handle.session_id()).level_id() == level_id {
+                            out.push(p.handle.clone());
                         }
                     });
                 }

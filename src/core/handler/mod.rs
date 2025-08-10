@@ -241,6 +241,35 @@ impl AppHandler for ConnectionHandler {
                 self.handle_request_room_list(client)
             },
 
+            AssignTeam(message) => {
+                let account_id = message.get_account_id();
+                let team_id = message.get_team_id();
+
+                unpacked_data.reset(); // free up memory
+
+                self.handle_assign_team(client, account_id, team_id)
+            },
+
+            CreateTeam(_message) => {
+                unpacked_data.reset(); // free up memory
+
+                self.handle_create_team(client)
+            },
+
+            DeleteTeam(message) => {
+                let team_id = message.get_team_id();
+
+                unpacked_data.reset(); // free up memory
+
+                self.handle_delete_team(client, team_id)
+            },
+
+            GetTeamMembers(_message) => {
+                unpacked_data.reset(); // free up memory
+
+                self.handle_get_team_members(client)
+            },
+
             JoinSession(message) => {
                 let id = message.get_session_id();
                 unpacked_data.reset(); // free up memory
@@ -481,6 +510,17 @@ impl ConnectionHandler {
 
         client.send_data_bufkind(buf);
         client.disconnect(Cow::Borrowed("user is banned"));
+
+        Ok(())
+    }
+
+    fn send_warn(&self, client: &ClientStateHandle, message: impl AsRef<str>) -> HandlerResult<()> {
+        let buf = data::encode_message_heap!(self, 48 + message.as_ref().len(), msg => {
+            let mut warn = msg.reborrow().init_warn();
+            warn.set_message(message.as_ref());
+        })?;
+
+        client.send_data_bufkind(buf);
 
         Ok(())
     }
