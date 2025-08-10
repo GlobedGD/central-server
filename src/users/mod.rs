@@ -341,17 +341,17 @@ impl UsersModule {
         let mut datas: Vec<ClientAccountData> = Vec::new();
 
         let mut push_user = async |account_id: i32| -> Result<(), DatabaseError> {
-            if !datas.iter().any(|c| c.account_id == account_id) {
-                if let Some(user) = self.get_user(account_id).await? {
-                    datas.push(ClientAccountData {
-                        account_id,
-                        user_id: 0,
-                        username: user
-                            .username
-                            .and_then(|x| x.as_str().try_into().ok())
-                            .unwrap_or_default(),
-                    });
-                }
+            if !datas.iter().any(|c| c.account_id == account_id)
+                && let Some(user) = self.get_user(account_id).await?
+            {
+                datas.push(ClientAccountData {
+                    account_id,
+                    user_id: 0,
+                    username: user
+                        .username
+                        .and_then(|x| x.as_str().try_into().ok())
+                        .unwrap_or_default(),
+                });
             }
 
             Ok(())
