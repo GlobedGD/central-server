@@ -490,6 +490,7 @@ impl ConnectionHandler {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn handle_admin_fetch_logs(
         &self,
         client: &ClientStateHandle,
@@ -498,13 +499,14 @@ impl ConnectionHandler {
         r#type: &str,
         before: i64,
         after: i64,
+        page: u32,
     ) -> HandlerResult<()> {
         must_admin_auth(client)?;
 
         let users = self.module::<UsersModule>();
 
         let (logs, users) =
-            match users.admin_fetch_logs(issuer, target, r#type, before, after).await {
+            match users.admin_fetch_logs(issuer, target, r#type, before, after, page).await {
                 Ok(x) => x,
                 Err(e) => {
                     self.send_admin_db_result(client, Err(e))?;

@@ -295,8 +295,9 @@ impl AppHandler for ConnectionHandler {
                 let r#type = message.get_type()?.to_str()?;
                 let before = message.get_before();
                 let after = message.get_after();
+                let page = message.get_page();
 
-                self.handle_admin_fetch_logs(client, issuer, target, r#type, before, after).await
+                self.handle_admin_fetch_logs(client, issuer, target, r#type, before, after, page).await
             },
 
             AdminBan(message) => {

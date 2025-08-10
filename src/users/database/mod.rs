@@ -1,6 +1,6 @@
 use std::num::NonZeroI64;
 
-use sea_orm::QueryOrder;
+use sea_orm::{QueryOrder, QuerySelect};
 use thiserror::Error;
 #[cfg(feature = "database")]
 use {
@@ -363,6 +363,7 @@ impl UsersDb {
         r#type: &str,
         before: i64,
         after: i64,
+        page: u32,
     ) -> DatabaseResult<Vec<audit_log::Model>> {
         let mut stmt = AuditLog::find();
 
@@ -386,7 +387,7 @@ impl UsersDb {
             stmt = stmt.filter(audit_log::Column::Timestamp.gte(after))
         }
 
-        stmt = stmt.order_by_desc(audit_log::Column::Id);
+        stmt = stmt.order_by_desc(audit_log::Column::Id).limit(50).offset(page as u64 * 50);
 
         let results: Vec<audit_log::Model> = stmt.all(&self.conn).await?;
 
