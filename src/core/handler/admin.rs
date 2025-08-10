@@ -252,7 +252,7 @@ impl ConnectionHandler {
         can_reply: bool,
         show_sender: bool,
     ) -> HandlerResult<()> {
-        let buf = data::encode_message_heap!(self, 64 + message.len(), msg => {
+        let buf = data::encode_message_heap!(self, 80 + message.len(), msg => {
             let mut notice = msg.init_notice();
             notice.set_message(message);
             notice.set_can_reply(can_reply);
@@ -486,6 +486,59 @@ impl ConnectionHandler {
         let result = users.admin_update_user(account_id, username).await;
 
         self.send_admin_db_result(client, result)?;
+
+        Ok(())
+    }
+
+    pub async fn handle_admin_fetch_logs(
+        &self,
+        client: &ClientStateHandle,
+        issuer: i32,
+        target: i32,
+        r#type: &str,
+        before: i64,
+        after: i64,
+    ) -> HandlerResult<()> {
+        must_admin_auth(client)?;
+
+        let users = self.module::<UsersModule>();
+
+        let (logs, users) =
+            match users.admin_fetch_logs(issuer, target, r#type, before, after).await {
+                Ok(x) => x,
+                Err(e) => {
+                    self.send_admin_db_result(client, Err(e))?;
+                    return Ok(());
+                }
+            };
+
+        let cap = 64 + logs.len() * 64 + users.len() * 40;
+
+        let buf = data::encode_message_heap!(self, cap, msg => {
+            let mut msg = msg.reborrow().init_admin_logs_response();
+
+            let mut accounts = msg.reborrow().init_accounts(users.len() as u32);
+            for (i, user) in users.iter().enumerate() {
+                let mut acc = accounts.reborrow().get(i as u32);
+                acc.set_username(&user.username);
+                acc.set_account_id(user.account_id);
+                acc.set_user_id(user.user_id);
+            }
+
+            let mut out_logs = msg.init_logs(logs.len() as u32);
+            for (i, log) in logs.iter().enumerate() {
+                let mut out = out_logs.reborrow().get(i as u32);
+                out.set_id(log.id);
+                out.set_account_id(log.account_id);
+                out.set_target_account_id(log.target_account_id.unwrap_or(0));
+                out.set_type(&log.r#type);
+                out.set_timestamp(log.timestamp);
+                out.set_expires_at(log.expires_at.unwrap_or(0));
+                out.set_message(log.message.as_deref().unwrap_or_default());
+            }
+        })?;
+
+        client.send_data_bufkind(buf);
 
         Ok(())
     }

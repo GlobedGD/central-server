@@ -1,5 +1,7 @@
 use std::{cmp::Reverse, collections::HashSet, fmt::Write, num::NonZeroI64};
 
+#[cfg(feature = "database")]
+use crate::{auth::ClientAccountData, users::database::AuditLogModel};
 use crate::{
     core::module::{ModuleInitResult, ServerModule},
     users::{config::Role, database::LogAction},
@@ -322,6 +324,48 @@ impl UsersModule {
         self.db.log_action(issuer_id, self.log_for_unpunish(account_id, r#type)).await?;
 
         Ok(())
+    }
+
+    #[cfg(feature = "database")]
+    pub async fn admin_fetch_logs(
+        &self,
+        issuer: i32,
+        target: i32,
+        r#type: &str,
+        before: i64,
+        after: i64,
+    ) -> DatabaseResult<(Vec<AuditLogModel>, Vec<ClientAccountData>)> {
+        let logs = self.db.fetch_logs(issuer, target, r#type, before, after).await?;
+
+        // build the account data vec, so that the user knows which account ids correspond to which person
+        let mut datas: Vec<ClientAccountData> = Vec::new();
+
+        let mut push_user = async |account_id: i32| -> Result<(), DatabaseError> {
+            if !datas.iter().any(|c| c.account_id == account_id) {
+                if let Some(user) = self.get_user(account_id).await? {
+                    datas.push(ClientAccountData {
+                        account_id,
+                        user_id: 0,
+                        username: user
+                            .username
+                            .and_then(|x| x.as_str().try_into().ok())
+                            .unwrap_or_default(),
+                    });
+                }
+            }
+
+            Ok(())
+        };
+
+        for model in logs.iter() {
+            push_user(model.account_id);
+
+            if let Some(target_id) = model.target_account_id {
+                push_user(target_id);
+            }
+        }
+
+        Ok((logs, datas))
     }
 
     pub async fn log_kick(

@@ -1,5 +1,6 @@
 use std::num::NonZeroI64;
 
+use sea_orm::QueryOrder;
 use thiserror::Error;
 #[cfg(feature = "database")]
 use {
@@ -12,6 +13,7 @@ use {
 };
 
 mod log_action;
+pub use audit_log::Model as AuditLogModel;
 pub use log_action::LogAction;
 
 #[allow(warnings)]
@@ -352,6 +354,43 @@ impl UsersDb {
             .await?;
 
         Ok(())
+    }
+
+    pub async fn fetch_logs(
+        &self,
+        issuer: i32,
+        target: i32,
+        r#type: &str,
+        before: i64,
+        after: i64,
+    ) -> DatabaseResult<Vec<audit_log::Model>> {
+        let mut stmt = AuditLog::find();
+
+        if issuer != 0 {
+            stmt = stmt.filter(audit_log::Column::AccountId.eq(issuer))
+        }
+
+        if target != 0 {
+            stmt = stmt.filter(audit_log::Column::TargetAccountId.eq(target))
+        }
+
+        if !r#type.is_empty() {
+            stmt = stmt.filter(audit_log::Column::Type.eq(r#type))
+        }
+
+        if before != 0 {
+            stmt = stmt.filter(audit_log::Column::Timestamp.lt(before))
+        }
+
+        if after != 0 {
+            stmt = stmt.filter(audit_log::Column::Timestamp.gte(after))
+        }
+
+        stmt = stmt.order_by_desc(audit_log::Column::Id);
+
+        let results: Vec<audit_log::Model> = stmt.all(&self.conn).await?;
+
+        Ok(results)
     }
 
     #[cfg(feature = "database")]

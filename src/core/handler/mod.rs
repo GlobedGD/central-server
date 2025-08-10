@@ -289,6 +289,16 @@ impl AppHandler for ConnectionHandler {
                 self.handle_admin_fetch_user(client, account_id).await
             },
 
+            AdminFetchLogs(message) => {
+                let issuer = message.get_issuer();
+                let target = message.get_target();
+                let r#type = message.get_type()?.to_str()?;
+                let before = message.get_before();
+                let after = message.get_after();
+
+                self.handle_admin_fetch_logs(client, issuer, target, r#type, before, after).await
+            },
+
             AdminBan(message) => {
                 let account_id = message.get_account_id();
                 let reason = message.get_reason()?.to_str()?;
