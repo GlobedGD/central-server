@@ -148,7 +148,8 @@ impl ConnectionHandler {
         let players = self.pick_players_to_send(client, room).await;
 
         // TODO (high): that number is uncertain
-        let cap = 128 + BYTES_PER_PLAYER * players.len();
+        let team_count = room.team_count();
+        let cap = 128 + BYTES_PER_PLAYER * players.len() + 4 * team_count;
 
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut room_state = msg.reborrow().init_room_state();
@@ -157,11 +158,21 @@ impl ConnectionHandler {
             room_state.set_room_name(&room.name);
             room.settings.encode(room_state.reborrow().init_settings());
 
-            let mut players_ser = room_state.init_players(players.len() as u32);
+            let mut players_ser = room_state.reborrow().init_players(players.len() as u32);
 
             for (i, player) in players.iter().enumerate() {
                 let mut player_ser = players_ser.reborrow().get(i as u32);
                 Self::encode_room_player(player, player_ser.reborrow());
+            }
+
+            // encode teams
+            if team_count > 0 {
+                room.with_teams(|count, teams| {
+                    let mut teams_ser = room_state.reborrow().init_teams(count as u32);
+                    for (i, team) in teams.enumerate() {
+                        teams_ser.reborrow().set(i as u32, team.color);
+                    }
+                });
             }
         })?;
 

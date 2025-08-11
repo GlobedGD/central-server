@@ -40,8 +40,8 @@ enum RoomPlayerStore {
 }
 
 #[derive(Default, Clone)]
-struct RoomTeam {
-    color: u32,
+pub struct RoomTeam {
+    pub color: u32,
 }
 
 #[derive(Error, Debug)]
@@ -310,7 +310,7 @@ impl Room {
     }
 
     pub fn team_count(&self) -> usize {
-        self.teams.read().len()
+        if self.is_global() { 0 } else { self.teams.read().len() }
     }
 
     /// Deletes a team from the room. If the team removed is not the last team, team indices will be shifted for the last team.
@@ -388,6 +388,14 @@ impl Room {
         } else {
             Err(TeamNotFound)
         }
+    }
+
+    pub fn with_teams<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(usize, std::slice::Iter<'_, RoomTeam>) -> R,
+    {
+        let teams = self.teams.read();
+        f(teams.len(), teams.iter())
     }
 }
 
