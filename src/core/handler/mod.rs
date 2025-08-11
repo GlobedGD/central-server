@@ -250,10 +250,11 @@ impl AppHandler for ConnectionHandler {
                 self.handle_assign_team(client, account_id, team_id)
             },
 
-            CreateTeam(_message) => {
+            CreateTeam(message) => {
+                let color = message.get_color();
                 unpacked_data.reset(); // free up memory
 
-                self.handle_create_team(client)
+                self.handle_create_team(client, color)
             },
 
             DeleteTeam(message) => {

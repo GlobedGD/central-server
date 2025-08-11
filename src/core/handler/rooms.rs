@@ -306,7 +306,7 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    pub fn handle_create_team(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+    pub fn handle_create_team(&self, client: &ClientStateHandle, color: u32) -> HandlerResult<()> {
         must_auth(client)?;
 
         let room = client.lock_room();
@@ -318,7 +318,7 @@ impl ConnectionHandler {
 
         let room = room.as_ref().unwrap();
 
-        let (success, team_count) = match room.create_team() {
+        let (success, team_count) = match room.create_team(color) {
             Ok(count) => (true, count),
             Err(e) => {
                 debug!("team creation failed in room {}: {e}", room.id);

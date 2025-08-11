@@ -44,6 +44,12 @@ pub struct RoomTeam {
     pub color: u32,
 }
 
+impl RoomTeam {
+    pub fn new(color: u32) -> Self {
+        Self { color }
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum TeamCreationFailed {
     #[error("Too many teams")]
@@ -81,7 +87,7 @@ impl Room {
             name,
             settings,
             passcode,
-            teams: RwLock::new(SmallVec::from_elem(RoomTeam::default(), 1)),
+            teams: RwLock::new(SmallVec::from_elem(RoomTeam::new(0xffffffff), 1)),
 
             // global room use async locks because there is way more contention
             players: if id == 0 {
@@ -286,14 +292,14 @@ impl Room {
     // Team management
 
     /// Attempts to create a new team in this room, returns the count of teams on success
-    pub fn create_team(&self) -> Result<usize, TeamCreationFailed> {
+    pub fn create_team<T: Into<Option<u32>>>(&self, color: T) -> Result<usize, TeamCreationFailed> {
         let mut teams = self.teams.write();
 
         if teams.len() >= MAX_TEAM_COUNT {
             return Err(TeamCreationFailed::TooManyTeams);
         }
 
-        teams.push(RoomTeam::default());
+        teams.push(RoomTeam::new(color.into().unwrap_or(0xffffffff)));
 
         Ok(teams.len())
     }
