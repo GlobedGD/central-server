@@ -380,8 +380,9 @@ impl ConnectionHandler {
             let mut players_ser = members.init_members(players.len() as u32);
 
             for (i, player) in players.iter().enumerate() {
-                let mut player_ser = players_ser.reborrow().get(i as u32);
-                Self::encode_room_player(&player.handle, player_ser.reborrow());
+                players_ser.reborrow().set(i as u32, player.handle.account_id());
+                // let mut player_ser = players_ser.reborrow().get(i as u32);
+                // Self::encode_room_player(&player.handle, player_ser.reborrow());
             }
         })?;
 
