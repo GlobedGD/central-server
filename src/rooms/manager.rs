@@ -340,19 +340,13 @@ impl Room {
                 }
             }
 
-            let last_team_id = (teams.len() - 1) as u16;
+            teams.remove(team_id as usize);
 
-            // use swap_remove for an O(1) removal
-            teams.swap_remove(team_id as usize);
-
-            // if this was not the last team, then the last team just took its place.
-            // we need to notify all players in that team that their team id has changed
-            if (team_id as usize) < teams.len() {
-                for (_, player) in players.iter_mut() {
-                    if player.team_id == last_team_id {
-                        player.team_id = team_id;
-                        modified.push(player.clone());
-                    }
+            // if this was not the last team, all the teams afterwards should be notified about their team index being changed
+            for (_, player) in players.iter_mut() {
+                if player.team_id > team_id {
+                    player.team_id -= 1;
+                    modified.push(player.clone());
                 }
             }
         });
