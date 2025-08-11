@@ -147,9 +147,8 @@ impl ConnectionHandler {
     async fn send_room_data(&self, client: &ClientStateHandle, room: &Room) -> HandlerResult<()> {
         let players = self.pick_players_to_send(client, room).await;
 
-        // TODO (high): that number is uncertain
         let team_count = room.team_count();
-        let cap = 128 + BYTES_PER_PLAYER * players.len() + 4 * team_count;
+        let cap = 112 + BYTES_PER_PLAYER * players.len() + 4 * team_count;
 
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut room_state = msg.reborrow().init_room_state();
@@ -326,7 +325,7 @@ impl ConnectionHandler {
             }
         };
 
-        let buf = data::encode_message!(self, 56, msg => {
+        let buf = data::encode_message!(self, 40, msg => {
             let mut result = msg.init_team_creation_result();
             result.set_success(success);
             result.set_team_count(team_count as u16);
@@ -363,6 +362,27 @@ impl ConnectionHandler {
                 changed.set_team_id(player.team_id);
             })?);
         }
+
+        Ok(())
+    }
+
+    pub fn handle_update_team(
+        &self,
+        client: &ClientStateHandle,
+        team_id: u16,
+        color: u32,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let room = client.lock_room();
+
+        if room.as_ref().is_none_or(|r| r.is_global() || r.owner != client.account_id()) {
+            // cannot do this in a global room or if not the room owner
+            return Ok(());
+        }
+
+        let room = room.as_ref().unwrap();
+        room.set_team_color(team_id, color);
 
         Ok(())
     }

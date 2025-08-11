@@ -326,7 +326,8 @@ impl Room {
         let mut modified = Vec::new();
         let mut teams = self.teams.write();
 
-        if team_id as usize >= teams.len() {
+        // disallow deleting invalid teams as well as the last remaining team
+        if team_id as usize >= teams.len() || teams.len() == 1 {
             return Err(TeamNotFound);
         };
 

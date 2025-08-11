@@ -265,6 +265,15 @@ impl AppHandler for ConnectionHandler {
                 self.handle_delete_team(client, team_id)
             },
 
+            UpdateTeam(message) => {
+                let team_id = message.get_team_id();
+                let color = message.get_color();
+
+                unpacked_data.reset(); // free up memory
+
+                self.handle_update_team(client, team_id, color)
+            },
+
             GetTeamMembers(_message) => {
                 unpacked_data.reset(); // free up memory
 
