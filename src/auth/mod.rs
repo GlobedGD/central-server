@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::core::module::{ModuleInitResult, ServerModule};
 
 mod account_data;
@@ -89,13 +91,18 @@ impl AuthModule {
                         }
                     };
 
-                    let response = match handle.wait().await {
-                        Ok(resp) => resp,
-                        Err(_) => {
-                            warn!("[{}] token validation attempt was dropped", account_id);
-                            return AuthVerdict::Failed(LoginFailedReason::ArgonInternalError);
-                        }
-                    };
+                    let response =
+                        match tokio::time::timeout(Duration::from_secs(10), handle.wait()).await {
+                            Ok(Ok(resp)) => resp,
+                            Ok(Err(_)) => {
+                                warn!("[{}] token validation attempt was dropped", account_id);
+                                return AuthVerdict::Failed(LoginFailedReason::ArgonInternalError);
+                            }
+                            Err(_) => {
+                                warn!("[{}] token validation attempt timed out", account_id);
+                                return AuthVerdict::Failed(LoginFailedReason::ArgonUnreachable);
+                            }
+                        };
 
                     match response.into_inner() {
                         Ok(data) => AuthVerdict::Success(data),

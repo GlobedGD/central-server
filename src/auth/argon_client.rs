@@ -189,9 +189,9 @@ impl InnerState {
     pub fn run(self: Arc<Self>) -> JoinHandle<()> {
         tokio::spawn(async move {
             // websocket thread will keep trying to connect to the argon server, sleeping on failure
-            loop {
-                let mut in_flight = VecDeque::new();
+            let mut in_flight = VecDeque::new();
 
+            loop {
                 let (do_sleep, do_clear) = match self._try_connect().await {
                     Ok(conn) => match self._conn_loop(conn, &mut in_flight).await {
                         Ok(()) => (false, false),
@@ -308,10 +308,12 @@ impl InnerState {
         }
 
         let mut last_ping = Instant::now();
+        let mut last_response = Instant::now();
 
         loop {
             // TODO: make this configurable
-            let until_ping = Duration::from_secs(40).saturating_sub(last_ping.elapsed());
+            let until_ping = Duration::from_secs(30).saturating_sub(last_ping.elapsed());
+            let until_termination = Duration::from_secs(45).saturating_sub(last_response.elapsed());
 
             tokio::select! {
                 msg = self.req_rx.recv() => match msg {
@@ -335,6 +337,8 @@ impl InnerState {
 
                 msg = socket.next() => match msg {
                     Some(Ok(msg)) => {
+                        last_response = Instant::now();
+
                         self.handle_message(msg, in_flight).await?;
                     },
 
@@ -351,6 +355,11 @@ impl InnerState {
                 _ = tokio::time::sleep(until_ping) => {
                     socket.send(Message::Ping(Bytes::new())).await?;
                     last_ping = Instant::now();
+                },
+
+                _ = tokio::time::sleep(until_termination) => {
+                    warn!("argon server connection not responding for a minute, terminating");
+                    return Ok(());
                 }
             };
         }
