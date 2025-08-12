@@ -14,6 +14,7 @@ pub struct RoomSettings {
     pub is_follower: bool,
     pub level_integrity: bool,
     pub teams: bool,
+    pub locked_teams: bool,
 
     pub collision: bool,
     pub two_player_mode: bool,
@@ -31,6 +32,7 @@ impl RoomSettings {
             is_follower: reader.get_is_follower(),
             level_integrity: reader.get_level_integrity(),
             teams: reader.get_teams(),
+            locked_teams: reader.get_locked_teams(),
 
             collision: reader.get_collision(),
             two_player_mode: reader.get_two_player_mode(),
@@ -47,6 +49,7 @@ impl RoomSettings {
         writer.set_is_follower(self.is_follower);
         writer.set_level_integrity(self.level_integrity);
         writer.set_teams(self.teams);
+        writer.set_locked_teams(self.locked_teams);
 
         writer.set_collision(self.collision);
         writer.set_two_player_mode(self.two_player_mode);

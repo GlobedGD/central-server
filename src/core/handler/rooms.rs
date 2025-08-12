@@ -275,14 +275,20 @@ impl ConnectionHandler {
         }
 
         let room = room.as_ref().unwrap();
+        let is_owner = client.account_id() == room.owner;
 
         if player_id == 0 {
             player_id = client.account_id();
         } else {
             // only room owner can assign other players
-            if client.account_id() != room.owner {
+            if !is_owner {
                 return Ok(());
             }
+        }
+
+        if !is_owner && room.settings.locked_teams {
+            // disallow players moving freely between teams if locked teams is enabled
+            return Ok(());
         }
 
         if !room.assign_team_to_player(team_id, player_id) {
@@ -294,7 +300,7 @@ impl ConnectionHandler {
 
         // notify that player
         if let Some(player) = self.find_client(player_id) {
-            let buf = data::encode_message!(self, 48, msg => {
+            let buf = data::encode_message!(self, 40, msg => {
                 let mut changed = msg.reborrow().init_team_changed();
                 changed.set_team_id(team_id);
             })?;
