@@ -284,18 +284,18 @@ impl ConnectionHandler {
     pub async fn handle_admin_fetch_user(
         &self,
         client: &ClientStateHandle,
-        account_id: i32,
+        query: &str,
     ) -> HandlerResult<()> {
         must_admin_auth(client)?;
 
         let users = self.module::<UsersModule>();
 
-        match users.get_user(account_id).await {
+        match users.query_user(query).await {
             Ok(Some(user)) => {
                 self.send_fetch_response(
                     client,
                     FetchResponse {
-                        account_id,
+                        account_id: user.account_id,
                         found: true,
                         whitelisted: user.is_whitelisted,
                         roles: &users.role_str_to_ids(&user.roles.unwrap_or_default()),
@@ -304,13 +304,7 @@ impl ConnectionHandler {
             }
 
             Ok(None) => {
-                self.send_fetch_response(
-                    client,
-                    FetchResponse {
-                        account_id,
-                        ..Default::default()
-                    },
-                )?;
+                self.send_fetch_response(client, FetchResponse::default())?;
             }
 
             Err(e) => self.send_admin_result(client, Err(e.to_string()))?,

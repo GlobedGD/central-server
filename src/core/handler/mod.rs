@@ -323,9 +323,9 @@ impl AppHandler for ConnectionHandler {
             },
 
             AdminFetchUser(message) => {
-                let account_id = message.get_account_id();
+                let query = message.get_query()?.to_str()?;
 
-                self.handle_admin_fetch_user(client, account_id).await
+                self.handle_admin_fetch_user(client, query).await
             },
 
             AdminFetchLogs(message) => {

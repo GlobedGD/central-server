@@ -140,9 +140,7 @@ impl ConnectionHandler {
         accdata.set_user_id(account.user_id);
         accdata.set_username(&account.username);
 
-        if let Some(room) = player.lock_room().as_ref() {
-            builder.set_team_id(room.team_id());
-        }
+        builder.set_team_id(player.team_id());
     }
 
     async fn send_room_data(&self, client: &ClientStateHandle, room: &Room) -> HandlerResult<()> {
@@ -306,6 +304,7 @@ impl ConnectionHandler {
                 changed.set_team_id(team_id);
             })?;
 
+            player.set_team_id(team_id);
             player.send_data_bufkind(buf);
         }
 
@@ -366,6 +365,7 @@ impl ConnectionHandler {
         };
 
         for player in players {
+            player.handle.set_team_id(player.team_id);
             player.handle.send_data_bufkind(data::encode_message!(self, 48, msg => {
                 let mut changed = msg.reborrow().init_team_changed();
                 changed.set_team_id(player.team_id);

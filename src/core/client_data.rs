@@ -1,6 +1,6 @@
 use std::sync::{
     Arc, OnceLock,
-    atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicI32, AtomicU16, AtomicU64, Ordering},
 };
 
 use parking_lot::{Mutex, MutexGuard};
@@ -24,6 +24,7 @@ pub struct ClientData {
     session_id: AtomicU64,
     authorized_admin: AtomicBool,
     deauthorized: AtomicBool,
+    team_id: AtomicU16,
 
     pub active_mute: Mutex<Option<UserPunishment>>,
     pub active_room_ban: Mutex<Option<UserPunishment>>,
@@ -99,6 +100,7 @@ impl ClientData {
     /// Clears the room the client is in, removing them from it and returning the room.
     /// Note: this puts a client into an invalid state, you should immediately call `set_room` with another room afterwards.
     pub async fn clear_room(&self) -> Option<Arc<Room>> {
+        self.set_team_id(0);
         let handle = self.room.lock().take();
 
         if let Some(mut handle) = handle {
@@ -106,6 +108,15 @@ impl ClientData {
         } else {
             None
         }
+    }
+
+    /// Returns team ID
+    pub fn team_id(&self) -> u16 {
+        self.team_id.load(Ordering::Relaxed)
+    }
+
+    pub fn set_team_id(&self, value: u16) {
+        self.team_id.store(value, Ordering::Relaxed);
     }
 
     /// Returns client's current session (aka which level they are in)

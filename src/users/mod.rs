@@ -61,6 +61,10 @@ impl UsersModule {
         self.db.get_user(account_id).await
     }
 
+    pub async fn query_user(&self, query: &str) -> DatabaseResult<Option<DbUser>> {
+        self.db.query_user(query).await
+    }
+
     pub async fn update_username(&self, account_id: i32, new_username: &str) -> DatabaseResult<()> {
         self.db.update_username(account_id, new_username).await
     }

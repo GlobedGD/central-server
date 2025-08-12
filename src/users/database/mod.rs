@@ -86,6 +86,47 @@ impl UsersDb {
             return Ok(None);
         };
 
+        Ok(Some(self.post_user_fetch(model).await?))
+    }
+
+    #[cfg(not(feature = "database"))]
+    pub async fn get_user(&self, _account_id: i32) -> DatabaseResult<Option<DbUser>> {
+        Ok(None)
+    }
+
+    #[cfg(feature = "database")]
+    pub async fn query_user(&self, query: &str) -> DatabaseResult<Option<DbUser>> {
+        // if it's an integer, try fetch by ID
+
+        let mut user = None;
+        if let Ok(id) = query.parse::<i32>() {
+            user = User::find_by_id(id).one(&self.conn).await?;
+        };
+
+        // if that didn't work, try exact username match
+        if user.is_none() {
+            user = User::find().filter(user::Column::Username.eq(query)).one(&self.conn).await?;
+        }
+
+        // if that didn't work either, try a contains match
+        if user.is_none() {
+            user =
+                User::find().filter(user::Column::Username.contains(query)).one(&self.conn).await?;
+        }
+
+        match user {
+            Some(x) => Ok(Some(self.post_user_fetch(x).await?)),
+            None => Ok(None),
+        }
+    }
+
+    #[cfg(not(feature = "database"))]
+    pub async fn query_user(&self, query: &str) -> DatabaseResult<Option<DbUser>> {
+        Ok(None)
+    }
+
+    #[cfg(feature = "database")]
+    pub async fn post_user_fetch(&self, model: user::Model) -> DatabaseResult<DbUser> {
         let mut user = DbUser {
             account_id: model.account_id,
             username: model.username.clone(),
@@ -120,12 +161,7 @@ impl UsersDb {
             active.update(&self.conn).await?;
         }
 
-        Ok(Some(user))
-    }
-
-    #[cfg(not(feature = "database"))]
-    pub async fn get_user(&self, _account_id: i32) -> DatabaseResult<Option<DbUser>> {
-        Ok(None)
+        Ok(user)
     }
 
     #[cfg(feature = "database")]
