@@ -1,5 +1,6 @@
 use std::{num::NonZeroI64, sync::Arc};
 
+use qunet::message::BufferKind;
 use rand::seq::IteratorRandom;
 
 use crate::rooms::{Room, RoomCreationError, RoomModule, RoomSettings};
@@ -339,6 +340,8 @@ impl ConnectionHandler {
 
         client.send_data_bufkind(buf);
 
+        self.notify_teams_updated(room)?;
+
         Ok(())
     }
 
@@ -369,6 +372,8 @@ impl ConnectionHandler {
             })?);
         }
 
+        self.notify_teams_updated(room)?;
+
         Ok(())
     }
 
@@ -390,6 +395,8 @@ impl ConnectionHandler {
         let room = room.as_ref().unwrap();
         room.set_team_color(team_id, color);
 
+        self.notify_teams_updated(room)?;
+
         Ok(())
     }
 
@@ -404,26 +411,65 @@ impl ConnectionHandler {
         }
 
         let room = room.as_ref().unwrap();
-        let team_id = room.team_id();
 
-        let Ok(players) = room.get_players_on_team(team_id) else {
-            return self
-                .send_warn(client, format!("failed to find team {team_id} in the current room"));
-        };
+        // let team_id = room.team_id();
 
-        let cap = 48 + BYTES_PER_PLAYER * players.len();
-        let buf = data::encode_message_heap!(self, cap, msg => {
-            let members = msg.init_team_members();
-            let mut players_ser = members.init_members(players.len() as u32);
+        // let Ok(players) = room.get_players_on_team(team_id) else {
+        //     return self
+        //         .send_warn(client, format!("failed to find team {team_id} in the current room"));
+        // };
 
-            for (i, player) in players.iter().enumerate() {
-                players_ser.reborrow().set(i as u32, player.handle.account_id());
-                // let mut player_ser = players_ser.reborrow().get(i as u32);
-                // Self::encode_room_player(&player.handle, player_ser.reborrow());
-            }
+        // let cap = 48 + BYTES_PER_PLAYER * players.len();
+        // let buf = data::encode_message_heap!(self, cap, msg => {
+        //     let members = msg.init_team_members();
+        //     let mut players_ser = members.init_members(players.len() as u32);
+
+        //     for (i, player) in players.iter().enumerate() {
+        //         players_ser.reborrow().set(i as u32, player.handle.account_id());
+        //         // let mut player_ser = players_ser.reborrow().get(i as u32);
+        //         // Self::encode_room_player(&player.handle, player_ser.reborrow());
+        //     }
+        // })?;
+
+        let buf = room.with_players_sync(|count, players| {
+            let cap = 64 + 5 * count;
+
+            data::encode_message_heap!(self, cap, msg => {
+                let mut members = msg.init_team_members();
+                members.reborrow().init_members(count as u32);
+                members.reborrow().init_team_ids(count as u32);
+
+                for (i, (_, player)) in players.enumerate() {
+                    members.reborrow().get_members().unwrap().set(i as u32, player.handle.account_id());
+                    members.reborrow().get_team_ids().unwrap().set(i as u32, player.team_id as u8);
+                }
+            })
         })?;
 
         client.send_data_bufkind(buf);
+
+        Ok(())
+    }
+
+    fn notify_teams_updated(&self, room: &Room) -> HandlerResult<()> {
+        let buf = room.with_teams(|team_count, teams| {
+            let cap = 40 + 4 * team_count;
+
+            data::encode_message_heap!(self, cap, msg => {
+                let mut teams_ser = msg.reborrow().init_teams_updated().init_teams(team_count as u32);
+
+                for (i, team) in teams.enumerate() {
+                    teams_ser.reborrow().set(i as u32, team.color);
+                }
+            })
+        })?;
+        let buf = Arc::new(buf);
+
+        room.with_players_sync(|_, players| {
+            for (_, player) in players {
+                player.handle.send_data_bufkind(BufferKind::Reference(buf.clone()));
+            }
+        });
 
         Ok(())
     }

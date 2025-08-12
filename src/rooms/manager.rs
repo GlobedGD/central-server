@@ -289,6 +289,13 @@ impl Room {
         self.run_read_action(|players| f(players.len(), players.iter())).await
     }
 
+    pub fn with_players_sync<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(usize, slab::Iter<'_, RoomPlayer>) -> R,
+    {
+        self.run_sync_read_action(|players| f(players.len(), players.iter()))
+    }
+
     // Team management
 
     /// Attempts to create a new team in this room, returns the count of teams on success
