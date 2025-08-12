@@ -69,6 +69,10 @@ impl UsersModule {
         self.db.update_username(account_id, new_username).await
     }
 
+    pub async fn get_punishment_count(&self, account_id: i32) -> DatabaseResult<u32> {
+        self.db.get_punishment_count(account_id).await
+    }
+
     pub fn get_role(&self, id: u8) -> Option<&Role> {
         self.roles.get(id as usize)
     }

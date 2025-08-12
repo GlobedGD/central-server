@@ -269,6 +269,21 @@ impl UsersDb {
         Ok(())
     }
 
+    #[cfg(feature = "database")]
+    pub async fn get_punishment_count(&self, account_id: i32) -> DatabaseResult<u32> {
+        let count = Punishment::find()
+            .filter(punishment::Column::AccountId.eq(account_id))
+            .count(&self.conn)
+            .await?;
+
+        Ok(count as u32)
+    }
+
+    #[cfg(not(feature = "database"))]
+    pub async fn get_punishment_count(&self, account_id: i32) -> DatabaseResult<u32> {
+        Ok(0)
+    }
+
     /// Punish a user, returns whether the user was already punished and the punishment was updated.
     /// If the user does not exist, it will return `Ok(None)`.
     pub async fn punish_user(

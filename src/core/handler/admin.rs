@@ -47,6 +47,7 @@ struct FetchResponse<'a> {
     found: bool,
     whitelisted: bool,
     roles: &'a [u8],
+    punishment_count: u32,
 }
 
 impl ConnectionHandler {
@@ -299,6 +300,10 @@ impl ConnectionHandler {
                         found: true,
                         whitelisted: user.is_whitelisted,
                         roles: &users.role_str_to_ids(&user.roles.unwrap_or_default()),
+                        punishment_count: users
+                            .get_punishment_count(user.account_id)
+                            .await
+                            .unwrap_or(0),
                     },
                 )?;
             }
@@ -323,6 +328,7 @@ impl ConnectionHandler {
             fetch.set_account_id(resp.account_id);
             fetch.set_found(resp.found);
             fetch.set_whitelisted(resp.whitelisted);
+            fetch.set_punishment_count(resp.punishment_count);
             let _ = fetch.set_roles(resp.roles);
         })?;
 
