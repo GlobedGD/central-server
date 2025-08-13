@@ -42,6 +42,10 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(User::Table)
                     .col(pk_auto(User::AccountId))
+                    .col(integer(User::Cube))
+                    .col(integer(User::Color1))
+                    .col(integer(User::Color2))
+                    .col(integer(User::GlowColor))
                     .col(string_null(User::Username))
                     .col(string_null(User::NameColor))
                     .col(boolean(User::IsWhitelisted).default(false))
@@ -107,6 +111,10 @@ pub enum Punishment {
 pub enum User {
     Table,
     AccountId,
+    Cube,
+    Color1,
+    Color2,
+    GlowColor,
     Username,
     NameColor,
     IsWhitelisted,
