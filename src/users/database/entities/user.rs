@@ -7,6 +7,10 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub account_id: i32,
+    pub cube: i32,
+    pub color1: i32,
+    pub color2: i32,
+    pub glow_color: i32,
     pub username: Option<String>,
     pub name_color: Option<String>,
     pub is_whitelisted: bool,
