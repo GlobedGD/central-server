@@ -220,6 +220,32 @@ impl UsersDb {
         Ok(())
     }
 
+    #[cfg(feature = "database")]
+    pub async fn update_icons(
+        &self,
+        account_id: i32,
+        cube: i16,
+        color1: u16,
+        color2: u16,
+        glow_color: u16,
+    ) -> DatabaseResult<()> {
+        User::update_many()
+            .filter(user::Column::AccountId.eq(account_id))
+            .col_expr(user::Column::Cube, Expr::value(cube))
+            .col_expr(user::Column::Color1, Expr::value(color1))
+            .col_expr(user::Column::Color2, Expr::value(color2))
+            .col_expr(user::Column::GlowColor, Expr::value(glow_color))
+            .exec(&self.conn)
+            .await?;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "database")]
+    pub async fn fetch_all_with_roles(&self) -> DatabaseResult<Vec<user::Model>> {
+        Ok(User::find().filter(user::Column::Roles.is_not_null()).all(&self.conn).await?)
+    }
+
     /// Returns whether the user was modified
     #[cfg(feature = "database")]
     fn expire_punishments(&self, user: &mut DbUser) -> bool {

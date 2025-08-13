@@ -474,16 +474,22 @@ impl ConnectionHandler {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn handle_admin_update_user(
         &self,
         client: &ClientStateHandle,
         account_id: i32,
         username: &str,
+        cube: i16,
+        color1: u16,
+        color2: u16,
+        glow_color: u16,
     ) -> HandlerResult<()> {
         must_admin_auth(client)?;
 
         let users = self.module::<UsersModule>();
-        let result = users.admin_update_user(account_id, username).await;
+        let result =
+            users.admin_update_user(account_id, username, cube, color1, color2, glow_color).await;
 
         self.send_admin_db_result(client, result)?;
 
@@ -537,6 +543,40 @@ impl ConnectionHandler {
                 out.set_timestamp(log.timestamp);
                 out.set_expires_at(log.expires_at.unwrap_or(0));
                 out.set_message(log.message.as_deref().unwrap_or_default());
+            }
+        })?;
+
+        client.send_data_bufkind(buf);
+
+        Ok(())
+    }
+
+    pub async fn handle_admin_fetch_mods(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+        must_admin_auth(client)?;
+
+        let users = self.module::<UsersModule>();
+
+        let users = match users.fetch_moderators().await {
+            Ok(x) => x,
+            Err(e) => {
+                self.send_admin_db_result(client, Err(e))?;
+                return Ok(());
+            }
+        };
+
+        let cap = 48 + 80 * users.len();
+        let buf = data::encode_message_heap!(self, cap, msg => {
+            let mut resp = msg.init_admin_fetch_mods_response();
+            let mut ser = resp.reborrow().init_users(users.len() as u32);
+
+            for (i, user) in users.iter().enumerate() {
+                let mut u = ser.reborrow().get(i as u32);
+                u.set_account_id(user.account_id);
+                u.set_username(&user.username);
+                u.set_cube(user.cube);
+                u.set_color1(user.color1);
+                u.set_color2(user.color2);
+                u.set_glow_color(user.glow_color);
             }
         })?;
 

@@ -27,6 +27,15 @@ pub enum PunishUserError {
     Permissions,
 }
 
+pub struct FetchedMod {
+    pub account_id: i32,
+    pub username: String,
+    pub cube: i16,
+    pub color1: u16,
+    pub color2: u16,
+    pub glow_color: u16,
+}
+
 #[derive(Default)]
 pub struct ComputedRole {
     pub priority: i32,
@@ -166,11 +175,12 @@ impl UsersModule {
         out_role
     }
 
+    pub fn compute_from_rolestr(&self, account_id: i32, rolestr: &str) -> ComputedRole {
+        self.compute_from_roles(account_id, rolestr.split(',').filter(|x| !x.is_empty()))
+    }
+
     pub fn compute_from_user(&self, user: &DbUser) -> ComputedRole {
-        self.compute_from_roles(
-            user.account_id,
-            user.roles.as_deref().unwrap_or("").split(',').filter(|x| !x.is_empty()),
-        )
+        self.compute_from_rolestr(user.account_id, user.roles.as_deref().unwrap_or(""))
     }
 
     /// Converts a slice of role IDs into a comma-separated string of string IDs
@@ -258,8 +268,48 @@ impl UsersModule {
         Ok(())
     }
 
-    pub async fn admin_update_user(&self, account_id: i32, username: &str) -> DatabaseResult<()> {
-        self.update_username(account_id, username).await
+    pub async fn admin_update_user(
+        &self,
+        account_id: i32,
+        username: &str,
+        cube: i16,
+        color1: u16,
+        color2: u16,
+        glow_color: u16,
+    ) -> DatabaseResult<()> {
+        self.update_username(account_id, username).await?;
+        self.db.update_icons(account_id, cube, color1, color2, glow_color).await?;
+        Ok(())
+    }
+
+    pub async fn fetch_moderators(&self) -> DatabaseResult<Vec<FetchedMod>> {
+        // TODO: this function is not very fast
+
+        let mut out = Vec::new();
+
+        let mut users = self.db.fetch_all_with_roles().await?;
+
+        users.retain(|user| {
+            let role =
+                self.compute_from_rolestr(user.account_id, user.roles.as_deref().unwrap_or(""));
+            role.can_moderate()
+        });
+
+        for user in users {
+            out.push(FetchedMod {
+                account_id: user.account_id,
+                username: user.username.unwrap_or_else(|| "Unknown".to_owned()),
+                cube: user.cube.try_into().unwrap_or(0),
+                color1: user.color1.try_into().unwrap_or(0),
+                color2: user.color2.try_into().unwrap_or(0),
+                glow_color: user.glow_color.try_into().unwrap_or(0),
+            });
+        }
+
+        // sort by account id
+        out.sort_by_key(|u| u.account_id);
+
+        Ok(out)
     }
 
     #[cfg(feature = "database")]

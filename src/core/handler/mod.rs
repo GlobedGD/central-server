@@ -387,9 +387,19 @@ impl AppHandler for ConnectionHandler {
             AdminUpdateUser(message) => {
                 let account_id = message.get_account_id();
                 let username = message.get_username()?.to_str()?;
+                let cube = message.get_cube();
+                let color1 = message.get_color1();
+                let color2 = message.get_color2();
+                let glow_color = message.get_glow_color();
 
-                self.handle_admin_update_user(client, account_id, username).await
+                self.handle_admin_update_user(client, account_id, username, cube, color1, color2, glow_color).await
             },
+
+            AdminFetchMods(_message) => {
+                unpacked_data.reset();
+
+                self.handle_admin_fetch_mods(client).await
+            }
         });
 
         match result {
