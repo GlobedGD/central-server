@@ -131,7 +131,12 @@ impl ConnectionHandler {
     }
 
     fn encode_room_player(player: &ClientStateHandle, mut builder: data::room_player::Builder<'_>) {
-        builder.set_cube(player.icons().cube);
+        let icons = player.icons();
+
+        builder.set_cube(icons.cube);
+        builder.set_color1(icons.color1);
+        builder.set_color2(icons.color2);
+        builder.set_glow_color(icons.glow_color);
         builder.reborrow().set_session(player.session_id());
 
         let mut accdata = builder.reborrow().init_account_data();
@@ -475,10 +480,10 @@ impl ConnectionHandler {
     }
 
     fn send_room_list(&self, client: &ClientStateHandle, rooms: &[Arc<Room>]) -> HandlerResult<()> {
-        const BYTES_PER_ROOM: usize = 112; // TODO (high)
+        const BYTES_PER_ROOM: usize = 128; // TODO (high)
 
         // TODO:
-        let cap = 48 + BYTES_PER_ROOM * rooms.len();
+        let cap = 56 + BYTES_PER_ROOM * rooms.len();
 
         debug!("encoding {} rooms, cap: {}", rooms.len(), cap);
 
