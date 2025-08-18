@@ -122,6 +122,7 @@ impl GameServerManager {
         server_id: u8,
         room_id: u32,
         passcode: u32,
+        owner: i32,
     ) -> Result<(), GameServerError> {
         let servers = self.servers.load();
         let server = servers
@@ -129,10 +130,11 @@ impl GameServerManager {
             .find(|s| s.data.id == server_id)
             .ok_or(GameServerError::ServerNotFound)?;
 
-        let buf = data::encode_message_unsafe!(self, 40, msg => {
+        let buf = data::encode_message_unsafe!(self, 48, msg => {
             let mut room_created = msg.init_notify_room_created();
             room_created.set_room_id(room_id);
             room_created.set_passcode(passcode);
+            room_created.set_owner(owner);
         })?;
 
         server.qclient.send_data_bufkind(buf);

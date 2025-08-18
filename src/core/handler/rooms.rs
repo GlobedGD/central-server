@@ -46,7 +46,11 @@ impl ConnectionHandler {
         };
 
         // notify the game server about the new room being created and wait for the response
-        match self.game_server_manager.notify_room_created(server_id, new_room.id, passcode).await {
+        match self
+            .game_server_manager
+            .notify_room_created(server_id, new_room.id, passcode, client.account_id())
+            .await
+        {
             Ok(()) => {
                 self.send_room_data(client, &new_room).await?;
             }

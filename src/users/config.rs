@@ -16,6 +16,12 @@ fn default_super_admins() -> Vec<i32> {
     vec![]
 }
 
+fn default_script_sign_key() -> String {
+    // generate a random 32-byte key
+    let secret_key = rand::random::<[u8; 32]>();
+    hex::encode(secret_key)
+}
+
 #[derive(Deserialize, Serialize, Clone)]
 pub struct Role {
     pub id: String,
@@ -47,6 +53,8 @@ pub struct Config {
     pub roles: Vec<Role>,
     #[serde(default = "default_super_admins")]
     pub super_admins: Vec<i32>,
+    #[serde(default = "default_script_sign_key")]
+    pub script_sign_key: String,
 }
 
 impl Default for Config {
@@ -56,6 +64,7 @@ impl Default for Config {
             database_pool_size: default_database_pool_size(),
             roles: default_roles(),
             super_admins: default_super_admins(),
+            script_sign_key: default_script_sign_key(),
         }
     }
 }
