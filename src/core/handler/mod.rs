@@ -8,7 +8,7 @@ use std::{
 
 use dashmap::DashMap;
 use qunet::{
-    message::MsgData,
+    message::{BufferKind, MsgData},
     server::{
         Server as QunetServer, ServerHandle as QunetServerHandle, WeakServerHandle,
         app_handler::{AppHandler, AppResult},
@@ -474,20 +474,55 @@ impl ConnectionHandler {
         data: GameServerData,
     ) -> HandlerResult<()> {
         self.game_server_manager.add_server(client, data);
+        self.notify_servers_changed().await;
 
-        // TODO: notify all clients about the change
         Ok(())
     }
 
     pub async fn handle_game_server_disconnect(&self, client: Arc<ClientState<GameServerHandler>>) {
         if let Some(_srv) = self.game_server_manager.remove_server(&client) {
-            // TODO: notify all clients about the change
             // TODO: reset active session of clients that were connected to this server ?
+            self.notify_servers_changed().await;
         } else {
             error!(
                 "[{} @ {}] unknown game server disconnected!",
                 client.connection_id, client.address
             );
+        }
+    }
+
+    pub async fn notify_servers_changed(&self) {
+        let servers = self.game_server_manager.servers();
+
+        // roughly estimate how many bytes will it take to encode the response
+        let cap = 48 + servers.len() * 256;
+
+        let buf = data::encode_message_heap!(self, cap, msg => {
+            let changed = msg.init_servers_changed();
+            let mut srvs = changed.init_servers(servers.len() as u32);
+
+            for (i, srv) in servers.iter().enumerate() {
+                let server = srvs.reborrow().get(i as u32);
+                self.encode_game_server(&srv.data, server);
+            }
+        })
+        .map(Arc::new);
+
+        match buf {
+            Ok(buf) => {
+                let targets: Vec<_> =
+                    self.all_clients.iter().filter_map(|x| x.value().upgrade()).collect();
+
+                info!("Notifying {} clients about server change!", targets.len());
+
+                for target in targets {
+                    target.send_data_bufkind(BufferKind::Reference(Arc::clone(&buf)));
+                }
+            }
+
+            Err(err) => {
+                error!("Failed to send ServersChangedMessage, encoding failed: {err}");
+            }
         }
     }
 
