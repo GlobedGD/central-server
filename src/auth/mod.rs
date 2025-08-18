@@ -126,9 +126,14 @@ impl ServerModule for AuthModule {
     async fn new(config: &Self::Config) -> ModuleInitResult<Self> {
         let token_issuer = TokenIssuer::new(&config.secret_key)?;
 
-        let argon_client = config
-            .enable_argon
-            .then(|| ArgonClient::new(config.argon_url.clone(), config.argon_token.clone()));
+        let argon_client = config.enable_argon.then(|| {
+            ArgonClient::new(
+                config.argon_url.clone(),
+                config.argon_token.clone(),
+                Duration::from_secs(config.argon_ping_interval),
+                Duration::from_secs(config.argon_disconnect_timeout),
+            )
+        });
 
         Ok(Self { token_issuer, argon_client })
     }

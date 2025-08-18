@@ -82,8 +82,13 @@ impl ValidationAwaitToken {
 }
 
 impl ArgonClient {
-    pub fn new(url: String, api_token: String) -> Self {
-        let inner = Arc::new(InnerState::new(url, api_token));
+    pub fn new(
+        url: String,
+        api_token: String,
+        ping_interval: Duration,
+        disconnect_timeout: Duration,
+    ) -> Self {
+        let inner = Arc::new(InnerState::new(url, api_token, ping_interval, disconnect_timeout));
         let handle = inner.clone().run();
 
         Self { inner, handle }
@@ -168,13 +173,20 @@ struct InnerState {
     url: String,
     api_token: String,
     connected: AtomicBool,
+    ping_interval: Duration,
+    disconnect_timeout: Duration,
 
     req_tx: channel::Sender<ArgonValidateRequest>,
     req_rx: channel::Receiver<ArgonValidateRequest>,
 }
 
 impl InnerState {
-    pub fn new(url: String, api_token: String) -> Self {
+    pub fn new(
+        url: String,
+        api_token: String,
+        ping_interval: Duration,
+        disconnect_timeout: Duration,
+    ) -> Self {
         let (req_tx, req_rx) = channel::new_channel(128);
 
         Self {
@@ -183,6 +195,8 @@ impl InnerState {
             connected: AtomicBool::new(false),
             req_tx,
             req_rx,
+            ping_interval,
+            disconnect_timeout,
         }
     }
 
@@ -311,9 +325,8 @@ impl InnerState {
         let mut last_response = Instant::now();
 
         loop {
-            // TODO: make this configurable
-            let until_ping = Duration::from_secs(30).saturating_sub(last_ping.elapsed());
-            let until_termination = Duration::from_secs(45).saturating_sub(last_response.elapsed());
+            let until_ping = self.ping_interval.saturating_sub(last_ping.elapsed());
+            let until_termination = self.disconnect_timeout.saturating_sub(last_response.elapsed());
 
             tokio::select! {
                 msg = self.req_rx.recv() => match msg {
