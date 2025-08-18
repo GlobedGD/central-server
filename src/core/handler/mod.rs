@@ -8,6 +8,7 @@ use std::{
 
 use dashmap::DashMap;
 use qunet::{
+    buffers::BufPool,
     message::{BufferKind, MsgData},
     server::{
         Server as QunetServer, ServerHandle as QunetServerHandle, WeakServerHandle,
@@ -69,7 +70,6 @@ impl AppHandler for ConnectionHandler {
         server
             .schedule(status_intv, |server| async move {
                 server.print_server_status();
-                // TODO: shrink server buffer pool here to reclaim memory?
                 info!(" - Authorized clients: {}", server.handler().all_clients.len());
                 info!(
                     " - Active game sessions: {} (total players: {})",
@@ -79,6 +79,21 @@ impl AppHandler for ConnectionHandler {
 
                 let rooms = server.handler().module::<RoomModule>();
                 info!(" - Room count: {}", rooms.get_room_count());
+            })
+            .await;
+
+        // TODO: determine if this is really worth it?
+        server
+            .schedule(Duration::from_hours(12), |server| async move {
+                let pool = server.get_buffer_pool();
+                let prev_usage = pool.stats().total_heap_usage;
+                pool.shrink();
+                let new_usage = pool.stats().total_heap_usage;
+
+                info!(
+                    "Shrinking buffer pool to reclaim memory: {} -> {} bytes",
+                    prev_usage, new_usage
+                );
             })
             .await;
 

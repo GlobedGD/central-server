@@ -7,7 +7,7 @@ use crate::rooms::{Room, RoomCreationError, RoomModule, RoomSettings};
 
 use super::{ConnectionHandler, util::*};
 
-const BYTES_PER_PLAYER: usize = 72; // TODO (high)
+const BYTES_PER_PLAYER: usize = 80;
 
 impl ConnectionHandler {
     pub async fn handle_create_room(
@@ -484,10 +484,9 @@ impl ConnectionHandler {
     }
 
     fn send_room_list(&self, client: &ClientStateHandle, rooms: &[Arc<Room>]) -> HandlerResult<()> {
-        const BYTES_PER_ROOM: usize = 128; // TODO (high)
+        const BYTES_PER_ROOM: usize = 128;
 
-        // TODO:
-        let cap = 56 + BYTES_PER_ROOM * rooms.len();
+        let cap = 64 + BYTES_PER_ROOM * rooms.len();
 
         debug!("encoding {} rooms, cap: {}", rooms.len(), cap);
 
