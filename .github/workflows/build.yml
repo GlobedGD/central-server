@@ -54,6 +54,7 @@ jobs:
           cargo build --release --target ${{ matrix.target }}
         env:
           CARGO_NET_GIT_FETCH_WITH_CLI: true
+          SERVER_SHARED_PREBUILT_DATA: true
         shell: bash
 
       - name: Build server (cross)
@@ -62,6 +63,7 @@ jobs:
           cross build --release --target ${{ matrix.target }}
         env:
           CARGO_NET_GIT_FETCH_WITH_CLI: true
+          SERVER_SHARED_PREBUILT_DATA: true
         shell: bash
 
       - name: Create artifacts folder
