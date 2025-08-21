@@ -12,12 +12,12 @@ jobs:
       matrix:
         include:
           - name: Linux
-            os: ubuntu-latest
+            os: debian:buster
             target: x86_64-unknown-linux-gnu
             bin-suffix: "-x64"
 
           - name: Linux ARM64
-            os: ubuntu-latest
+            os: debian:buster
             target: aarch64-unknown-linux-gnu
             bin-suffix: "-arm64"
 
