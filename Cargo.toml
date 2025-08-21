@@ -15,9 +15,12 @@ futures-util = "0.3.31"
 heapless = "0.8.0"
 hex = "0.4.3"
 parking_lot = { version = "0.12.4", features = ["send_guard"] }
-qunet = { path = "../qunet/qunet" }
+qunet = { git = "https://github.com/dankmeme01/qunet" }
 rand = "0.9.1"
-server-shared = { path = "../server-shared", features = ["main", "srvc"] }
+server-shared = { git = "https://github.com/GlobedGD/server-shared", features = [
+    "main",
+    "srvc",
+] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 slab = "0.4.10"

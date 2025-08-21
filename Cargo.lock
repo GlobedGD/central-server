@@ -349,7 +349,7 @@ dependencies = [
  "hex",
  "itertools 0.14.0",
  "parking_lot",
- "qunet",
+ "qunet 0.1.0 (git+https://github.com/dankmeme01/qunet)",
  "rand",
  "rustc-hash 2.1.1",
  "rustls",
@@ -1611,6 +1611,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "qunet"
+version = "0.1.0"
+source = "git+https://github.com/dankmeme01/qunet#51e0ce006373ebfe11404007b72952413a718986"
+dependencies = [
+ "blake3",
+ "dashmap",
+ "flume",
+ "heapless",
+ "hex",
+ "libc",
+ "lz4_flex",
+ "nohash-hasher",
+ "parking_lot",
+ "rand",
+ "socket2",
+ "thiserror 2.0.12",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "zstd-safe",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2060,7 +2083,7 @@ dependencies = [
  "heapless",
  "hex",
  "hmac",
- "qunet",
+ "qunet 0.1.0",
  "serde",
  "thiserror 2.0.12",
  "toml",
