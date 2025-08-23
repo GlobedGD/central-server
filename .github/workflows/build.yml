@@ -13,12 +13,12 @@ jobs:
         include:
           - name: Linux
             os: ubuntu-20.04
-            target: x86_64-unknown-linux-gnu
+            target: x86_64-unknown-linux-musl
             bin-suffix: "-x64"
 
           - name: Linux ARM64
             os: ubuntu-20.04
-            target: aarch64-unknown-linux-gnu
+            target: aarch64-unknown-linux-musl
             bin-suffix: "-arm64"
 
           - name: Windows
@@ -37,19 +37,19 @@ jobs:
           target: ${{ matrix.target }}
 
       - name: Add Rust target
-        if: matrix.target != 'aarch64-unknown-linux-gnu'
+        if: matrix.target != 'aarch64-unknown-linux-musl'
         run: rustup target add ${{ matrix.target }}
         shell: bash
 
       - name: Install cross
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        if: matrix.target == 'aarch64-unknown-linux-musl'
         run: |
-          rustup target add x86_64-unknown-linux-gnu
+          rustup target add x86_64-unknown-linux-musl
           cargo install cross
         shell: bash
 
       - name: Build server (native)
-        if: matrix.target != 'aarch64-unknown-linux-gnu'
+        if: matrix.target != 'aarch64-unknown-linux-musl'
         run: |
           SERVER_SHARED_PREBUILT_DATA=1 cargo build --release --target ${{ matrix.target }}
         env:
@@ -57,7 +57,7 @@ jobs:
         shell: bash
 
       - name: Build server (cross)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        if: matrix.target == 'aarch64-unknown-linux-musl'
         run: |
           SERVER_SHARED_PREBUILT_DATA=1 cross build --release --target ${{ matrix.target }}
         env:

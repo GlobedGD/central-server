@@ -1,6 +1,6 @@
 use std::{borrow::Cow, sync::Arc};
 
-use server_shared::data::PlayerIconData;
+use server_shared::{data::PlayerIconData, schema::main::LoginFailedReason};
 
 use crate::{
     auth::{AuthModule, AuthVerdict, ClientAccountData, LoginKind},
@@ -27,7 +27,16 @@ impl ConnectionHandler {
 
         match auth.handle_login(kind).await {
             AuthVerdict::Success(data) => {
-                self.on_login_success(client, data, icons).await?;
+                // verify that the data is absoultely valid
+                if data.account_id != 0
+                    && data.user_id != 0
+                    && data.username.is_ascii()
+                    && !data.username.is_empty()
+                {
+                    self.on_login_success(client, data, icons).await?;
+                } else {
+                    self.on_login_failed(client, LoginFailedReason::InvalidAccountData)?;
+                }
             }
 
             AuthVerdict::Failed(reason) => {
