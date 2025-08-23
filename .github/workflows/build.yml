@@ -41,6 +41,13 @@ jobs:
         run: rustup target add ${{ matrix.target }}
         shell: bash
 
+      - name: Install musl tools
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl musl-dev musl-tools
+        shell: bash
+
       - name: Install cross
         if: matrix.target == 'aarch64-unknown-linux-musl'
         run: |
