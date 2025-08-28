@@ -15,9 +15,9 @@ futures-util = "0.3.31"
 heapless = "0.8.0"
 hex = "0.4.3"
 parking_lot = { version = "0.12.4", features = ["send_guard"] }
-qunet = { git = "https://github.com/dankmeme01/qunet", rev = "7646570e" }
+qunet = { git = "https://github.com/dankmeme01/qunet", rev = "1fd6eefe" }
 rand = "0.9.1"
-server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "34a99f8f", features = [
+server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "2eeb1857", features = [
     "main",
     "srvc",
 ] }

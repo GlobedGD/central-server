@@ -40,6 +40,7 @@ fn setup_logger(config: &CoreConfig) -> (WorkerGuard, WorkerGuard) {
         &config.log_directory,
         &config.log_filename,
         &config.log_level,
+        &config.log_level,
         config.log_file_enabled,
     )
 }
