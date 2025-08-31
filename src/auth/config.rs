@@ -6,6 +6,10 @@ fn default_secret_key() -> String {
     hex::encode(secret_key)
 }
 
+fn default_token_expiry() -> i64 {
+    60 * 60 * 24 * 7 // 7 days
+}
+
 fn default_enable_argon() -> bool {
     false
 }
@@ -30,6 +34,8 @@ fn default_argon_disconnect_timeout() -> u64 {
 pub struct Config {
     #[serde(default = "default_secret_key")]
     pub secret_key: String,
+    #[serde(default = "default_token_expiry")]
+    pub token_expiry: i64,
     #[serde(default = "default_enable_argon")]
     pub enable_argon: bool,
     #[serde(default = "default_argon_url")]
@@ -46,6 +52,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             secret_key: default_secret_key(),
+            token_expiry: default_token_expiry(),
             enable_argon: default_enable_argon(),
             argon_url: default_argon_url(),
             argon_token: default_argon_token(),

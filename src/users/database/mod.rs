@@ -1,6 +1,8 @@
 use std::num::NonZeroI64;
 
 use sea_orm::{QueryOrder, QuerySelect};
+#[cfg(feature = "database")]
+use smallvec::SmallVec;
 use thiserror::Error;
 #[cfg(feature = "database")]
 use {
@@ -20,14 +22,14 @@ pub use log_action::LogAction;
 #[cfg(feature = "database")]
 mod entities;
 #[cfg(feature = "database")]
-mod migrations;
+mod migration;
 
 #[cfg(feature = "database")]
 pub use entities::prelude::*;
 #[cfg(feature = "database")]
 use entities::*;
 #[cfg(feature = "database")]
-use migrations::Migrator;
+use migration::Migrator;
 
 #[derive(Error, Debug)]
 pub enum DatabaseError {
@@ -218,6 +220,53 @@ impl UsersDb {
     #[cfg(not(feature = "database"))]
     pub async fn update_username(&self, _: i32, _: &str) -> DatabaseResult<()> {
         Ok(())
+    }
+
+    #[cfg(feature = "database")]
+    pub async fn insert_uident(&self, account_id: i32, ident: &str) -> DatabaseResult<()> {
+        let existing = Uident::find()
+            .filter(uident::Column::AccountId.eq(account_id))
+            .filter(uident::Column::Ident.eq(ident))
+            .count(&self.conn)
+            .await?
+            > 0;
+
+        if existing {
+            return Ok(());
+        }
+
+        let model = uident::ActiveModel {
+            account_id: Set(account_id),
+            ident: Set(ident.to_owned()),
+            ..Default::default()
+        };
+
+        model.insert(&self.conn).await?;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "database")]
+    pub async fn get_account_count_for_uident(&self, ident: &str) -> DatabaseResult<u64> {
+        Ok(Uident::find().filter(uident::Column::Ident.eq(ident)).count(&self.conn).await?)
+    }
+
+    #[cfg(feature = "database")]
+    pub async fn get_accounts_for_uident(&self, ident: &str) -> DatabaseResult<SmallVec<[i32; 8]>> {
+        let models = Uident::find()
+            .filter(uident::Column::Ident.eq(ident))
+            .select_only()
+            .column(uident::Column::Id)
+            .all(&self.conn)
+            .await?;
+
+        let mut out = SmallVec::new();
+
+        for model in models {
+            out.push(model.id);
+        }
+
+        Ok(out)
     }
 
     #[cfg(feature = "database")]

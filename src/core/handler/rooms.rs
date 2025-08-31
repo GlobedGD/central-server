@@ -460,6 +460,56 @@ impl ConnectionHandler {
         Ok(())
     }
 
+    #[allow(clippy::await_holding_lock)]
+    pub async fn handle_room_owner_action(
+        &self,
+        client: &ClientStateHandle,
+        r#type: data::RoomOwnerActionType,
+        target: i32,
+    ) -> HandlerResult<()> {
+        let rooms = self.module::<RoomModule>();
+        let room_lock = client.lock_room();
+
+        let Some(room) = &*room_lock else {
+            return Ok(());
+        };
+
+        if room.owner != client.account_id() {
+            return Ok(());
+        }
+
+        match r#type {
+            data::RoomOwnerActionType::BanUser => {
+                room.ban_player(target);
+            }
+
+            data::RoomOwnerActionType::KickUser => {
+                drop(room_lock);
+
+                // try to locate the user
+                if let Some(target) = self.find_client(target) {
+                    // just leave for them lol
+                    self.handle_leave_room(&target).await?;
+                }
+            }
+
+            data::RoomOwnerActionType::CloseRoom => {
+                let room_id = room.id;
+                drop(room_lock);
+
+                if let Some(users) = rooms.close_room(room_id, &self.game_server_manager).await {
+                    for user in users {
+                        if let Some(room) = &*user.lock_room() {
+                            self.send_room_data(&user, room).await?;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     fn notify_teams_updated(&self, room: &Room) -> HandlerResult<()> {
         let buf = room.with_teams(|team_count, teams| {
             let cap = 40 + 4 * team_count;

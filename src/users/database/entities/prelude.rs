@@ -2,4 +2,5 @@
 
 pub use super::audit_log::Entity as AuditLog;
 pub use super::punishment::Entity as Punishment;
+pub use super::uident::Entity as Uident;
 pub use super::user::Entity as User;

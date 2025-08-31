@@ -1,5 +1,5 @@
 #![feature(try_blocks, duration_constructors_lite)]
-#![allow(clippy::new_without_default)]
+#![allow(clippy::new_without_default, clippy::collapsible_if)]
 
 use qunet::server::{
     Server as QunetServer, ServerOutcome,

@@ -5,6 +5,7 @@ logs
 quic
 /config
 .vscode
+.cargo
 Cargo.lock
 
 db.sqlite

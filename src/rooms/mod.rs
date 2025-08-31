@@ -117,6 +117,31 @@ impl RoomModule {
         self.set_client_room(client, handle).await;
     }
 
+    pub async fn close_room(
+        &self,
+        id: u32,
+        gsm: &GameServerManager,
+    ) -> Option<Vec<ClientStateHandle>> {
+        let room = self.get_room(id)?;
+
+        let mut out = Vec::new();
+
+        // room is guaranteed not a global room, so sync variant is ok here
+        room.with_players_sync(|count, iter| {
+            out.reserve_exact(count);
+
+            for (_, player) in iter {
+                out.push(player.handle.clone());
+            }
+        });
+
+        for handle in out.iter() {
+            self.force_join_room(handle, gsm, self.global_room()).await;
+        }
+
+        Some(out)
+    }
+
     pub fn get_top_rooms(&self, skip: usize, count: usize) -> Vec<Arc<Room>> {
         let sorted = self.manager.lock_sorted();
         sorted.iter().rev().skip(skip).take(count).map(|x| x.1.clone()).collect()

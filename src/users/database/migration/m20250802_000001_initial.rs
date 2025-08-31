@@ -1,19 +1,8 @@
 use sea_orm::{EnumIter, Iterable};
-use sea_orm_migration::{
-    prelude::*,
-    schema::{
-        big_integer, big_integer_null, boolean, enumeration, enumeration_null, integer,
-        integer_null, pk_auto, string, string_null,
-    },
-};
+use sea_orm_migration::{prelude::*, schema::*};
 
+#[derive(DeriveMigrationName)]
 pub struct Migration;
-
-impl MigrationName for Migration {
-    fn name(&self) -> &str {
-        "m20250802_000001_initial"
-    }
-}
 
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {

@@ -4,8 +4,9 @@ use std::{
     str::FromStr,
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
+    time::{Duration, Instant},
 };
 
 use dashmap::DashMap;
@@ -67,10 +68,13 @@ pub struct Room {
     pub owner: i32,
     pub settings: RoomSettings,
     teams: RwLock<SmallVec<[RoomTeam; 8]>>,
+    banned: RwLock<SmallVec<[i32; 8]>>,
+    created_at: Instant,
 
     players: RoomPlayerStore,
     player_count: AtomicUsize,
     key_player_count: AtomicUsize,
+    joinable: AtomicBool,
 }
 
 impl Room {
@@ -88,6 +92,8 @@ impl Room {
             settings,
             passcode,
             teams: RwLock::new(SmallVec::from_elem(RoomTeam::new(0xffffffff), 1)),
+            banned: RwLock::new(SmallVec::new()),
+            created_at: Instant::now(),
 
             // global room use async locks because there is way more contention
             players: if id == 0 {
@@ -98,6 +104,7 @@ impl Room {
 
             player_count: AtomicUsize::new(0),
             key_player_count: AtomicUsize::new(0),
+            joinable: AtomicBool::new(true),
         }
     }
 
@@ -197,8 +204,17 @@ impl Room {
         player: ClientStateHandle,
         passcode: u32,
     ) -> Result<ClientRoomHandle, RoomJoinFailedReason> {
+        if !self.joinable.load(Ordering::Relaxed) {
+            return Err(RoomJoinFailedReason::NotFound);
+        }
+
         if self.passcode != 0 && self.passcode != passcode {
             return Err(RoomJoinFailedReason::InvalidPasscode);
+        }
+
+        let player_id = player.account_id();
+        if self.is_banned(player_id) {
+            return Err(RoomJoinFailedReason::Banned);
         }
 
         if self.settings.player_limit != 0 {
@@ -237,8 +253,16 @@ impl Room {
         Ok(self.make_handle(key))
     }
 
+    pub fn make_unjoinable(&self) {
+        self.joinable.store(false, Ordering::Relaxed);
+    }
+
     pub fn has_player(&self, player: &ClientStateHandle) -> bool {
         player.get_room_id().is_some_and(|id| id == self.id)
+    }
+
+    pub fn since_creation(&self) -> Duration {
+        self.created_at.elapsed()
     }
 
     pub fn team_id_for_player(&self, key: usize) -> u16 {
@@ -280,6 +304,28 @@ impl Room {
 
     pub fn has_password(&self) -> bool {
         self.passcode != 0
+    }
+
+    pub fn ban_player(&self, id: i32) {
+        let mut players = self.banned.write();
+        if players.len() > 256 {
+            return;
+        }
+
+        match players.binary_search(&id) {
+            Ok(_) => {
+                // already banned, do nothing
+            }
+
+            Err(pos) => {
+                // insert into that index to maintain sorted order
+                players.insert(pos, id);
+            }
+        }
+    }
+
+    pub fn is_banned(&self, id: i32) -> bool {
+        self.banned.read().binary_search(&id).is_ok()
     }
 
     pub async fn with_players<F, R>(&self, f: F) -> R

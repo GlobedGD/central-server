@@ -157,16 +157,18 @@ impl AppHandler for ConnectionHandler {
                 let account_id = message.get_account_id();
                 let token = message.get_token()?.to_str()?;
                 let icons = PlayerIconData::from_reader(message.get_icons()?)?;
+                let uident = message.get_uident()?;
 
-                self.handle_login_attempt(client, LoginKind::UserToken(account_id, token), icons).await
+                self.handle_login_attempt(client, LoginKind::UserToken(account_id, token), icons, Some(uident)).await
             },
 
             LoginArgon(message) => {
                 let account_id = message.get_account_id();
                 let token = message.get_token()?.to_str()?;
                 let icons = PlayerIconData::from_reader(message.get_icons()?)?;
+                let uident = message.get_uident()?;
 
-                self.handle_login_attempt(client, LoginKind::Argon(account_id, token), icons).await
+                self.handle_login_attempt(client, LoginKind::Argon(account_id, token), icons, Some(uident)).await
             },
 
             LoginPlain(message) => {
@@ -180,7 +182,7 @@ impl AppHandler for ConnectionHandler {
 
                 self.handle_login_attempt(client, LoginKind::Plain(ClientAccountData {
                     account_id, user_id, username
-                }), icons).await
+                }), icons, None).await
             },
 
             UpdateOwnData(message) => {
@@ -293,6 +295,15 @@ impl AppHandler for ConnectionHandler {
                 unpacked_data.reset(); // free up memory
 
                 self.handle_get_team_members(client)
+            },
+
+            RoomOwnerAction(message) => {
+                let r#type = message.get_type()?;
+                let target = message.get_target();
+
+                unpacked_data.reset();
+
+                self.handle_room_owner_action(client, r#type, target).await
             },
 
             JoinSession(message) => {

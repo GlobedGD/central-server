@@ -4,7 +4,7 @@ use server_shared::SessionId;
 
 use crate::{
     rooms::RoomModule,
-    users::{UserPunishmentType, UsersModule},
+    users::{DatabaseResult, UserPunishmentType, UsersModule},
 };
 
 use super::{ConnectionHandler, util::*};
@@ -390,6 +390,34 @@ impl ConnectionHandler {
         self.wrap_unpunish(client, account_id, UserPunishmentType::Mute).await
     }
 
+    async fn try_save_uident(&self, user: &ClientStateHandle) {
+        let users = self.module::<UsersModule>();
+
+        if let Some(uident) = user.uident() {
+            let uident = hex::encode(uident);
+
+            if let Err(e) = users.insert_uident(user.account_id(), &uident).await {
+                warn!("failed to save ident for {} ({uident}): {e}", user.account_id());
+            }
+        }
+    }
+
+    async fn refresh_live_punishments(&self, client: &ClientStateHandle) -> DatabaseResult<()> {
+        let users = self.module::<UsersModule>();
+
+        if let Some(user) = users.get_user(client.account_id()).await? {
+            if user.is_banned() {
+                // TODO: banned message or something
+                client.disconnect(Cow::Borrowed("Banned from the server"));
+                return Ok(());
+            }
+
+            client.set_active_punishments(user.active_mute, user.active_room_ban);
+        }
+
+        Ok(())
+    }
+
     async fn wrap_punish(
         &self,
         client: &ClientStateHandle,
@@ -407,12 +435,19 @@ impl ConnectionHandler {
             },
         )?;
 
-        // TODO: make punishments live, if the user is online, they should be punished immediately
-
         let users = self.module::<UsersModule>();
+
         let result = users
             .admin_punish_user(client.account_id(), account_id, reason, expires_at, r#type)
             .await;
+
+        if let Some(user) = self.find_client(account_id) {
+            self.try_save_uident(&user).await;
+
+            if let Err(e) = self.refresh_live_punishments(&user).await {
+                warn!("failed to apply punishments live to {}: {e}", user.account_id());
+            }
+        }
 
         self.send_admin_db_result(client, result)?;
 

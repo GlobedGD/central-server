@@ -2,12 +2,16 @@ use sea_orm_migration::prelude::*;
 
 // generate using `sea-orm-cli migrate generate <name>`
 mod m20250802_000001_initial;
+mod m20250829_161555_add_uident;
 
 pub struct Migrator;
 
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(m20250802_000001_initial::Migration)]
+        vec![
+            Box::new(m20250802_000001_initial::Migration),
+            Box::new(m20250829_161555_add_uident::Migration),
+        ]
     }
 }

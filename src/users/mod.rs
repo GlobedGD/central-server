@@ -14,6 +14,7 @@ mod pwhash;
 pub use config::Config;
 use database::UsersDb;
 pub use database::{DatabaseError, DatabaseResult, DbUser, UserPunishment, UserPunishmentType};
+use smallvec::SmallVec;
 use thiserror::Error;
 use tracing::warn;
 
@@ -76,6 +77,18 @@ impl UsersModule {
 
     pub async fn update_username(&self, account_id: i32, new_username: &str) -> DatabaseResult<()> {
         self.db.update_username(account_id, new_username).await
+    }
+
+    pub async fn insert_uident(&self, account_id: i32, ident: &str) -> DatabaseResult<()> {
+        self.db.insert_uident(account_id, ident).await
+    }
+
+    pub async fn get_accounts_for_uident(&self, ident: &str) -> DatabaseResult<SmallVec<[i32; 8]>> {
+        if self.db.get_account_count_for_uident(ident).await? == 0 {
+            Ok(SmallVec::new())
+        } else {
+            self.db.get_accounts_for_uident(ident).await
+        }
     }
 
     pub async fn get_punishment_count(&self, account_id: i32) -> DatabaseResult<u32> {

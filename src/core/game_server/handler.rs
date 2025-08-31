@@ -125,14 +125,17 @@ impl GameServerHandler {
 
         let roles = server.handler().module::<UsersModule>().get_roles();
 
-        let secret_key = &server.handler().config().module::<AuthModule>().secret_key;
+        let auth_config = server.handler().config().module::<AuthModule>();
+        let secret_key = &auth_config.secret_key;
+        let token_expiry = auth_config.token_expiry as u64;
         let script_key = &server.handler().config().module::<UsersModule>().script_sign_key;
 
-        let buf = data::encode_message!(self, 228, msg => {
+        let buf = data::encode_message!(self, 512, msg => {
             let mut login_ok = msg.reborrow().init_login_ok();
 
             login_ok.set_token_key(secret_key);
             login_ok.set_script_key(script_key);
+            login_ok.set_token_expiry(token_expiry);
             let mut roles_ser = login_ok.init_roles(roles.len() as u32);
 
             for (i, role) in roles.iter().enumerate() {

@@ -16,6 +16,7 @@ impl ConnectionHandler {
         client: &ClientStateHandle,
         kind: LoginKind<'_>,
         icons: PlayerIconData,
+        uident: Option<&[u8]>,
     ) -> HandlerResult<()> {
         let auth = self.module::<AuthModule>();
 
@@ -25,6 +26,20 @@ impl ConnectionHandler {
             return Ok(());
         }
 
+        let uident = match &kind {
+            LoginKind::Argon(_, _) | LoginKind::UserToken(_, _) => {
+                match uident.and_then(|x| x.try_into().ok()) {
+                    Some(x) => Some(x),
+                    None => {
+                        debug!("[{}] received login with no uident", client.address);
+                        return Ok(());
+                    }
+                }
+            }
+
+            LoginKind::Plain(_) => None,
+        };
+
         match auth.handle_login(kind).await {
             AuthVerdict::Success(data) => {
                 // verify that the data is absoultely valid
@@ -33,7 +48,7 @@ impl ConnectionHandler {
                     && data.username.is_ascii()
                     && !data.username.is_empty()
                 {
-                    self.on_login_success(client, data, icons).await?;
+                    self.on_login_success(client, data, icons, uident).await?;
                 } else {
                     self.on_login_failed(client, LoginFailedReason::InvalidAccountData)?;
                 }
@@ -63,6 +78,7 @@ impl ConnectionHandler {
         client: &ClientStateHandle,
         data: ClientAccountData,
         icons: PlayerIconData,
+        uident: Option<[u8; 32]>,
     ) -> HandlerResult<()> {
         let auth = self.module::<AuthModule>();
         let rooms = self.module::<RoomModule>();
@@ -77,6 +93,10 @@ impl ConnectionHandler {
             }
         };
 
+        if let Some(uident) = uident {
+            client.set_uident(uident);
+        }
+
         if let Some(user) = user {
             // do some checks
 
@@ -85,6 +105,34 @@ impl ConnectionHandler {
             {
                 // update the username in the database
                 let _ = users.update_username(data.account_id, &data.username).await;
+            }
+
+            if let Some(uident) = uident {
+                let uident = hex::encode(uident);
+
+                if user.active_ban.is_some()
+                    || user.active_mute.is_some()
+                    || user.active_room_ban.is_some()
+                {
+                    if let Err(e) = users.insert_uident(data.account_id, &uident).await {
+                        warn!(
+                            "[{}] failed to insert ident ({}, {}): {e}",
+                            client.address, data.account_id, uident
+                        );
+                    }
+                }
+
+                let accounts = match users.get_accounts_for_uident(&uident).await {
+                    Ok(x) => x,
+                    Err(e) => {
+                        warn!("[{}] failed to get alt accounts: {}", client.address, e);
+                        return self
+                            .on_login_failed(client, data::LoginFailedReason::InternalDbError);
+                    }
+                };
+
+                // TODO: flag account in some way??
+                _ = accounts;
             }
 
             if let Some(ban) = &user.active_ban {

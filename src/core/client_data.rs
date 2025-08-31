@@ -30,6 +30,7 @@ pub struct ClientData {
     pub active_room_ban: Mutex<Option<UserPunishment>>,
     admin_password_hash: Mutex<Option<String>>,
     role: OnceLock<ComputedRole>,
+    uident: OnceLock<[u8; 32]>,
 }
 
 impl ClientData {
@@ -174,5 +175,13 @@ impl ClientData {
 
     pub fn set_authorized_admin(&self) {
         self.authorized_admin.store(true, Ordering::Relaxed);
+    }
+
+    pub fn set_uident(&self, uident: [u8; 32]) {
+        let _ = self.uident.set(uident);
+    }
+
+    pub fn uident(&self) -> Option<&[u8; 32]> {
+        self.uident.get()
     }
 }

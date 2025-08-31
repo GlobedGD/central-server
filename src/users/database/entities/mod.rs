@@ -4,4 +4,5 @@ pub mod prelude;
 
 pub mod audit_log;
 pub mod punishment;
+pub mod uident;
 pub mod user;

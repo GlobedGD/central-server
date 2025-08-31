@@ -17,7 +17,7 @@ hex = "0.4.3"
 parking_lot = { version = "0.12.4", features = ["send_guard"] }
 qunet = { git = "https://github.com/dankmeme01/qunet", rev = "1fd6eefe" }
 rand = "0.9.1"
-server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "2eeb1857", features = [
+server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "43eb9899", features = [
     "main",
     "srvc",
 ] }

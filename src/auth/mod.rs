@@ -124,7 +124,8 @@ impl ServerModule for AuthModule {
     type Config = Config;
 
     async fn new(config: &Self::Config) -> ModuleInitResult<Self> {
-        let token_issuer = TokenIssuer::new(&config.secret_key)?;
+        let token_issuer =
+            TokenIssuer::new(&config.secret_key, Duration::from_secs(config.token_expiry as u64))?;
 
         let argon_client = config.enable_argon.then(|| {
             ArgonClient::new(
