@@ -306,6 +306,16 @@ impl AppHandler for ConnectionHandler {
                 self.handle_room_owner_action(client, r#type, target).await
             },
 
+            UpdateRoomSettings(message) => {
+                let settings = RoomSettings::from_reader(message.get_settings()?)?;
+
+                unpacked_data.reset();
+
+                self.handle_update_room_settings(client, settings).await
+            },
+
+            //
+
             JoinSession(message) => {
                 let id = message.get_session_id();
                 unpacked_data.reset(); // free up memory

@@ -10,7 +10,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use parking_lot::{RawRwLock, RwLock, lock_api::RwLockReadGuard};
+use parking_lot::{Mutex, RawRwLock, RwLock, lock_api::RwLockReadGuard};
 use slab::Slab;
 use smallvec::SmallVec;
 use thiserror::Error;
@@ -66,7 +66,7 @@ pub struct Room {
     pub name: heapless::String<64>,
     pub passcode: u32,
     pub owner: i32,
-    pub settings: RoomSettings,
+    pub settings: Mutex<RoomSettings>,
     teams: RwLock<SmallVec<[RoomTeam; 8]>>,
     banned: RwLock<SmallVec<[i32; 8]>>,
     created_at: Instant,
@@ -89,7 +89,7 @@ impl Room {
             id,
             owner,
             name,
-            settings,
+            settings: Mutex::new(settings),
             passcode,
             teams: RwLock::new(SmallVec::from_elem(RoomTeam::new(0xffffffff), 1)),
             banned: RwLock::new(SmallVec::new()),
@@ -166,6 +166,10 @@ impl Room {
         }
     }
 
+    pub fn set_settings(&self, settings: RoomSettings) {
+        *self.settings.lock() = settings;
+    }
+
     async fn remove_player(&self, key: usize) {
         self.run_write_action(|players| {
             if players.contains(key) {
@@ -217,12 +221,14 @@ impl Room {
             return Err(RoomJoinFailedReason::Banned);
         }
 
-        if self.settings.player_limit != 0 {
+        let player_limit = self.settings.lock().player_limit as usize;
+
+        if player_limit != 0 {
             // check if the room is full
             let mut player_count = self.player_count.load(Ordering::Relaxed);
 
             loop {
-                if player_count >= self.settings.player_limit as usize {
+                if player_count >= player_limit {
                     return Err(RoomJoinFailedReason::Full);
                 }
 
@@ -295,7 +301,7 @@ impl Room {
     }
 
     pub fn is_follower(&self) -> bool {
-        self.settings.is_follower
+        self.settings.lock().is_follower
     }
 
     pub fn is_global(&self) -> bool {

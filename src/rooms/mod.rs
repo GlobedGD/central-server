@@ -162,7 +162,8 @@ impl RoomModule {
 
                 if player_count == 0 {
                     self.manager.remove_room(room.id);
-                    let _ = gsm.notify_room_deleted(room.settings.server_id, room.id).await;
+                    let server_id = room.settings.lock().server_id;
+                    let _ = gsm.notify_room_deleted(server_id, room.id).await;
                 } else {
                     self.manager.update_room_set(&room);
                 }

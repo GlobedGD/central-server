@@ -163,7 +163,7 @@ impl ConnectionHandler {
             room_state.set_room_id(room.id);
             room_state.set_room_owner(room.owner);
             room_state.set_room_name(&room.name);
-            room.settings.encode(room_state.reborrow().init_settings());
+            room.settings.lock().encode(room_state.reborrow().init_settings());
 
             let mut players_ser = room_state.reborrow().init_players(players.len() as u32);
 
@@ -294,7 +294,7 @@ impl ConnectionHandler {
             }
         }
 
-        if !is_owner && room.settings.locked_teams {
+        if !is_owner && room.settings.lock().locked_teams {
             // disallow players moving freely between teams if locked teams is enabled
             return Ok(());
         }
@@ -481,14 +481,20 @@ impl ConnectionHandler {
         match r#type {
             data::RoomOwnerActionType::BanUser => {
                 room.ban_player(target);
-            }
 
-            data::RoomOwnerActionType::KickUser => {
                 drop(room_lock);
 
                 // try to locate the user
                 if let Some(target) = self.find_client(target) {
                     // just leave for them lol
+                    self.handle_leave_room(&target).await?;
+                }
+            }
+
+            data::RoomOwnerActionType::KickUser => {
+                drop(room_lock);
+
+                if let Some(target) = self.find_client(target) {
                     self.handle_leave_room(&target).await?;
                 }
             }
@@ -509,6 +515,27 @@ impl ConnectionHandler {
 
         Ok(())
     }
+    pub async fn handle_update_room_settings(
+        &self,
+        client: &ClientStateHandle,
+        settings: RoomSettings,
+    ) -> HandlerResult<()> {
+        let room_lock = client.lock_room();
+
+        let Some(room) = &*room_lock else {
+            return Ok(());
+        };
+
+        if room.owner != client.account_id() {
+            return Ok(());
+        }
+
+        room.set_settings(settings);
+
+        self.notify_settings_updated(room)?;
+
+        Ok(())
+    }
 
     fn notify_teams_updated(&self, room: &Room) -> HandlerResult<()> {
         let buf = room.with_teams(|team_count, teams| {
@@ -522,6 +549,23 @@ impl ConnectionHandler {
                 }
             })
         })?;
+        let buf = Arc::new(buf);
+
+        room.with_players_sync(|_, players| {
+            for (_, player) in players {
+                player.handle.send_data_bufkind(BufferKind::Reference(buf.clone()));
+            }
+        });
+
+        Ok(())
+    }
+
+    fn notify_settings_updated(&self, room: &Room) -> HandlerResult<()> {
+        let buf = data::encode_message!(self, 128, msg => {
+            let mut ser = msg.reborrow().init_room_settings_updated();
+            room.settings.lock().encode(ser.reborrow().init_settings());
+        })?;
+
         let buf = Arc::new(buf);
 
         room.with_players_sync(|_, players| {
@@ -550,7 +594,7 @@ impl ConnectionHandler {
                 room_ser.set_room_name(&room.name);
                 room_ser.set_player_count(room.player_count() as u32);
                 room_ser.set_has_password(room.has_password());
-                room.settings.encode(room_ser.reborrow().init_settings());
+                room.settings.lock().encode(room_ser.reborrow().init_settings());
 
                 if let Some(owner) = self.find_client(room.owner) {
                     let mut owner_ser = room_ser.reborrow().init_room_owner();
