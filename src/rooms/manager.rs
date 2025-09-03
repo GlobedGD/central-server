@@ -14,7 +14,7 @@ use parking_lot::{Mutex, RawRwLock, RwLock, lock_api::RwLockReadGuard};
 use slab::Slab;
 use smallvec::SmallVec;
 use thiserror::Error;
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::{
     core::{data::RoomJoinFailedReason, handler::ClientStateHandle},
@@ -188,7 +188,10 @@ impl Room {
 
     fn rotate_owner(&self, players: &mut Slab<RoomPlayer>) {
         if let Some((_, player)) = players.iter().next() {
-            self.owner.store(player.handle.account_id(), Ordering::Relaxed);
+            let id = player.handle.account_id();
+            let prev_id = self.owner.swap(id, Ordering::Relaxed);
+
+            debug!("rotating owner from {} to {} for room {}", prev_id, id, self.id);
         }
     }
 
