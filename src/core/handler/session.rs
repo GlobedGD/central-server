@@ -85,7 +85,7 @@ impl ConnectionHandler {
         let room = client.lock_room(); // this is held across .await but it's fine because it's local to the user
 
         let do_warp =
-            room.as_ref().is_some_and(|x| x.is_follower() && x.owner == client.account_id());
+            room.as_ref().is_some_and(|x| x.is_follower() && x.owner() == client.account_id());
 
         if do_warp {
             room.as_ref()

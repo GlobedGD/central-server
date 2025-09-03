@@ -4,7 +4,7 @@ use std::{
     str::FromStr,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -65,7 +65,8 @@ pub struct Room {
     pub id: u32,
     pub name: heapless::String<64>,
     pub passcode: u32,
-    pub owner: i32,
+    pub owner: AtomicI32,
+    pub original_owner: i32,
     pub settings: Mutex<RoomSettings>,
     teams: RwLock<SmallVec<[RoomTeam; 8]>>,
     banned: RwLock<SmallVec<[i32; 8]>>,
@@ -87,7 +88,8 @@ impl Room {
     ) -> Self {
         Self {
             id,
-            owner,
+            owner: AtomicI32::new(owner),
+            original_owner: owner,
             name,
             settings: Mutex::new(settings),
             passcode,
@@ -174,10 +176,20 @@ impl Room {
         self.run_write_action(|players| {
             if players.contains(key) {
                 self.player_count.store(players.len() - 1, Ordering::Relaxed);
-                players.remove(key);
+                let plr = players.remove(key);
+
+                if self.owner() == plr.handle.account_id() {
+                    self.rotate_owner(players);
+                }
             }
         })
         .await;
+    }
+
+    fn rotate_owner(&self, players: &mut Slab<RoomPlayer>) {
+        if let Some((_, player)) = players.iter().next() {
+            self.owner.store(player.handle.account_id(), Ordering::Relaxed);
+        }
     }
 
     fn make_handle(self: &Arc<Self>, key: usize) -> ClientRoomHandle {
@@ -189,10 +201,18 @@ impl Room {
         }
     }
 
+    fn maybe_restore_owner(&self, player: &ClientStateHandle) {
+        if player.account_id() == self.original_owner {
+            self.owner.store(self.original_owner, Ordering::Relaxed);
+        }
+    }
+
     pub(super) async fn force_add_player(
         self: Arc<Room>,
         player: ClientStateHandle,
     ) -> ClientRoomHandle {
+        self.maybe_restore_owner(&player);
+
         let key = self
             .run_write_action(|players| {
                 self.player_count.store(players.len() + 1, Ordering::Relaxed);
@@ -247,6 +267,8 @@ impl Room {
             }
         }
 
+        self.maybe_restore_owner(&player);
+
         let key = self
             .run_write_action(|players| {
                 // re-update the player count, as it may have changed after the check (and the check is only done if there is a limit anyway)
@@ -269,6 +291,10 @@ impl Room {
 
     pub fn since_creation(&self) -> Duration {
         self.created_at.elapsed()
+    }
+
+    pub fn owner(&self) -> i32 {
+        self.owner.load(Ordering::Relaxed)
     }
 
     pub fn team_id_for_player(&self, key: usize) -> u16 {

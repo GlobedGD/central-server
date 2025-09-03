@@ -161,7 +161,7 @@ impl ConnectionHandler {
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut room_state = msg.reborrow().init_room_state();
             room_state.set_room_id(room.id);
-            room_state.set_room_owner(room.owner);
+            room_state.set_room_owner(room.owner());
             room_state.set_room_name(&room.name);
             room.settings.lock().encode(room_state.reborrow().init_settings());
 
@@ -283,7 +283,7 @@ impl ConnectionHandler {
         }
 
         let room = room.as_ref().unwrap();
-        let is_owner = client.account_id() == room.owner;
+        let is_owner = client.account_id() == room.owner();
 
         if player_id == 0 {
             player_id = client.account_id();
@@ -325,7 +325,7 @@ impl ConnectionHandler {
 
         let room = client.lock_room();
 
-        if room.as_ref().is_none_or(|r| r.is_global() || r.owner != client.account_id()) {
+        if room.as_ref().is_none_or(|r| r.is_global() || r.owner() != client.account_id()) {
             // cannot do this in a global room or if not the room owner
             return Ok(());
         }
@@ -362,7 +362,7 @@ impl ConnectionHandler {
 
         let room = client.lock_room();
 
-        if room.as_ref().is_none_or(|r| r.is_global() || r.owner != client.account_id()) {
+        if room.as_ref().is_none_or(|r| r.is_global() || r.owner() != client.account_id()) {
             // cannot do this in a global room or if not the room owner
             return Ok(());
         }
@@ -396,7 +396,7 @@ impl ConnectionHandler {
 
         let room = client.lock_room();
 
-        if room.as_ref().is_none_or(|r| r.is_global() || r.owner != client.account_id()) {
+        if room.as_ref().is_none_or(|r| r.is_global() || r.owner() != client.account_id()) {
             // cannot do this in a global room or if not the room owner
             return Ok(());
         }
@@ -474,7 +474,7 @@ impl ConnectionHandler {
             return Ok(());
         };
 
-        if room.owner != client.account_id() {
+        if room.owner() != client.account_id() {
             return Ok(());
         }
 
@@ -526,7 +526,7 @@ impl ConnectionHandler {
             return Ok(());
         };
 
-        if room.owner != client.account_id() {
+        if room.owner() != client.account_id() {
             return Ok(());
         }
 
@@ -596,7 +596,7 @@ impl ConnectionHandler {
                 room_ser.set_has_password(room.has_password());
                 room.settings.lock().encode(room_ser.reborrow().init_settings());
 
-                if let Some(owner) = self.find_client(room.owner) {
+                if let Some(owner) = self.find_client(room.owner()) {
                     let mut owner_ser = room_ser.reborrow().init_room_owner();
                     Self::encode_room_player(&owner, owner_ser.reborrow());
                 }
