@@ -153,35 +153,60 @@ impl ConnectionHandler {
     }
 
     async fn send_room_data(&self, client: &ClientStateHandle, room: &Room) -> HandlerResult<()> {
-        let players = self.pick_players_to_send(client, room).await;
+        self.send_room_players_filtered(client, room, true, |_| true).await
+    }
 
-        let team_count = room.team_count();
-        let cap = 112 + BYTES_PER_PLAYER * players.len() + 4 * team_count;
+    async fn send_room_players_filtered(
+        &self,
+        client: &ClientStateHandle,
+        room: &Room,
+        full_room_check: bool,
+        filter: impl Fn(&ClientStateHandle) -> bool,
+    ) -> HandlerResult<()> {
+        let players = self.pick_players_to_send(client, room, filter).await;
 
-        let buf = data::encode_message_heap!(self, cap, msg => {
-            let mut room_state = msg.reborrow().init_room_state();
-            room_state.set_room_id(room.id);
-            room_state.set_room_owner(room.owner());
-            room_state.set_room_name(&room.name);
-            room.settings.lock().encode(room_state.reborrow().init_settings());
+        let buf = if full_room_check {
+            let team_count = room.team_count();
+            let cap = 112 + BYTES_PER_PLAYER * players.len() + 4 * team_count;
 
-            let mut players_ser = room_state.reborrow().init_players(players.len() as u32);
+            data::encode_message_heap!(self, cap, msg => {
+                let mut room_state = msg.reborrow().init_room_state();
+                room_state.set_room_id(room.id);
+                room_state.set_room_owner(room.owner());
+                room_state.set_room_name(&room.name);
+                room.settings.lock().encode(room_state.reborrow().init_settings());
 
-            for (i, player) in players.iter().enumerate() {
-                let mut player_ser = players_ser.reborrow().get(i as u32);
-                Self::encode_room_player(player, player_ser.reborrow());
-            }
+                let mut players_ser = room_state.reborrow().init_players(players.len() as u32);
 
-            // encode teams
-            if team_count > 0 {
-                room.with_teams(|count, teams| {
-                    let mut teams_ser = room_state.reborrow().init_teams(count as u32);
-                    for (i, team) in teams.enumerate() {
-                        teams_ser.reborrow().set(i as u32, team.color);
-                    }
-                });
-            }
-        })?;
+                for (i, player) in players.iter().enumerate() {
+                    let mut player_ser = players_ser.reborrow().get(i as u32);
+                    Self::encode_room_player(player, player_ser.reborrow());
+                }
+
+                // encode teams
+                if team_count > 0 {
+                    room.with_teams(|count, teams| {
+                        let mut teams_ser = room_state.reborrow().init_teams(count as u32);
+                        for (i, team) in teams.enumerate() {
+                            teams_ser.reborrow().set(i as u32, team.color);
+                        }
+                    });
+                }
+            })?
+        } else {
+            let cap = 48 + BYTES_PER_PLAYER * players.len();
+
+            data::encode_message_heap!(self, cap, msg => {
+                let mut room_players = msg.reborrow().init_room_players();
+
+                let mut players_ser = room_players.reborrow().init_players(players.len() as u32);
+
+                for (i, player) in players.iter().enumerate() {
+                    let mut player_ser = players_ser.reborrow().get(i as u32);
+                    Self::encode_room_player(player, player_ser.reborrow());
+                }
+            })?
+        };
 
         client.send_data_bufkind(buf);
 
@@ -192,6 +217,7 @@ impl ConnectionHandler {
         &self,
         client: &ClientStateHandle,
         room: &Room,
+        filter: impl Fn(&ClientStateHandle) -> bool,
     ) -> Vec<ClientStateHandle> {
         const PLAYER_CAP: usize = 100;
 
@@ -232,7 +258,7 @@ impl ConnectionHandler {
             .with_players(|_, players| {
                 players
                     .map(|x| x.1.handle.clone())
-                    .filter(|x| x.account_id() != account_id)
+                    .filter(|x| x.account_id() != account_id && filter(x))
                     .choose_multiple_fill(&mut rand::rng(), &mut out[begin..])
             })
             .await;
@@ -248,6 +274,28 @@ impl ConnectionHandler {
 
         if let Some(room) = &*client.lock_room() {
             self.send_room_data(client, room).await?;
+        }
+
+        Ok(())
+    }
+
+    #[allow(clippy::await_holding_lock)]
+    pub async fn handle_request_room_players(
+        &self,
+        client: &ClientStateHandle,
+        name_filter: &str,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        if let Some(room) = &*client.lock_room() {
+            if name_filter.is_empty() {
+                self.send_room_players_filtered(client, room, false, |_| true).await?;
+            } else {
+                self.send_room_players_filtered(client, room, false, |p| {
+                    username_match(p.username(), name_filter)
+                })
+                .await?;
+            }
         }
 
         Ok(())
@@ -607,4 +655,11 @@ impl ConnectionHandler {
 
         Ok(())
     }
+}
+
+fn username_match(username: &str, filter: &str) -> bool {
+    username
+        .as_bytes()
+        .windows(filter.len())
+        .any(|window| window.eq_ignore_ascii_case(filter.as_bytes()))
 }

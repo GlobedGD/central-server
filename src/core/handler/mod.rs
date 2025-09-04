@@ -36,6 +36,7 @@ use crate::{
 
 mod admin;
 mod login;
+mod misc;
 mod rooms;
 mod session;
 mod util;
@@ -221,6 +222,12 @@ impl AppHandler for ConnectionHandler {
                 self.handle_request_player_counts(client, &out_levels)
             },
 
+            RequestLevelList(_msg) => {
+                unpacked_data.reset(); // free up memory
+
+                self.handle_request_level_list(client).await
+            },
+
             CreateRoom(message) => {
                 let name: heapless::String<64> = heapless_str_from_reader(message.get_name()?)?;
                 let settings = RoomSettings::from_reader(message.get_settings()?)?;
@@ -250,6 +257,14 @@ impl AppHandler for ConnectionHandler {
                 unpacked_data.reset(); // free up memory
 
                 self.handle_check_room_state(client).await
+            },
+
+            RequestRoomPlayers(msg) => {
+                let name_filter = heapless_str_from_reader::<32>(msg.get_name_filter()?)?;
+
+                unpacked_data.reset(); // free up memory
+
+                self.handle_request_room_players(client, &name_filter).await
             },
 
             RequestRoomList(_message) => {
@@ -609,64 +624,6 @@ impl ConnectionHandler {
         let buf = data::encode_message_heap!(self, 48 + message.as_ref().len(), msg => {
             let mut warn = msg.reborrow().init_warn();
             warn.set_message(message.as_ref());
-        })?;
-
-        client.send_data_bufkind(buf);
-
-        Ok(())
-    }
-
-    fn handle_update_own_data(
-        &self,
-        client: &ClientStateHandle,
-        icons: Option<PlayerIconData>,
-        friends: Option<FxHashSet<i32>>,
-    ) -> HandlerResult<()> {
-        must_auth(client)?;
-
-        if let Some(icons) = icons {
-            client.set_icons(icons);
-        };
-
-        if let Some(friends) = friends {
-            client.set_friends(friends);
-        };
-
-        Ok(())
-    }
-
-    fn handle_request_player_counts(
-        &self,
-        client: &ClientStateHandle,
-        sessions: &[u64],
-    ) -> HandlerResult<()> {
-        must_auth(client)?;
-
-        let mut out_vals = heapless::Vec::<(u64, u16), 128>::new();
-        debug_assert!(sessions.len() <= out_vals.capacity());
-
-        for &sess in sessions {
-            if let Some(count) = self.player_counts.get(&sess) {
-                let _ = out_vals.push((sess, *count as u16));
-                // TODO: maybe do a zero optimization?
-            }
-        }
-
-        // TODO: benchmark size properly
-        let cap = 40 + out_vals.len() * 12;
-
-        let buf = data::encode_message_heap!(self, cap, msg => {
-            let mut player_counts = msg.reborrow().init_player_counts();
-
-            let mut level_ids = player_counts.reborrow().init_level_ids(out_vals.len() as u32);
-            for (n, (level_id, _)) in out_vals.iter().enumerate() {
-                level_ids.set(n as u32, *level_id);
-            }
-
-            let mut counts = player_counts.reborrow().init_counts(out_vals.len() as u32);
-            for (n, (_, count)) in out_vals.iter().enumerate() {
-                counts.set(n as u32, *count);
-            }
         })?;
 
         client.send_data_bufkind(buf);
