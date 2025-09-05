@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use crate::core::handler::ConnectionHandler;
 use crate::core::module::{ModuleInitResult, ServerModule};
 
 mod account_data;
@@ -123,7 +124,7 @@ impl AuthModule {
 impl ServerModule for AuthModule {
     type Config = Config;
 
-    async fn new(config: &Self::Config) -> ModuleInitResult<Self> {
+    async fn new(config: &Self::Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         let token_issuer =
             TokenIssuer::new(&config.secret_key, Duration::from_secs(config.token_expiry as u64))?;
 

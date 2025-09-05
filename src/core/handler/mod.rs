@@ -479,17 +479,22 @@ impl ConnectionHandler {
     }
 
     pub fn insert_module<T: ServerModule>(&self, module: T) {
-        self.modules.set(module);
+        self.modules.set::<Arc<T>>(Arc::new(module));
     }
 
     /// Get a module by type. Panics if the module is not found.
     pub fn module<T: ServerModule>(&self) -> &T {
-        self.modules.get()
+        self.modules.get::<Arc<T>>()
     }
 
     /// Get a module by type, returning `None` if the module is not found.
     pub fn opt_module<T: ServerModule>(&self) -> Option<&T> {
-        self.modules.try_get()
+        self.modules.try_get::<Arc<T>>().map(|a| &**a)
+    }
+
+    /// Get a module by type, returning `None` if the module is not found.
+    pub fn opt_module_owned<T: ServerModule>(&self) -> Option<Arc<T>> {
+        self.modules.try_get::<Arc<T>>().cloned()
     }
 
     pub fn freeze(&mut self) {

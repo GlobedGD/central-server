@@ -1,11 +1,16 @@
 use serde::{Serialize, de::DeserializeOwned};
 
+use crate::core::handler::ConnectionHandler;
+
 pub type ModuleInitResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 pub trait ServerModule: Send + Sync + 'static {
     type Config: DeserializeOwned + Serialize + Default + Send + Sync + 'static;
 
-    fn new(config: &Self::Config) -> impl Future<Output = ModuleInitResult<Self>> + Send
+    fn new(
+        config: &Self::Config,
+        handler: &ConnectionHandler,
+    ) -> impl Future<Output = ModuleInitResult<Self>> + Send
     where
         Self: Sized;
 

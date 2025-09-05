@@ -124,7 +124,8 @@ impl ConnectionHandler {
         let result = if let Some(client) = self.find_client(account_id) {
             // kick the person
             client.disconnect(Cow::Owned(reason.to_owned()));
-            let _ = users.log_kick(client.account_id(), account_id, reason).await;
+            users.log_kick(client.account_id(), account_id, reason).await;
+
             Ok(())
         } else {
             Err("failed to find the target person")

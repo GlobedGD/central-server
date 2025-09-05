@@ -1,6 +1,8 @@
 #![feature(try_blocks, duration_constructors_lite)]
 #![allow(clippy::new_without_default, clippy::collapsible_if)]
 
+use std::sync::Arc;
+
 use qunet::server::{
     Server as QunetServer, ServerOutcome,
     builder::{BufferPoolOpts, MemoryUsageOptions, UdpDiscoveryMode},
@@ -31,6 +33,8 @@ static GLOBAL: Jemalloc = Jemalloc;
 
 pub mod auth;
 pub mod core;
+#[cfg(feature = "discord")]
+pub mod discord;
 pub mod rooms;
 pub mod users;
 
@@ -65,13 +69,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut handler = ConnectionHandler::new(config);
 
+    // Add optional modules
+    #[cfg(feature = "discord")]
+    {
+        let _discord =
+            init_optional_module::<discord::DiscordModule>(&handler, |c| c.enabled).await;
+
+        // if let Some(_) = discord {
+        //     // init modules that depend on discord
+        // }
+    }
+
     // Add necessary modules
     init_module::<AuthModule>(&handler).await;
     init_module::<RoomModule>(&handler).await;
     init_module::<UsersModule>(&handler).await;
-
-    // Add optional modules
-    // todo
 
     // Freeze handler, this disallows adding new modules and module configs,
     // but improves performance by removing the need for locks.
@@ -202,7 +214,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn init_module<T: ServerModule>(handler: &ConnectionHandler) -> &T {
+async fn init_module<T: ServerModule>(handler: &ConnectionHandler) -> Arc<T> {
+    init_optional_module(handler, |_| true).await.expect("cannot happen")
+}
+
+async fn init_optional_module<T: ServerModule>(
+    handler: &ConnectionHandler,
+    should_enable: impl FnOnce(&T::Config) -> bool,
+) -> Option<Arc<T>> {
     let config = handler.config();
 
     if let Err(e) = config.init_module::<T>() {
@@ -212,7 +231,11 @@ async fn init_module<T: ServerModule>(handler: &ConnectionHandler) -> &T {
 
     let conf = config.module::<T>();
 
-    let module = match T::new(conf).await {
+    if !should_enable(conf) {
+        return None;
+    }
+
+    let module = match T::new(conf, handler).await {
         Ok(m) => m,
         Err(e) => {
             error!("Failed to initialize module {} ({}): {e}", T::name(), T::id());
@@ -222,7 +245,7 @@ async fn init_module<T: ServerModule>(handler: &ConnectionHandler) -> &T {
 
     handler.insert_module(module);
 
-    handler.module()
+    Some(handler.opt_module_owned().unwrap())
 }
 
 fn make_memory_limits(usage: u32) -> MemoryUsageOptions {

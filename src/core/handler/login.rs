@@ -175,7 +175,7 @@ impl ConnectionHandler {
         let all_roles = users.get_roles();
 
         // roughly estimate how many bytes will it take to encode the response
-        let cap = 88 + token.len() + servers.len() * 256 + all_roles.len() * 128;
+        let cap = 104 + token.len() + servers.len() * 256 + all_roles.len() * 128;
 
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut login_ok = msg.reborrow().init_login_ok();

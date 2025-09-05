@@ -1,3 +1,4 @@
+#[derive(Copy, Clone, Debug)]
 pub enum LogAction<'a> {
     Kick {
         account_id: i32,

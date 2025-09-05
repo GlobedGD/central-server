@@ -1,9 +1,17 @@
 use std::{cmp::Reverse, collections::HashSet, fmt::Write, num::NonZeroI64};
 
+#[cfg(feature = "discord")]
+use {crate::discord::DiscordModule, std::sync::Arc};
+
+#[cfg(feature = "discord")]
+use crate::discord::DiscordMessage;
 #[cfg(feature = "database")]
 use crate::{auth::ClientAccountData, users::database::AuditLogModel};
 use crate::{
-    core::module::{ModuleInitResult, ServerModule},
+    core::{
+        handler::ConnectionHandler,
+        module::{ModuleInitResult, ServerModule},
+    },
     users::{config::Role, database::LogAction},
 };
 
@@ -26,6 +34,18 @@ pub enum PunishUserError {
     NotFound,
     #[error("Insufficient permissions")]
     Permissions,
+}
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("Failed to punish user: {0}")]
+    Punish(#[from] PunishUserError),
+    #[error("Database error: {0}")]
+    Database(#[from] DatabaseError),
+
+    #[cfg(feature = "discord")]
+    #[error("Failed to log action via discord bot: {0}")]
+    Discord(#[from] crate::discord::BotError),
 }
 
 pub struct FetchedMod {
@@ -64,6 +84,8 @@ pub struct UsersModule {
     db: UsersDb,
     roles: Vec<Role>,       // index = numeric role ID
     super_admins: Vec<i32>, // account IDs of super admins
+    #[cfg(feature = "discord")]
+    discord: Option<Arc<DiscordModule>>,
 }
 
 impl UsersModule {
@@ -255,16 +277,15 @@ impl UsersModule {
         // update the user
         self.db.update_roles(account_id, &new_role_string).await?;
 
-        // log
-        self.db
-            .log_action(
-                issuer_id,
-                LogAction::EditRoles {
-                    account_id,
-                    rolediff: &rolediff,
-                },
-            )
-            .await?;
+        // log to db and discord
+        self.perform_log(
+            issuer_id,
+            LogAction::EditRoles {
+                account_id,
+                rolediff: &rolediff,
+            },
+        )
+        .await;
 
         Ok(())
     }
@@ -276,7 +297,7 @@ impl UsersModule {
         password: &str,
     ) -> DatabaseResult<()> {
         self.db.set_admin_password_hash(account_id, &pwhash::hash(password)).await?;
-        self.db.log_action(issuer_id, LogAction::EditPassword { account_id }).await?;
+        self.perform_log(issuer_id, LogAction::EditPassword { account_id }).await;
 
         Ok(())
     }
@@ -392,7 +413,7 @@ impl UsersModule {
         r#type: UserPunishmentType,
     ) -> Result<(), PunishUserError> {
         self.db.unpunish_user(account_id, r#type).await?;
-        self.db.log_action(issuer_id, self.log_for_unpunish(account_id, r#type)).await?;
+        self.perform_log(issuer_id, self.log_for_unpunish(account_id, r#type)).await;
 
         Ok(())
     }
@@ -440,22 +461,12 @@ impl UsersModule {
         Ok((logs, datas))
     }
 
-    pub async fn log_kick(
-        &self,
-        issuer_id: i32,
-        account_id: i32,
-        reason: &str,
-    ) -> DatabaseResult<()> {
-        self.db.log_action(issuer_id, LogAction::Kick { account_id, reason }).await
+    pub async fn log_kick(&self, issuer_id: i32, account_id: i32, reason: &str) {
+        self.perform_log(issuer_id, LogAction::Kick { account_id, reason }).await
     }
 
-    pub async fn log_notice(
-        &self,
-        issuer_id: i32,
-        account_id: i32,
-        message: &str,
-    ) -> DatabaseResult<()> {
-        self.db.log_action(issuer_id, LogAction::Notice { account_id, message }).await
+    pub async fn log_notice(&self, issuer_id: i32, account_id: i32, message: &str) {
+        self.perform_log(issuer_id, LogAction::Notice { account_id, message }).await
     }
 
     fn log_for_punish<'a>(
@@ -493,6 +504,29 @@ impl UsersModule {
         }
     }
 
+    async fn perform_log(&self, issuer_id: i32, log: LogAction<'_>) {
+        if let Err(e) = self.db.log_action(issuer_id, log).await {
+            warn!("Failed to log punishment in database: {e}");
+        }
+
+        #[cfg(feature = "discord")]
+        {
+            if let Some(d) = &self.discord {
+                let msg = Self::convert_to_discord_log(log);
+                // TODO: customize channel id
+                if let Err(e) = d.send_message(1219448690641735700, msg).await {
+                    warn!("Failed to log punishment on discord: {e}");
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "discord")]
+    fn convert_to_discord_log(log: LogAction<'_>) -> DiscordMessage<'_> {
+        // TODO
+        DiscordMessage::new().content(format!("{log:?}"))
+    }
+
     fn has_stronger_role(&self, issuer: &DbUser, target: &DbUser) -> bool {
         let issuer_role = self.compute_from_user(issuer);
         let target_role = self.compute_from_user(target);
@@ -504,7 +538,7 @@ impl UsersModule {
 impl ServerModule for UsersModule {
     type Config = Config;
 
-    async fn new(config: &Self::Config) -> ModuleInitResult<Self> {
+    async fn new(config: &Self::Config, handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         let db = UsersDb::new(&config.database_url, config.database_pool_size).await?;
         db.run_migrations().await?;
 
@@ -516,10 +550,15 @@ impl ServerModule for UsersModule {
         // sort roles by priority descending
         roles.sort_by_key(|role| Reverse(role.priority));
 
+        #[cfg(feature = "discord")]
+        let discord = handler.opt_module_owned::<DiscordModule>();
+
         Ok(Self {
             db,
             roles,
             super_admins: config.super_admins.clone(),
+            #[cfg(feature = "discord")]
+            discord,
         })
     }
 
