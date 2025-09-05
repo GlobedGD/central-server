@@ -86,6 +86,7 @@ pub struct UsersModule {
     super_admins: Vec<i32>, // account IDs of super admins
     #[cfg(feature = "discord")]
     discord: Option<Arc<DiscordModule>>,
+    log_channel: u64,
 }
 
 impl UsersModule {
@@ -513,8 +514,8 @@ impl UsersModule {
         {
             if let Some(d) = &self.discord {
                 let msg = Self::convert_to_discord_log(log);
-                // TODO: customize channel id
-                if let Err(e) = d.send_message(1219448690641735700, msg).await {
+
+                if let Err(e) = d.send_message(self.log_channel, msg).await {
                     warn!("Failed to log punishment on discord: {e}");
                 }
             }
@@ -523,7 +524,7 @@ impl UsersModule {
 
     #[cfg(feature = "discord")]
     fn convert_to_discord_log(log: LogAction<'_>) -> DiscordMessage<'_> {
-        // TODO
+        // TODO: convert the log actions to embeds
         DiscordMessage::new().content(format!("{log:?}"))
     }
 
@@ -559,6 +560,7 @@ impl ServerModule for UsersModule {
             super_admins: config.super_admins.clone(),
             #[cfg(feature = "discord")]
             discord,
+            log_channel: config.mod_log_channel,
         })
     }
 

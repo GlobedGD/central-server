@@ -55,6 +55,10 @@ pub struct Config {
     pub super_admins: Vec<i32>,
     #[serde(default = "default_script_sign_key")]
     pub script_sign_key: String,
+
+    /// Where logs are sent on Discord, requires `discord` feature and module to be enabled.
+    #[serde(default)]
+    pub mod_log_channel: u64,
 }
 
 impl Default for Config {
@@ -65,6 +69,7 @@ impl Default for Config {
             roles: default_roles(),
             super_admins: default_super_admins(),
             script_sign_key: default_script_sign_key(),
+            mod_log_channel: Default::default(),
         }
     }
 }
