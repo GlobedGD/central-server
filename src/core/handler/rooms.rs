@@ -3,7 +3,10 @@ use std::{num::NonZeroI64, sync::Arc};
 use qunet::message::BufferKind;
 use rand::seq::IteratorRandom;
 
-use crate::rooms::{Room, RoomCreationError, RoomModule, RoomSettings};
+use crate::{
+    auth::ClientAccountData,
+    rooms::{Room, RoomCreationError, RoomModule, RoomSettings},
+};
 
 use super::{ConnectionHandler, util::*};
 
@@ -115,6 +118,20 @@ impl ConnectionHandler {
         }
     }
 
+    pub async fn handle_join_room_by_token(
+        &self,
+        client: &ClientStateHandle,
+        token: u64,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let rooms = self.module::<RoomModule>();
+        match rooms.join_room_by_invite_token(client, &self.game_server_manager, token).await {
+            Ok(new_room) => self.send_room_data(client, &new_room).await,
+            Err(reason) => self.send_room_join_failed(client, reason),
+        }
+    }
+
     pub async fn handle_leave_room(&self, client: &ClientStateHandle) -> HandlerResult<()> {
         // Leaving a room is the same as joining the global room
         self.handle_join_room(client, 0, 0).await
@@ -134,7 +151,19 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    fn encode_room_player(player: &ClientStateHandle, mut builder: data::room_player::Builder<'_>) {
+    pub(crate) fn encode_account_data(
+        player: &ClientAccountData,
+        mut builder: data::player_account_data::Builder<'_>,
+    ) {
+        builder.set_account_id(player.account_id);
+        builder.set_user_id(player.user_id);
+        builder.set_username(&player.username);
+    }
+
+    pub(crate) fn encode_room_player(
+        player: &ClientStateHandle,
+        mut builder: data::room_player::Builder<'_>,
+    ) {
         let icons = player.icons();
 
         builder.set_cube(icons.cube);
@@ -143,17 +172,33 @@ impl ConnectionHandler {
         builder.set_glow_color(icons.glow_color);
         builder.reborrow().set_session(player.session_id());
 
-        let mut accdata = builder.reborrow().init_account_data();
-        let account = player.account_data().expect("client must have account data");
-        accdata.set_account_id(account.account_id);
-        accdata.set_user_id(account.user_id);
-        accdata.set_username(&account.username);
+        Self::encode_account_data(
+            player.account_data().unwrap(),
+            builder.reborrow().init_account_data(),
+        );
 
         builder.set_team_id(player.team_id());
     }
 
+    pub(crate) fn encode_minimal_room_player(
+        player: &ClientStateHandle,
+        mut builder: data::minimal_room_player::Builder<'_>,
+    ) {
+        let icons = player.icons();
+
+        builder.set_cube(icons.cube);
+        builder.set_color1(icons.color1);
+        builder.set_color2(icons.color2);
+        builder.set_glow_color(icons.glow_color);
+
+        Self::encode_account_data(
+            player.account_data().unwrap(),
+            builder.reborrow().init_account_data(),
+        );
+    }
+
     async fn send_room_data(&self, client: &ClientStateHandle, room: &Room) -> HandlerResult<()> {
-        self.send_room_players_filtered(client, room, true, |_| true).await
+        self.send_room_players_filtered(client, room, true, false, |_| true).await
     }
 
     async fn send_room_players_filtered(
@@ -161,6 +206,7 @@ impl ConnectionHandler {
         client: &ClientStateHandle,
         room: &Room,
         full_room_check: bool,
+        minimal: bool,
         filter: impl Fn(&ClientStateHandle) -> bool,
     ) -> HandlerResult<()> {
         let players = self.pick_players_to_send(client, room, filter).await;
@@ -193,7 +239,7 @@ impl ConnectionHandler {
                     });
                 }
             })?
-        } else {
+        } else if !minimal {
             let cap = 48 + BYTES_PER_PLAYER * players.len();
 
             data::encode_message_heap!(self, cap, msg => {
@@ -204,6 +250,19 @@ impl ConnectionHandler {
                 for (i, player) in players.iter().enumerate() {
                     let mut player_ser = players_ser.reborrow().get(i as u32);
                     Self::encode_room_player(player, player_ser.reborrow());
+                }
+            })?
+        } else {
+            let cap = 48 + (BYTES_PER_PLAYER - 16) * players.len();
+
+            data::encode_message_heap!(self, cap, msg => {
+                let mut room_players = msg.reborrow().init_global_players();
+
+                let mut players_ser = room_players.reborrow().init_players(players.len() as u32);
+
+                for (i, player) in players.iter().enumerate() {
+                    let mut player_ser = players_ser.reborrow().get(i as u32);
+                    Self::encode_minimal_room_player(player, player_ser.reborrow());
                 }
             })?
         };
@@ -288,14 +347,37 @@ impl ConnectionHandler {
         must_auth(client)?;
 
         if let Some(room) = &*client.lock_room() {
-            if name_filter.is_empty() {
-                self.send_room_players_filtered(client, room, false, |_| true).await?;
-            } else {
-                self.send_room_players_filtered(client, room, false, |p| {
-                    username_match(p.username(), name_filter)
-                })
-                .await?;
-            }
+            self.send_room_players(client, room, name_filter, false).await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn handle_request_global_player_list(
+        &self,
+        client: &ClientStateHandle,
+        name_filter: &str,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let room = self.module::<RoomModule>().global_room();
+        self.send_room_players(client, &room, name_filter, true).await
+    }
+
+    async fn send_room_players(
+        &self,
+        client: &ClientStateHandle,
+        room: &Room,
+        name_filter: &str,
+        minimal: bool,
+    ) -> HandlerResult<()> {
+        if name_filter.is_empty() {
+            self.send_room_players_filtered(client, room, false, minimal, |_| true).await?;
+        } else {
+            self.send_room_players_filtered(client, room, false, minimal, |p| {
+                username_match(p.username(), name_filter)
+            })
+            .await?;
         }
 
         Ok(())
@@ -515,6 +597,8 @@ impl ConnectionHandler {
         r#type: data::RoomOwnerActionType,
         target: i32,
     ) -> HandlerResult<()> {
+        must_auth(client)?;
+
         let rooms = self.module::<RoomModule>();
         let room_lock = client.lock_room();
 
@@ -563,11 +647,59 @@ impl ConnectionHandler {
 
         Ok(())
     }
+
+    pub async fn handle_invite_player(
+        &self,
+        client: &ClientStateHandle,
+        player: i32,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let room_lock = client.lock_room();
+
+        let Some(room) = &*room_lock else {
+            return Ok(());
+        };
+
+        if room.private_invites() && room.owner() != client.account_id() {
+            return Ok(());
+        }
+
+        debug!("{} is creating invite for {} (room {})", client.account_id(), player, room.id);
+
+        // if player is 0, create the invite token and send back to the same person
+        if player == 0 {
+            let token = room.create_invite_token();
+
+            let buf = data::encode_message!(self, 56, msg => {
+                let mut created = msg.init_invite_token_created();
+                created.set_token(token.get());
+            })?;
+
+            client.send_data_bufkind(buf);
+        } else if let Some(target) = self.find_client(player) {
+            let token = room.create_invite_token();
+
+            let buf = data::encode_message!(self, 104, msg => {
+                let mut invited = msg.init_invited();
+                invited.set_token(token.get());
+
+                Self::encode_account_data(client.account_data().unwrap(), invited.init_invited_by());
+            })?;
+
+            target.send_data_bufkind(buf);
+        };
+
+        Ok(())
+    }
+
     pub async fn handle_update_room_settings(
         &self,
         client: &ClientStateHandle,
         settings: RoomSettings,
     ) -> HandlerResult<()> {
+        must_auth(client)?;
+
         let room_lock = client.lock_room();
 
         let Some(room) = &*room_lock else {

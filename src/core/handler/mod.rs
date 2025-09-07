@@ -227,6 +227,13 @@ impl AppHandler for ConnectionHandler {
                 self.handle_request_level_list(client).await
             },
 
+            RequestGlobalPlayerList(msg) => {
+                let name_filter = heapless_str_from_reader::<32>(msg.get_name_filter()?)?;
+                unpacked_data.reset(); // free up memory
+
+                self.handle_request_global_player_list(client, &name_filter).await
+            },
+
             CreateRoom(message) => {
                 let name: heapless::String<64> = heapless_str_from_reader(message.get_name()?)?;
                 let settings = RoomSettings::from_reader(message.get_settings()?)?;
@@ -244,6 +251,13 @@ impl AppHandler for ConnectionHandler {
                 unpacked_data.reset(); // free up memory
 
                 self.handle_join_room(client, id, passcode).await
+            },
+
+            JoinRoomByToken(message) => {
+                let token = message.get_token();
+                unpacked_data.reset(); // free up memory
+
+                self.handle_join_room_by_token(client, token).await
             },
 
             LeaveRoom(_message) => {
@@ -315,17 +329,23 @@ impl AppHandler for ConnectionHandler {
                 let r#type = message.get_type()?;
                 let target = message.get_target();
 
-                unpacked_data.reset();
+                unpacked_data.reset(); // free up memory
 
                 self.handle_room_owner_action(client, r#type, target).await
             },
 
             UpdateRoomSettings(message) => {
                 let settings = RoomSettings::from_reader(message.get_settings()?)?;
-
-                unpacked_data.reset();
+                unpacked_data.reset(); // free up memory
 
                 self.handle_update_room_settings(client, settings).await
+            },
+
+            InvitePlayer(message) => {
+                let player = message.get_player();
+                unpacked_data.reset(); // free up memory
+
+                self.handle_invite_player(client, player).await
             },
 
             //

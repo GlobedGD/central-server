@@ -1,15 +1,22 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
-use crate::core::{
-    data,
-    game_server::GameServerManager,
-    handler::{ClientStateHandle, ConnectionHandler},
-    module::{ConfigurableModule, ModuleInitResult, ServerModule},
+use crate::{
+    core::{
+        data,
+        game_server::GameServerManager,
+        handler::{ClientStateHandle, ConnectionHandler},
+        module::{ConfigurableModule, ModuleInitResult, ServerModule},
+    },
+    rooms::invite_token::InviteToken,
 };
 
+mod invite_token;
 mod manager;
+mod room;
 mod settings;
-pub use manager::{ClientRoomHandle, Room, RoomCreationError, RoomManager};
+pub use manager::{RoomCreationError, RoomManager};
+use qunet::server::ServerHandle;
+pub use room::{ClientRoomHandle, Room};
 use serde::{Deserialize, Serialize};
 pub use server_shared::SessionId;
 pub use settings::RoomSettings;
@@ -80,6 +87,29 @@ impl RoomModule {
             self.join_room(client, gsm, room.clone(), passcode).await?;
             room
         };
+
+        Ok(room)
+    }
+
+    pub async fn join_room_by_invite_token(
+        &self,
+        client: &ClientStateHandle,
+        gsm: &GameServerManager,
+        token: u64,
+    ) -> Result<Arc<Room>, data::RoomJoinFailedReason> {
+        let token = InviteToken::from(token);
+        let room_id = token.room_id();
+
+        if room_id == 0 {
+            return Err(data::RoomJoinFailedReason::NotFound);
+        }
+
+        let room = self.get_room(room_id).ok_or(data::RoomJoinFailedReason::NotFound)?;
+        if !room.consume_invite_token(token) {
+            return Err(data::RoomJoinFailedReason::NotFound);
+        }
+
+        self.force_join_room(client, gsm, room.clone()).await;
 
         Ok(room)
     }
@@ -182,6 +212,10 @@ impl RoomModule {
             self.manager.update_room_set(&room);
         }
     }
+
+    pub fn routine_cleanup(&self) {
+        self.manager.routine_cleanup();
+    }
 }
 
 #[derive(Deserialize, Serialize, Default)]
@@ -201,6 +235,12 @@ impl ServerModule for RoomModule {
 
     fn name() -> &'static str {
         "Rooms"
+    }
+
+    fn on_launch(&self, server: &ServerHandle<ConnectionHandler>) {
+        server.schedule(Duration::from_mins(30), async |server| {
+            server.handler().module::<RoomModule>().routine_cleanup();
+        });
     }
 }
 

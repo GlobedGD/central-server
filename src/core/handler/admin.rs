@@ -563,10 +563,8 @@ impl ConnectionHandler {
 
             let mut accounts = msg.reborrow().init_accounts(users.len() as u32);
             for (i, user) in users.iter().enumerate() {
-                let mut acc = accounts.reborrow().get(i as u32);
-                acc.set_username(&user.username);
-                acc.set_account_id(user.account_id);
-                acc.set_user_id(user.user_id);
+                let acc = accounts.reborrow().get(i as u32);
+                Self::encode_account_data(user, acc);
             }
 
             let mut out_logs = msg.init_logs(logs.len() as u32);

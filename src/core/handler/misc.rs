@@ -98,6 +98,8 @@ impl ConnectionHandler {
     }
 
     pub fn handle_fetch_credits(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+        must_auth(client)?;
+
         let credits_arc = self.module::<CreditsModule>().get_credits();
 
         let Some(credits) = credits_arc.as_ref() else {
