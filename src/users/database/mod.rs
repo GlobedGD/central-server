@@ -128,6 +128,30 @@ impl UsersDb {
     }
 
     #[cfg(feature = "database")]
+    pub async fn query_user_with_role(&self, role_id: &str) -> DatabaseResult<Vec<DbUser>> {
+        let users =
+            User::find().filter(user::Column::Roles.contains(role_id)).all(&self.conn).await?;
+
+        let mut out = Vec::new();
+        for user in users {
+            // the 'contains' match is not an exact one because a role id can be a substr of another role id
+            // so we will do additional filtering
+            if user.roles.as_ref().is_none_or(|x| !x.split(',').any(|role| role == role_id)) {
+                continue;
+            }
+
+            out.push(self.post_user_fetch(user).await?);
+        }
+
+        Ok(out)
+    }
+
+    #[cfg(not(feature = "database"))]
+    pub async fn query_user_with_role(&self, query: &str) -> DatabaseResult<Vec<DbUser>> {
+        Ok(Vec::new())
+    }
+
+    #[cfg(feature = "database")]
     pub async fn post_user_fetch(&self, model: user::Model) -> DatabaseResult<DbUser> {
         let mut user = DbUser {
             account_id: model.account_id,

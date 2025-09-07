@@ -1,4 +1,4 @@
-#![feature(try_blocks, duration_constructors_lite)]
+#![feature(try_blocks, duration_constructors_lite, iter_array_chunks, if_let_guard)]
 #![allow(clippy::new_without_default, clippy::collapsible_if)]
 
 use std::sync::Arc;
@@ -18,8 +18,9 @@ use crate::{
         config::{Config, CoreConfig},
         game_server::GameServerHandler,
         handler::ConnectionHandler,
-        module::ServerModule,
+        module::{ConfigurableModule, ServerModule},
     },
+    credits::CreditsModule,
     rooms::RoomModule,
     users::UsersModule,
 };
@@ -33,6 +34,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 
 pub mod auth;
 pub mod core;
+pub mod credits;
 #[cfg(feature = "discord")]
 pub mod discord;
 pub mod rooms;
@@ -84,6 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_module::<AuthModule>(&handler).await;
     init_module::<RoomModule>(&handler).await;
     init_module::<UsersModule>(&handler).await;
+    init_module::<CreditsModule>(&handler).await;
 
     // Freeze handler, this disallows adding new modules and module configs,
     // but improves performance by removing the need for locks.
@@ -214,11 +217,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn init_module<T: ServerModule>(handler: &ConnectionHandler) -> Arc<T> {
+async fn init_module<T: ServerModule + ConfigurableModule>(handler: &ConnectionHandler) -> Arc<T> {
     init_optional_module(handler, |_| true).await.expect("cannot happen")
 }
 
-async fn init_optional_module<T: ServerModule>(
+async fn init_optional_module<T: ServerModule + ConfigurableModule>(
     handler: &ConnectionHandler,
     should_enable: impl FnOnce(&T::Config) -> bool,
 ) -> Option<Arc<T>> {

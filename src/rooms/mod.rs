@@ -4,7 +4,7 @@ use crate::core::{
     data,
     game_server::GameServerManager,
     handler::{ClientStateHandle, ConnectionHandler},
-    module::{ModuleInitResult, ServerModule},
+    module::{ConfigurableModule, ModuleInitResult, ServerModule},
 };
 
 mod manager;
@@ -191,9 +191,7 @@ pub struct Config {
 }
 
 impl ServerModule for RoomModule {
-    type Config = Config;
-
-    async fn new(_config: &Self::Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+    async fn new(_config: &Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         Ok(Self { manager: RoomManager::new() })
     }
 
@@ -204,4 +202,8 @@ impl ServerModule for RoomModule {
     fn name() -> &'static str {
         "Rooms"
     }
+}
+
+impl ConfigurableModule for RoomModule {
+    type Config = Config;
 }

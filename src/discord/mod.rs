@@ -7,7 +7,7 @@ use tracing::error;
 use crate::{
     core::{
         handler::ConnectionHandler,
-        module::{ModuleInitResult, ServerModule},
+        module::{ConfigurableModule, ModuleInitResult, ServerModule},
     },
     discord::{bot::DiscordBot, state::BotState},
 };
@@ -56,9 +56,7 @@ pub struct Config {
 }
 
 impl ServerModule for DiscordModule {
-    type Config = Config;
-
-    async fn new(config: &Self::Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+    async fn new(config: &Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         let state = Arc::new(BotState::new());
 
         let mut bot = DiscordBot::new(&config.token, state.clone()).await?;
@@ -79,4 +77,8 @@ impl ServerModule for DiscordModule {
     fn name() -> &'static str {
         "Discord"
     }
+}
+
+impl ConfigurableModule for DiscordModule {
+    type Config = Config;
 }

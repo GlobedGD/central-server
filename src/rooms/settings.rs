@@ -4,7 +4,7 @@ use crate::core::data::room_settings;
 
 // XXX: when adding new fields, make sure that the defualt of 0 or false is correct,
 // otherwise manually implement Default
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct RoomSettings {
     pub server_id: u8,
     pub player_limit: u16,

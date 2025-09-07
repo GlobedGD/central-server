@@ -7,6 +7,7 @@ use std::{
 };
 
 use dashmap::DashMap;
+use parking_lot::Mutex;
 use qunet::{
     buffers::BufPool,
     message::{BufferKind, MsgData},
@@ -17,10 +18,10 @@ use qunet::{
 };
 use rustc_hash::FxHashSet;
 use server_shared::{
+    TypeMap,
     data::{GameServerData, PlayerIconData},
     encoding::heapless_str_from_reader,
 };
-use state::TypeMap;
 
 use crate::{
     auth::{ClientAccountData, LoginKind},
@@ -44,7 +45,8 @@ use util::*;
 pub use util::{ClientState, ClientStateHandle, WeakClientStateHandle};
 
 pub struct ConnectionHandler {
-    modules: TypeMap![Send + Sync],
+    modules: TypeMap,
+    module_list: Mutex<Vec<Arc<dyn ServerModule>>>,
     // we use a weak handle here to avoid ref cycles, which will make it impossible to drop the server
     server: OnceLock<WeakServerHandle<Self>>,
     game_server_manager: GameServerManager,
@@ -68,35 +70,32 @@ impl AppHandler for ConnectionHandler {
             Duration::from_mins(60)
         };
 
-        server
-            .schedule(status_intv, |server| async move {
-                server.print_server_status();
-                info!(" - Authorized clients: {}", server.handler().all_clients.len());
-                info!(
-                    " - Active game sessions: {} (total players: {})",
-                    server.handler().player_counts.len(),
-                    server.handler().player_counts.iter().map(|mref| *mref.value()).sum::<usize>()
-                );
+        server.schedule(status_intv, |server| async move {
+            server.print_server_status();
+            info!(" - Authorized clients: {}", server.handler().all_clients.len());
+            info!(
+                " - Active game sessions: {} (total players: {})",
+                server.handler().player_counts.len(),
+                server.handler().player_counts.iter().map(|mref| *mref.value()).sum::<usize>()
+            );
 
-                let rooms = server.handler().module::<RoomModule>();
-                info!(" - Room count: {}", rooms.get_room_count());
-            })
-            .await;
+            let rooms = server.handler().module::<RoomModule>();
+            info!(" - Room count: {}", rooms.get_room_count());
+        });
 
         // TODO: determine if this is really worth it?
-        server
-            .schedule(Duration::from_hours(12), |server| async move {
-                let pool = server.get_buffer_pool();
-                let prev_usage = pool.stats().total_heap_usage;
-                pool.shrink();
-                let new_usage = pool.stats().total_heap_usage;
+        server.schedule(Duration::from_hours(12), |server| async move {
+            let pool = server.get_buffer_pool();
+            let prev_usage = pool.stats().total_heap_usage;
+            pool.shrink();
+            let new_usage = pool.stats().total_heap_usage;
 
-                info!(
-                    "Shrinking buffer pool to reclaim memory: {} -> {} bytes",
-                    prev_usage, new_usage
-                );
-            })
-            .await;
+            info!("Shrinking buffer pool to reclaim memory: {} -> {} bytes", prev_usage, new_usage);
+        });
+
+        for module in self.module_list.lock().iter() {
+            module.on_launch(&server);
+        }
 
         Ok(())
     }
@@ -344,6 +343,15 @@ impl AppHandler for ConnectionHandler {
                 self.handle_leave_session(client).await
             },
 
+            //
+
+            FetchCredits(_message) => {
+                unpacked_data.reset(); // free up memory
+                self.handle_fetch_credits(client)
+            },
+
+            //
+
             AdminLogin(message) => {
                 let password = message.get_password()?.to_str()?;
 
@@ -469,7 +477,8 @@ impl AppHandler for ConnectionHandler {
 impl ConnectionHandler {
     pub fn new(config: Config) -> Self {
         Self {
-            modules: <TypeMap![Send + Sync]>::new(),
+            modules: TypeMap::new(),
+            module_list: Mutex::new(Vec::new()),
             server: OnceLock::new(),
             game_server_manager: GameServerManager::new(),
             config,
@@ -479,22 +488,24 @@ impl ConnectionHandler {
     }
 
     pub fn insert_module<T: ServerModule>(&self, module: T) {
-        self.modules.set::<Arc<T>>(Arc::new(module));
+        self.modules.insert(module);
+        let module: Arc<dyn ServerModule> = self.opt_module_owned::<T>().unwrap();
+        self.module_list.lock().push(module);
     }
 
     /// Get a module by type. Panics if the module is not found.
     pub fn module<T: ServerModule>(&self) -> &T {
-        self.modules.get::<Arc<T>>()
+        self.opt_module().expect("non-existend module getter called")
     }
 
     /// Get a module by type, returning `None` if the module is not found.
     pub fn opt_module<T: ServerModule>(&self) -> Option<&T> {
-        self.modules.try_get::<Arc<T>>().map(|a| &**a)
+        self.modules.get()
     }
 
     /// Get a module by type, returning `None` if the module is not found.
     pub fn opt_module_owned<T: ServerModule>(&self) -> Option<Arc<T>> {
-        self.modules.try_get::<Arc<T>>().cloned()
+        self.modules.get_owned()
     }
 
     pub fn freeze(&mut self) {

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::core::handler::ConnectionHandler;
-use crate::core::module::{ModuleInitResult, ServerModule};
+use crate::core::module::{ConfigurableModule, ModuleInitResult, ServerModule};
 
 mod account_data;
 mod argon_client;
@@ -122,9 +122,7 @@ impl AuthModule {
 }
 
 impl ServerModule for AuthModule {
-    type Config = Config;
-
-    async fn new(config: &Self::Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+    async fn new(config: &Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         let token_issuer =
             TokenIssuer::new(&config.secret_key, Duration::from_secs(config.token_expiry as u64))?;
 
@@ -147,4 +145,7 @@ impl ServerModule for AuthModule {
     fn name() -> &'static str {
         "Authentication"
     }
+}
+impl ConfigurableModule for AuthModule {
+    type Config = Config;
 }

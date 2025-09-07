@@ -15,7 +15,7 @@ futures-util = "0.3.31"
 heapless = "0.8.0"
 hex = "0.4.3"
 parking_lot = { version = "0.12.4", features = ["send_guard"] }
-qunet = { git = "https://github.com/dankmeme01/qunet", rev = "10d10c5" }
+qunet = { git = "https://github.com/dankmeme01/qunet", rev = "7bc0665d" }
 rand = "0.9.1"
 server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "a00def5", features = [
     "main",
@@ -45,7 +45,12 @@ itertools = "0.14.0"
 bcrypt = "0.17.0"
 smallvec = "1.15.1"
 nohash-hasher = "0.2.0"
-serenity = { version = "0.12.4", optional = true, features = ["simd_json"]}
+serenity = { version = "0.12.4", optional = true, features = ["simd_json"] }
+generic-async-http-client = { version = "0.7.0", features = [
+    "rustls_ring",
+    "use_hyper",
+    "http2",
+] }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5"

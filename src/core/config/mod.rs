@@ -4,15 +4,18 @@ use std::{
 };
 
 use serde::{Serialize, de::DeserializeOwned};
-use server_shared::config::env_replace;
-use state::TypeMap;
+use server_shared::{TypeMap, config::env_replace};
 use thiserror::Error;
 use tracing::error;
 
-use crate::core::module::ServerModule;
+trait ConfigTrait: Send + Sync + Default + DeserializeOwned + Serialize + 'static {}
+
+impl<T> ConfigTrait for T where T: Send + Sync + Default + DeserializeOwned + Serialize + 'static {}
 
 mod core;
 pub use core::*;
+
+use crate::core::module::{ConfigurableModule, ServerModule};
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -24,7 +27,7 @@ pub enum ConfigError {
 
 pub struct Config {
     core_config: CoreConfig,
-    mod_config: TypeMap![Send + Sync],
+    mod_config: TypeMap,
     root_dir: PathBuf,
 }
 
@@ -47,7 +50,7 @@ impl Config {
         core_config.replace_with_env();
 
         Ok(Self {
-            mod_config: <TypeMap![Send + Sync]>::new(),
+            mod_config: TypeMap::new(),
             root_dir,
             core_config,
         })
@@ -57,36 +60,33 @@ impl Config {
         self.mod_config.freeze();
     }
 
-    pub fn module<T: ServerModule>(&self) -> &T::Config {
-        self.mod_config.get::<T::Config>()
+    pub fn module<T: ConfigurableModule>(&self) -> &T::Config {
+        self.custom::<T::Config>()
+    }
+
+    pub fn custom<T: DeserializeOwned + Send + Sync + 'static>(&self) -> &T {
+        self.mod_config.get::<T>().expect("config not initialized for module")
     }
 
     pub fn core(&self) -> &CoreConfig {
         &self.core_config
     }
 
-    pub fn init_module<T: ServerModule>(&self) -> Result<(), ConfigError> {
-        match self._init_module::<T>() {
-            Ok(config) => {
-                self.mod_config.set(config);
-                Ok(())
-            }
-            Err(e) => Err(e),
-        }
+    pub fn init_module<T: ServerModule + ConfigurableModule>(&self) -> Result<(), ConfigError> {
+        self.init_custom::<T::Config>(T::id())
     }
 
-    fn _init_module<T: ServerModule>(&self) -> Result<T::Config, ConfigError> {
-        Self::_init_from_path::<T::Config>(&self.root_dir, T::id())
+    fn init_custom<T: ConfigTrait>(&self, id: &str) -> Result<(), ConfigError> {
+        let config = Self::_init_from_path::<T>(&self.root_dir, id)?;
+        self.mod_config.insert(config);
+        Ok(())
     }
 
     fn _init_core(root_dir: &Path) -> Result<CoreConfig, ConfigError> {
         Self::_init_from_path::<CoreConfig>(root_dir, "core")
     }
 
-    fn _init_from_path<T: Send + Sync + Default + DeserializeOwned + Serialize>(
-        root_dir: &Path,
-        name: &str,
-    ) -> Result<T, ConfigError> {
+    fn _init_from_path<T: ConfigTrait>(root_dir: &Path, name: &str) -> Result<T, ConfigError> {
         let path = root_dir.join(format!("{name}.toml"));
 
         if path.exists() {

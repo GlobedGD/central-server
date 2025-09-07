@@ -1,4 +1,4 @@
-use serenity::{all::Ready, async_trait, model::channel::Message, prelude::*};
+use serenity::{all::Ready, async_trait, prelude::*};
 use tracing::info;
 
 use crate::discord::bot::BotStateType;

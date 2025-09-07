@@ -10,7 +10,7 @@ use crate::{auth::ClientAccountData, users::database::AuditLogModel};
 use crate::{
     core::{
         handler::ConnectionHandler,
-        module::{ModuleInitResult, ServerModule},
+        module::{ConfigurableModule, ModuleInitResult, ServerModule},
     },
     users::{config::Role, database::LogAction},
 };
@@ -226,6 +226,10 @@ impl UsersModule {
         }
 
         itertools::join(roles.iter().filter_map(|id| self.get_role(*id).map(|role| &role.id)), ",")
+    }
+
+    pub async fn get_all_users_with_role(&self, role_id: &str) -> DatabaseResult<Vec<DbUser>> {
+        self.db.query_user_with_role(role_id).await
     }
 
     // Moderation utilities
@@ -537,9 +541,7 @@ impl UsersModule {
 }
 
 impl ServerModule for UsersModule {
-    type Config = Config;
-
-    async fn new(config: &Self::Config, handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+    async fn new(config: &Config, handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         let db = UsersDb::new(&config.database_url, config.database_pool_size).await?;
         db.run_migrations().await?;
 
@@ -571,4 +573,8 @@ impl ServerModule for UsersModule {
     fn name() -> &'static str {
         "User management"
     }
+}
+
+impl ConfigurableModule for UsersModule {
+    type Config = Config;
 }

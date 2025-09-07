@@ -2,7 +2,7 @@ use nohash_hasher::IntMap;
 use rustc_hash::FxHashSet;
 use server_shared::data::PlayerIconData;
 
-use crate::rooms::Room;
+use crate::{credits::CreditsModule, rooms::Room};
 
 use super::{ConnectionHandler, util::*};
 
@@ -89,6 +89,52 @@ impl ConnectionHandler {
             let mut counts = list.reborrow().init_player_counts(levels.len() as u32);
             for (n, (_, count)) in levels.iter().enumerate() {
                 counts.set(n as u32, *count);
+            }
+        })?;
+
+        client.send_data_bufkind(buf);
+
+        Ok(())
+    }
+
+    pub fn handle_fetch_credits(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+        let credits_arc = self.module::<CreditsModule>().get_credits();
+
+        let Some(credits) = credits_arc.as_ref() else {
+            let buf = data::encode_message_heap!(self, 56, msg => {
+                let mut cred = msg.init_credits();
+                cred.set_unavailable(true);
+            })?;
+
+            client.send_data_bufkind(buf);
+
+            return Ok(());
+        };
+
+        let cap =
+            56 + credits.iter().map(|c| c.name.len() + 24 + c.users.len() * 96).sum::<usize>();
+
+        let buf = data::encode_message_heap!(self, cap, msg => {
+            let cred = msg.init_credits();
+
+            let mut cats = cred.init_categories(credits.len() as u32);
+
+            for (i, cat) in credits.iter().enumerate() {
+                let mut out_cat = cats.reborrow().get(i as u32);
+                out_cat.set_name(&cat.name);
+
+                let mut users = out_cat.init_users(cat.users.len() as u32);
+                for (j, user) in cat.users.iter().enumerate() {
+                    let mut out_user = users.reborrow().get(j as u32);
+                    out_user.set_account_id(user.account_id);
+                    out_user.set_user_id(user.user_id);
+                    out_user.set_username(&user.username);
+                    out_user.set_display_name(&user.display_name);
+                    out_user.set_cube(user.cube);
+                    out_user.set_color1(user.color1);
+                    out_user.set_color2(user.color2);
+                    out_user.set_glow_color(user.glow_color);
+                }
             }
         })?;
 
