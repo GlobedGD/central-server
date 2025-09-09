@@ -446,6 +446,20 @@ impl AppHandler for ConnectionHandler {
                 self.handle_admin_room_unban(client, account_id).await
             },
 
+            AdminMute(message) => {
+                let account_id = message.get_account_id();
+                let reason = message.get_reason()?.to_str()?;
+                let expires_at = message.get_expires_at();
+
+                self.handle_admin_mute(client, account_id, reason, expires_at).await
+            },
+
+            AdminUnmute(message) => {
+                let account_id = message.get_account_id();
+
+                self.handle_admin_unmute(client, account_id).await
+            },
+
             AdminEditRoles(message) => {
                 let account_id = message.get_account_id();
                 let mut roles = heapless::Vec::<u8, 64>::new();

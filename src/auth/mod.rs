@@ -11,7 +11,7 @@ use crate::core::data::LoginFailedReason;
 pub use account_data::{ClientAccountData, LoginKind};
 pub use argon_client::ArgonClient;
 use config::Config;
-use server_shared::token_issuer::*;
+use server_shared::{MultiColor, token_issuer::*};
 use tracing::{debug, warn};
 
 pub struct AuthModule {
@@ -52,8 +52,9 @@ impl AuthModule {
         user_id: i32,
         username: &str,
         roles_str: &str,
+        name_color: Option<&MultiColor>,
     ) -> String {
-        self.token_issuer.generate(account_id, user_id, username, roles_str)
+        self.token_issuer.generate(account_id, user_id, username, roles_str, name_color)
     }
 
     pub async fn handle_login(&self, kind: LoginKind<'_>) -> AuthVerdict {

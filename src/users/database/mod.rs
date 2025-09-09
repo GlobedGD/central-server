@@ -1,9 +1,11 @@
 use std::num::NonZeroI64;
 
 use sea_orm::{QueryOrder, QuerySelect};
+use server_shared::MultiColor;
 #[cfg(feature = "database")]
 use smallvec::SmallVec;
 use thiserror::Error;
+
 #[cfg(feature = "database")]
 use {
     sea_orm::{
@@ -38,6 +40,8 @@ pub enum DatabaseError {
     Db(#[from] sea_orm::DbErr),
     #[error("Invalid punishment type in the database")]
     InvalidPunishmentType,
+    #[error("User not found")]
+    NotFound,
 }
 
 pub type DatabaseResult<T> = Result<T, DatabaseError>;
@@ -153,10 +157,20 @@ impl UsersDb {
 
     #[cfg(feature = "database")]
     pub async fn post_user_fetch(&self, model: user::Model) -> DatabaseResult<DbUser> {
+        use tracing::warn;
+
+        let name_color = model.name_color.as_ref().and_then(|c| {
+            MultiColor::decode_from_string(c)
+                .inspect_err(|e| {
+                    warn!("Failed to parse user color from DB for {}: {e}", model.account_id)
+                })
+                .ok()
+        });
+
         let mut user = DbUser {
             account_id: model.account_id,
             username: model.username.clone(),
-            name_color: model.name_color.clone(),
+            name_color,
             is_whitelisted: model.is_whitelisted,
             admin_password_hash: model.admin_password_hash.clone(),
             roles: model.roles.clone(),
@@ -220,22 +234,14 @@ impl UsersDb {
 
     #[cfg(feature = "database")]
     pub async fn update_username(&self, account_id: i32, new_username: &str) -> DatabaseResult<()> {
-        let result = User::update_many()
+        let res = User::update_many()
             .filter(user::Column::AccountId.eq(account_id))
             .col_expr(user::Column::Username, Expr::value(new_username))
             .exec(&self.conn)
             .await?;
 
-        if result.rows_affected == 0 {
-            // user does not exist, insert a new one
-            let new_user = user::ActiveModel {
-                account_id: Set(account_id),
-                username: Set(Some(new_username.to_owned())),
-                is_whitelisted: Set(false),
-                ..Default::default()
-            };
-
-            new_user.insert(&self.conn).await?;
+        if res.rows_affected == 0 {
+            return Err(DatabaseError::NotFound);
         }
 
         Ok(())
@@ -294,15 +300,16 @@ impl UsersDb {
     }
 
     #[cfg(feature = "database")]
-    pub async fn update_icons(
+    pub async fn update_user(
         &self,
         account_id: i32,
+        username: &str,
         cube: i16,
         color1: u16,
         color2: u16,
         glow_color: u16,
     ) -> DatabaseResult<()> {
-        User::update_many()
+        let result = User::update_many()
             .filter(user::Column::AccountId.eq(account_id))
             .col_expr(user::Column::Cube, Expr::value(cube))
             .col_expr(user::Column::Color1, Expr::value(color1))
@@ -310,6 +317,23 @@ impl UsersDb {
             .col_expr(user::Column::GlowColor, Expr::value(glow_color))
             .exec(&self.conn)
             .await?;
+
+        if result.rows_affected == 0 {
+            tracing::debug!("inserting new user {} ({})", username, account_id);
+            // user does not exist, insert a new one
+            let new_user = user::ActiveModel {
+                account_id: Set(account_id),
+                username: Set(Some(username.to_owned())),
+                is_whitelisted: Set(false),
+                cube: Set(cube as i32),
+                color1: Set(color1 as i32),
+                color2: Set(color2 as i32),
+                glow_color: Set(glow_color as i32),
+                ..Default::default()
+            };
+
+            new_user.insert(&self.conn).await?;
+        }
 
         Ok(())
     }
@@ -496,14 +520,14 @@ impl UsersDb {
         Ok(())
     }
 
-    pub async fn update_roles(&self, account_id: i32, roles: &str) -> DatabaseResult<()> {
-        User::update_many()
+    pub async fn update_roles(&self, account_id: i32, roles: &str) -> DatabaseResult<bool> {
+        let res = User::update_many()
             .filter(user::Column::AccountId.eq(account_id))
             .col_expr(user::Column::Roles, Expr::value(roles))
             .exec(&self.conn)
             .await?;
 
-        Ok(())
+        Ok(res.rows_affected > 0)
     }
 
     pub async fn fetch_logs(
@@ -614,7 +638,7 @@ pub struct UserPunishment {
 pub struct DbUser {
     pub account_id: i32,
     pub username: Option<String>,
-    pub name_color: Option<String>,
+    pub name_color: Option<MultiColor>,
     pub is_whitelisted: bool,
     pub admin_password_hash: Option<String>,
     pub roles: Option<String>,

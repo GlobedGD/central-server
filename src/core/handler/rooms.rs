@@ -1,6 +1,6 @@
 use std::{num::NonZeroI64, sync::Arc};
 
-use qunet::message::BufferKind;
+use qunet::{buffers::ByteWriter, message::BufferKind};
 use rand::seq::IteratorRandom;
 
 use crate::{
@@ -166,18 +166,32 @@ impl ConnectionHandler {
     ) {
         let icons = player.icons();
 
-        builder.set_cube(icons.cube);
-        builder.set_color1(icons.color1);
-        builder.set_color2(icons.color2);
-        builder.set_glow_color(icons.glow_color);
-        builder.reborrow().set_session(player.session_id());
-
         Self::encode_account_data(
             player.account_data().unwrap(),
             builder.reborrow().init_account_data(),
         );
 
+        builder.set_cube(icons.cube);
+        builder.set_color1(icons.color1);
+        builder.set_color2(icons.color2);
+        builder.set_glow_color(icons.glow_color);
+        builder.reborrow().set_session(player.session_id());
         builder.set_team_id(player.team_id());
+
+        // TODO: privacy settings ... dont send this if not needed
+
+        if let Some(role) = player.role() {
+            let mut sdata = builder.reborrow().init_special_data();
+
+            if let Some(nc) = role.name_color.as_ref() {
+                let mut buf = [0u8; 256];
+                let mut writer = ByteWriter::new(&mut buf);
+                nc.encode(&mut writer);
+                sdata.set_name_color(writer.written());
+            }
+
+            let _ = sdata.set_roles(&*role.roles);
+        }
     }
 
     pub(crate) fn encode_minimal_room_player(

@@ -3,10 +3,12 @@ use std::{cmp::Reverse, collections::HashSet, fmt::Write, num::NonZeroI64};
 #[cfg(feature = "discord")]
 use {crate::discord::DiscordModule, std::sync::Arc};
 
-#[cfg(feature = "discord")]
-use crate::discord::DiscordMessage;
 #[cfg(feature = "database")]
 use crate::{auth::ClientAccountData, users::database::AuditLogModel};
+
+#[cfg(all(feature = "discord", feature = "database"))]
+use crate::discord::DiscordMessage;
+
 use crate::{
     core::{
         handler::ConnectionHandler,
@@ -14,6 +16,8 @@ use crate::{
     },
     users::{config::Role, database::LogAction},
 };
+
+use server_shared::MultiColor;
 
 mod config;
 mod database;
@@ -42,6 +46,8 @@ pub enum Error {
     Punish(#[from] PunishUserError),
     #[error("Database error: {0}")]
     Database(#[from] DatabaseError),
+    #[error("Failed to find user in the database")]
+    NotFound,
 
     #[cfg(feature = "discord")]
     #[error("Failed to log action via discord bot: {0}")]
@@ -61,7 +67,7 @@ pub struct FetchedMod {
 pub struct ComputedRole {
     pub priority: i32,
     pub roles: heapless::Vec<u8, 32>,
-    pub name_color: String,
+    pub name_color: Option<MultiColor>,
 
     pub can_kick: bool,
     pub can_mute: bool,
@@ -145,19 +151,6 @@ impl UsersModule {
         account_id: i32,
         mut iter: impl Iterator<Item = &'a str>,
     ) -> ComputedRole {
-        // super admin has the highest possible priority and perms
-        if self.super_admins.contains(&account_id) {
-            return ComputedRole {
-                priority: i32::MAX,
-                can_kick: true,
-                can_mute: true,
-                can_ban: true,
-                can_set_password: true,
-                can_notice_everyone: true,
-                ..Default::default()
-            };
-        }
-
         // start with a baseline user role with minimum priority and no permissions
         let mut out_role = ComputedRole {
             priority: i32::MIN,
@@ -193,7 +186,7 @@ impl UsersModule {
             let _ = out_role.roles.push(role_index as u8);
 
             if !is_weaker {
-                out_role.name_color.clone_from(&role.name_color);
+                out_role.name_color = Some(role.name_color.clone());
             }
         }
 
@@ -207,6 +200,16 @@ impl UsersModule {
         out_role.roles.sort_unstable_by_key(|&id| {
             Reverse(self.get_role(id).map_or(i32::MIN, |r| r.priority))
         });
+
+        // super admin has the highest possible priority and perms
+        if self.super_admins.contains(&account_id) {
+            out_role.priority = i32::MAX;
+            out_role.can_kick = true;
+            out_role.can_mute = true;
+            out_role.can_ban = true;
+            out_role.can_set_password = true;
+            out_role.can_notice_everyone = true;
+        }
 
         out_role
     }
@@ -250,7 +253,7 @@ impl UsersModule {
         issuer_id: i32,
         account_id: i32,
         new_roles: &[u8],
-    ) -> DatabaseResult<()> {
+    ) -> Result<(), Error> {
         // get the previous roles to compute the diff
         let prev_roles = match self.get_user(account_id).await? {
             Some(user) => user.roles.unwrap_or_default(),
@@ -264,11 +267,19 @@ impl UsersModule {
         let mut rolediff = String::new();
 
         for role in new_set.difference(&prev_set) {
-            write!(rolediff, "+{},", role).unwrap();
+            if let Some(role) = self.get_role(*role) {
+                write!(rolediff, "+{},", role.id).unwrap();
+            } else {
+                warn!("Unknown role ID: {role}");
+            }
         }
 
         for role in prev_set.difference(&new_set) {
-            write!(rolediff, "-{},", role).unwrap();
+            if let Some(role) = self.get_role(*role) {
+                write!(rolediff, "-{},", role.id).unwrap();
+            } else {
+                warn!("Unknown role ID: {role}");
+            }
         }
 
         // remove the last comma if it exists
@@ -280,7 +291,9 @@ impl UsersModule {
         let new_role_string = self.make_role_string(new_roles);
 
         // update the user
-        self.db.update_roles(account_id, &new_role_string).await?;
+        if !self.db.update_roles(account_id, &new_role_string).await? {
+            return Err(Error::NotFound);
+        }
 
         // log to db and discord
         self.perform_log(
@@ -316,9 +329,7 @@ impl UsersModule {
         color2: u16,
         glow_color: u16,
     ) -> DatabaseResult<()> {
-        self.update_username(account_id, username).await?;
-        self.db.update_icons(account_id, cube, color1, color2, glow_color).await?;
-        Ok(())
+        self.db.update_user(account_id, username, cube, color1, color2, glow_color).await
     }
 
     pub async fn fetch_moderators(&self) -> DatabaseResult<Vec<FetchedMod>> {
@@ -357,16 +368,25 @@ impl UsersModule {
         issuer_id: i32,
         account_id: i32,
     ) -> Result<(), PunishUserError> {
+        // Check that the user has ability to punish (meaning they have a higher role)
+
+        // super admins can do anything
+        if self.super_admins.contains(&issuer_id) {
+            return Ok(());
+        }
+
+        // compare roles, if the target doesn't exist then assume them as a regular user
+
         let issuer = self.get_user(issuer_id).await?;
         let target = self.get_user(account_id).await?;
 
         if issuer.is_none() {
-            warn!("could not find the moderator in the database ({issuer_id})");
+            warn!("punishment failed: could not find the moderator in the database ({issuer_id})");
             return Err(PunishUserError::Permissions);
         }
 
         if target.is_none() {
-            return Err(PunishUserError::NotFound);
+            return Ok(());
         }
 
         let issuer = issuer.unwrap();
@@ -526,7 +546,7 @@ impl UsersModule {
         }
     }
 
-    #[cfg(feature = "discord")]
+    #[cfg(all(feature = "discord", feature = "database"))]
     fn convert_to_discord_log(log: LogAction<'_>) -> DiscordMessage<'_> {
         // TODO: convert the log actions to embeds
         DiscordMessage::new().content(format!("{log:?}"))

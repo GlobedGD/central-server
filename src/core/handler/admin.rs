@@ -20,27 +20,6 @@ enum ActionType {
     EditRoles,
 }
 
-fn must_be_able(client: &ClientStateHandle, action: ActionType) -> HandlerResult<()> {
-    must_admin_auth(client)?;
-
-    let Some(role) = client.role() else {
-        return Err(HandlerError::NotAdmin);
-    };
-
-    let can = match action {
-        ActionType::Kick => role.can_kick,
-        ActionType::Notice => true, // anyone can send notices
-        ActionType::NoticeEveryone => role.can_notice_everyone,
-        ActionType::Ban => role.can_ban,
-        ActionType::RoomBan => role.can_ban,
-        ActionType::Mute => role.can_mute,
-        ActionType::SetPassword => role.can_set_password,
-        ActionType::EditRoles => true,
-    };
-
-    can.then_some(()).ok_or(HandlerError::NotAdmin)
-}
-
 #[derive(Default)]
 struct FetchResponse<'a> {
     account_id: i32,
@@ -51,12 +30,39 @@ struct FetchResponse<'a> {
 }
 
 impl ConnectionHandler {
+    fn must_be_able(&self, client: &ClientStateHandle, action: ActionType) -> HandlerResult<()> {
+        must_admin_auth(client)?;
+
+        let Some(role) = client.role() else {
+            // dont send a message
+            return Err(HandlerError::NotAdmin);
+        };
+
+        let can = match action {
+            ActionType::Kick => role.can_kick,
+            ActionType::Notice => true, // anyone can send notices
+            ActionType::NoticeEveryone => role.can_notice_everyone,
+            ActionType::Ban => role.can_ban,
+            ActionType::RoomBan => role.can_ban,
+            ActionType::Mute => role.can_mute,
+            ActionType::SetPassword => role.can_set_password,
+            ActionType::EditRoles => true,
+        };
+
+        if can {
+            Ok(())
+        } else {
+            self.send_admin_result(client, Err("insufficient permissions"))?;
+            Err(HandlerError::NotAdmin)
+        }
+    }
+
     fn send_admin_result<Fr: AsRef<str>>(
         &self,
         client: &ClientStateHandle,
         result: Result<(), Fr>,
     ) -> HandlerResult<()> {
-        let cap = 48 + result.as_ref().err().map_or(0, |e| e.as_ref().len());
+        let cap = 56 + result.as_ref().err().map_or(0, |e| e.as_ref().len());
 
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut admin_result = msg.reborrow().init_admin_result();
@@ -117,7 +123,7 @@ impl ConnectionHandler {
         account_id: i32,
         reason: &str,
     ) -> HandlerResult<()> {
-        must_be_able(client, ActionType::Kick)?;
+        self.must_be_able(client, ActionType::Kick)?;
 
         let users = self.module::<UsersModule>();
 
@@ -147,7 +153,7 @@ impl ConnectionHandler {
         can_reply: bool,
         show_sender: bool,
     ) -> HandlerResult<()> {
-        must_be_able(
+        self.must_be_able(
             client,
             if room_id == 0 {
                 ActionType::NoticeEveryone
@@ -234,7 +240,7 @@ impl ConnectionHandler {
         client: &ClientStateHandle,
         message: &str,
     ) -> HandlerResult<()> {
-        must_be_able(client, ActionType::NoticeEveryone)?;
+        self.must_be_able(client, ActionType::NoticeEveryone)?;
 
         let users = self.module::<UsersModule>();
         let _ = users.log_notice(client.account_id(), 0, message).await;
@@ -427,7 +433,7 @@ impl ConnectionHandler {
         expires_at: i64,
         r#type: UserPunishmentType,
     ) -> HandlerResult<()> {
-        must_be_able(
+        self.must_be_able(
             client,
             match r#type {
                 UserPunishmentType::Ban => ActionType::Ban,
@@ -461,7 +467,7 @@ impl ConnectionHandler {
         account_id: i32,
         r#type: UserPunishmentType,
     ) -> HandlerResult<()> {
-        must_be_able(
+        self.must_be_able(
             client,
             match r#type {
                 UserPunishmentType::Ban => ActionType::Ban,
@@ -484,7 +490,7 @@ impl ConnectionHandler {
         account_id: i32,
         role_ids: &[u8],
     ) -> HandlerResult<()> {
-        must_be_able(client, ActionType::EditRoles)?;
+        self.must_be_able(client, ActionType::EditRoles)?;
 
         let users = self.module::<UsersModule>();
         let result = users.admin_edit_roles(client.account_id(), account_id, role_ids).await;
@@ -500,7 +506,7 @@ impl ConnectionHandler {
         account_id: i32,
         password: &str,
     ) -> HandlerResult<()> {
-        must_be_able(client, ActionType::SetPassword)?;
+        self.must_be_able(client, ActionType::SetPassword)?;
 
         let users = self.module::<UsersModule>();
         let result = users.admin_set_password(client.account_id(), account_id, password).await;
@@ -556,7 +562,12 @@ impl ConnectionHandler {
                 }
             };
 
-        let cap = 64 + logs.len() * 64 + users.len() * 40;
+        let cap = 80
+            + logs
+                .iter()
+                .map(|l| 64 + l.message.as_ref().map(|x| x.len()).unwrap_or(0))
+                .sum::<usize>()
+            + users.len() * 56;
 
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut msg = msg.reborrow().init_admin_logs_response();

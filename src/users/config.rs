@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use server_shared::MultiColor;
+
 fn default_database_url() -> String {
     "sqlite://db.sqlite?mode=rwc".into()
 }
@@ -29,7 +31,7 @@ pub struct Role {
     #[serde(default)]
     pub icon: String,
     #[serde(default)]
-    pub name_color: String,
+    pub name_color: MultiColor,
 
     #[serde(default)]
     pub can_kick: Option<bool>,

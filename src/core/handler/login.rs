@@ -1,5 +1,6 @@
 use std::{borrow::Cow, sync::Arc};
 
+use qunet::buffers::ByteWriter;
 use server_shared::{data::PlayerIconData, schema::main::LoginFailedReason};
 
 use crate::{
@@ -141,6 +142,7 @@ impl ConnectionHandler {
             }
 
             // update various stuff
+
             client.set_role(users.compute_from_user(&user));
 
             client.set_active_punishments(user.active_mute, user.active_room_ban);
@@ -153,10 +155,15 @@ impl ConnectionHandler {
         client.set_icons(icons);
 
         // refresh the user's user token (or generate a new one)
-        let client_roles = &client.role().unwrap().roles;
-        let roles_str = users.make_role_string(client_roles);
-        let token =
-            auth.generate_user_token(data.account_id, data.user_id, &data.username, &roles_str);
+        let client_role = client.role().unwrap();
+        let roles_str = users.make_role_string(&client_role.roles);
+        let token = auth.generate_user_token(
+            data.account_id,
+            data.user_id,
+            &data.username,
+            &roles_str,
+            client_role.name_color.as_ref(),
+        );
 
         if let Some(old_client) = self.all_clients.insert(data.account_id, Arc::downgrade(client)) {
             // there already was a client with this account ID, disconnect them
@@ -177,6 +184,8 @@ impl ConnectionHandler {
         // roughly estimate how many bytes will it take to encode the response
         let cap = 104 + token.len() + servers.len() * 256 + all_roles.len() * 128;
 
+        let mut color_buf = [0u8; 256];
+
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut login_ok = msg.reborrow().init_login_ok();
             login_ok.set_new_token(&token);
@@ -195,15 +204,26 @@ impl ConnectionHandler {
                 let mut role_ser = all_roles_ser.reborrow().get(i as u32);
                 role_ser.set_string_id(&role.id);
                 role_ser.set_icon(&role.icon);
-                role_ser.set_name_color(&role.name_color);
+
+                let mut role_buf = ByteWriter::new(&mut color_buf);
+                role.name_color.encode(&mut role_buf);
+                role_ser.set_name_color(role_buf.written());
             }
 
             // encode user's roles
-            if let Err(e) = login_ok.reborrow().set_user_roles(client_roles.as_slice()) {
+            if let Err(e) = login_ok.reborrow().set_user_roles(client_role.roles.as_slice()) {
                 warn!("[{}] failed to encode user roles: {}", client.address, e);
             }
 
-            login_ok.set_is_moderator(client.role().is_some_and(|role| role.can_moderate()));
+            login_ok.set_is_moderator(client_role.can_moderate());
+            login_ok.set_can_ban(client_role.can_ban);
+            login_ok.set_can_set_password(client_role.can_set_password);
+
+            if let Some(nc) = &client_role.name_color {
+                let mut role_buf = ByteWriter::new(&mut color_buf);
+                nc.encode(&mut role_buf);
+                login_ok.set_name_color(role_buf.written());
+            }
         })?;
 
         client.send_data_bufkind(buf);
