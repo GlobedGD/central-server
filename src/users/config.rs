@@ -43,6 +43,12 @@ pub struct Role {
     pub can_set_password: Option<bool>,
     #[serde(default)]
     pub can_notice_everyone: Option<bool>,
+    #[serde(default)]
+    pub can_edit_roles: Option<bool>,
+    #[serde(default)]
+    pub can_send_features: Option<bool>,
+    #[serde(default)]
+    pub can_rate_features: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize)]

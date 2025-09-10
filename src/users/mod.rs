@@ -74,6 +74,9 @@ pub struct ComputedRole {
     pub can_ban: bool,
     pub can_set_password: bool,
     pub can_notice_everyone: bool,
+    pub can_edit_roles: bool,
+    pub can_send_features: bool,
+    pub can_rate_features: bool,
 }
 
 impl ComputedRole {
@@ -138,12 +141,16 @@ impl UsersModule {
 
     /// Converts a comma-separated string of string role IDs into a vector of numeric IDs
     pub fn role_str_to_ids(&self, roles: &str) -> Vec<u8> {
-        roles
+        let mut ids: Vec<u8> = roles
             .split(',')
             .filter(|s| !s.is_empty())
             .filter_map(|id| self.get_role_by_str_id(id))
             .map(|(index, _)| index as u8)
-            .collect()
+            .collect();
+
+        ids.sort_by_key(|k| Reverse(self.get_role(*k).unwrap().priority));
+
+        ids
     }
 
     pub fn compute_from_roles<'a>(
@@ -162,6 +169,9 @@ impl UsersModule {
         let mut can_ban = None;
         let mut can_set_password = None;
         let mut can_notice_everyone = None;
+        let mut can_edit_roles = None;
+        let mut can_send_features = None;
+        let mut can_rate_features = None;
 
         while let Some((role_index, role)) = iter.next().and_then(|s| self.get_role_by_str_id(s)) {
             // determine if this role is stronger than the current strongest role
@@ -181,6 +191,9 @@ impl UsersModule {
             apply_permission(&mut can_ban, role.can_ban);
             apply_permission(&mut can_set_password, role.can_set_password);
             apply_permission(&mut can_notice_everyone, role.can_notice_everyone);
+            apply_permission(&mut can_edit_roles, role.can_edit_roles);
+            apply_permission(&mut can_send_features, role.can_send_features);
+            apply_permission(&mut can_rate_features, role.can_rate_features);
 
             out_role.priority = role.priority;
             let _ = out_role.roles.push(role_index as u8);
@@ -195,6 +208,9 @@ impl UsersModule {
         out_role.can_ban = can_ban.unwrap_or(false);
         out_role.can_set_password = can_set_password.unwrap_or(false);
         out_role.can_notice_everyone = can_notice_everyone.unwrap_or(false);
+        out_role.can_edit_roles = can_edit_roles.unwrap_or(false);
+        out_role.can_send_features = can_send_features.unwrap_or(false);
+        out_role.can_rate_features = can_rate_features.unwrap_or(false);
 
         // sort roles by priority descending
         out_role.roles.sort_unstable_by_key(|&id| {
@@ -209,6 +225,9 @@ impl UsersModule {
             out_role.can_ban = true;
             out_role.can_set_password = true;
             out_role.can_notice_everyone = true;
+            out_role.can_edit_roles = true;
+            out_role.can_send_features = true;
+            out_role.can_rate_features = true;
         }
 
         out_role

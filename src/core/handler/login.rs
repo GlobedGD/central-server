@@ -216,8 +216,12 @@ impl ConnectionHandler {
             }
 
             login_ok.set_is_moderator(client_role.can_moderate());
+            login_ok.set_can_mute(client_role.can_mute);
             login_ok.set_can_ban(client_role.can_ban);
             login_ok.set_can_set_password(client_role.can_set_password);
+            login_ok.set_can_edit_roles(client_role.can_edit_roles);
+            login_ok.set_can_send_features(client_role.can_send_features);
+            login_ok.set_can_rate_features(client_role.can_rate_features);
 
             if let Some(nc) = &client_role.name_color {
                 let mut role_buf = ByteWriter::new(&mut color_buf);
