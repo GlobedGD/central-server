@@ -81,6 +81,8 @@ impl ConnectionHandler {
             *ent += 1;
 
             // notify the appropriate game server
+
+            // TODO (release): option to only allow voice when discord is linked
             if let Err(e) = self
                 .game_server_manager
                 .notify_user_data(

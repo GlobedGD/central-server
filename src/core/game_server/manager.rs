@@ -189,7 +189,7 @@ impl GameServerManager {
         &self,
         server_id: u8,
         account_id: i32,
-        muted: bool,
+        can_use_voice: bool,
     ) -> Result<(), GameServerError> {
         let servers = self.servers.load();
         let server = servers
@@ -198,9 +198,9 @@ impl GameServerManager {
             .ok_or(GameServerError::ServerNotFound)?;
 
         let buf = data::encode_message_unsafe!(self, 64, msg => {
-            let mut room_deleted = msg.init_notify_user_data();
-            room_deleted.set_account_id(account_id);
-            room_deleted.set_muted(muted);
+            let mut notif = msg.init_notify_user_data();
+            notif.set_account_id(account_id);
+            notif.set_can_use_voice(can_use_voice);
         })?;
 
         server.qclient.send_data_bufkind(buf);
