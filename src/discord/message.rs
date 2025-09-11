@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-pub use serenity::all::CreateEmbed;
+pub use super::serenity::CreateEmbed;
 
 type Str<'a> = Cow<'a, str>;
 

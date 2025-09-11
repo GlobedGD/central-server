@@ -1,5 +1,7 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
+use poise::serenity_prelude as serenity;
+use qunet::server::ServerHandle;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use tracing::error;
@@ -16,9 +18,26 @@ pub use message::*;
 pub use state::BotError;
 
 mod bot;
+mod commands;
 mod event_handler;
 mod message;
 mod state;
+
+pub struct DiscordUserData {
+    pub id: u64,
+    pub avatar_url: String,
+    pub username: String,
+}
+
+impl DiscordUserData {
+    pub fn from_discord(user: &serenity::User) -> Self {
+        Self {
+            id: user.id.get(),
+            avatar_url: user.avatar_url().unwrap_or_default(),
+            username: user.name.clone(),
+        }
+    }
+}
 
 pub struct DiscordModule {
     handle: JoinHandle<()>,
@@ -32,6 +51,14 @@ impl DiscordModule {
         msg: DiscordMessage<'_>,
     ) -> Result<(), BotError> {
         self.state.send_message(channel_id, msg).await
+    }
+
+    pub async fn get_user_data(&self, account_id: u64) -> Result<DiscordUserData, BotError> {
+        self.state.get_user_data(account_id).await
+    }
+
+    pub fn finish_link_attempt(&self, gd_account: i32, id: u64, accepted: bool) {
+        self.state.finish_link_attempt(gd_account, id, accepted)
     }
 }
 
@@ -76,6 +103,14 @@ impl ServerModule for DiscordModule {
 
     fn name() -> &'static str {
         "Discord"
+    }
+
+    fn on_launch(&self, server: &ServerHandle<ConnectionHandler>) {
+        self.state.set_server(server);
+
+        server.schedule(Duration::from_hours(1), async |server| {
+            server.handler().module::<Self>().state.cleanup_link_attempts();
+        });
     }
 }
 

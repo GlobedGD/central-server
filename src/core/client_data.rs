@@ -25,6 +25,7 @@ pub struct ClientData {
     authorized_admin: AtomicBool,
     deauthorized: AtomicBool,
     team_id: AtomicU16,
+    discord_pairing_on: AtomicBool,
 
     pub active_mute: Mutex<Option<UserPunishment>>,
     pub active_room_ban: Mutex<Option<UserPunishment>>,
@@ -183,5 +184,13 @@ impl ClientData {
 
     pub fn uident(&self) -> Option<&[u8; 32]> {
         self.uident.get()
+    }
+
+    pub fn set_discord_pairing(&self, enabled: bool) {
+        self.discord_pairing_on.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn discord_pairing(&self) -> bool {
+        self.discord_pairing_on.load(Ordering::Relaxed)
     }
 }

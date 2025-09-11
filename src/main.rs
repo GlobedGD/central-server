@@ -1,4 +1,4 @@
-#![feature(try_blocks, duration_constructors_lite, iter_array_chunks, if_let_guard)]
+#![feature(try_blocks, iter_array_chunks, if_let_guard)]
 #![allow(clippy::new_without_default, clippy::collapsible_if)]
 
 use std::sync::Arc;

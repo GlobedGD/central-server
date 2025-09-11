@@ -1,29 +1,31 @@
-use serenity::{all::Ready, async_trait, prelude::*};
-use tracing::info;
+use std::sync::Arc;
 
-use crate::discord::bot::BotStateType;
+use super::serenity::*;
+use tracing::warn;
 
-pub struct Handler {}
+use crate::discord::{BotError, state::BotState};
 
-impl Handler {
-    pub fn new() -> Self {
-        Self {}
-    }
+pub async fn event_handler(
+    _ctx: &Context,
+    _event: &FullEvent,
+    _framework: poise::FrameworkContext<'_, Arc<BotState>, BotError>,
+    _state: &Arc<BotState>,
+) -> Result<(), BotError> {
+    Ok(())
 }
 
-#[async_trait]
-impl EventHandler for Handler {
-    async fn ready(&self, ctx: Context, ready: Ready) {
-        info!("Discord bot is running, user: {} ({})", ready.user.display_name(), ready.user.id);
+pub async fn on_error(error: poise::FrameworkError<'_, Arc<BotState>, BotError>) {
+    match error {
+        poise::FrameworkError::Setup { error, .. } => warn!("Failed to start bot: {:?}", error),
+        poise::FrameworkError::Command { error, ctx, .. } => {
+            warn!("Command '{}' errored: {error}", ctx.command().name);
+            let _ = ctx.reply(format!(":x: Command failed due to internal error. Please report this to the developer.\n\nError: {error}")).await;
+        }
 
-        let state = ctx
-            .data
-            .read()
-            .await
-            .get::<BotStateType>()
-            .cloned()
-            .expect("discord bot state not set");
-
-        state.set_ctx(ctx).await;
+        error => {
+            if let Err(e) = poise::builtins::on_error(error).await {
+                warn!("Error while handling error: {}", e)
+            }
+        }
     }
 }

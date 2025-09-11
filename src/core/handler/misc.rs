@@ -2,7 +2,11 @@ use nohash_hasher::IntMap;
 use rustc_hash::FxHashSet;
 use server_shared::data::PlayerIconData;
 
-use crate::{credits::CreditsModule, rooms::Room};
+use crate::{
+    credits::CreditsModule,
+    rooms::Room,
+    users::{LinkedDiscordAccount, UsersModule},
+};
 
 use super::{ConnectionHandler, util::*};
 
@@ -158,5 +162,91 @@ impl ConnectionHandler {
             map
         })
         .await
+    }
+
+    pub async fn handle_get_discord_link_state(
+        &self,
+        client: &ClientStateHandle,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let users = self.module::<UsersModule>();
+
+        let user = match users.get_linked_discord(client.account_id()).await {
+            Ok(u) => u,
+            Err(e) => {
+                warn!("Failed to fetch linked discord ID: {e}");
+                return self.send_discord_link_state(client, LinkedDiscordAccount::default());
+            }
+        };
+
+        self.send_discord_link_state(client, user.unwrap_or_default())
+    }
+
+    fn send_discord_link_state(
+        &self,
+        client: &ClientStateHandle,
+        account: LinkedDiscordAccount,
+    ) -> HandlerResult<()> {
+        let buf = data::encode_message!(self, 512, msg => {
+            let mut state = msg.init_discord_link_state();
+            state.set_id(account.id);
+            state.set_username(account.username);
+            state.set_avatar_url(account.avatar_url);
+        })?;
+
+        client.send_data_bufkind(buf);
+
+        Ok(())
+    }
+
+    pub fn handle_set_discord_pairing_state(
+        &self,
+        client: &ClientStateHandle,
+        state: bool,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        client.set_discord_pairing(state);
+
+        Ok(())
+    }
+
+    pub fn handle_discord_link_confirm(
+        &self,
+        client: &ClientStateHandle,
+        id: u64,
+        accept: bool,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        #[cfg(feature = "discord")]
+        {
+            use crate::discord::DiscordModule;
+
+            let discord = self.module::<DiscordModule>();
+            discord.finish_link_attempt(client.account_id(), id, accept);
+        }
+
+        Ok(())
+    }
+
+    // Used in the discord module
+    pub fn send_discord_link_attempt(
+        &self,
+        client: &ClientStateHandle,
+        id: u64,
+        username: &str,
+        avatar_url: &str,
+    ) -> HandlerResult<()> {
+        let buf = data::encode_message!(self, 512, msg => {
+            let mut att = msg.init_discord_link_attempt();
+            att.set_id(id);
+            att.set_username(username);
+            att.set_avatar_url(avatar_url);
+        })?;
+
+        client.send_data_bufkind(buf);
+        Ok(())
     }
 }

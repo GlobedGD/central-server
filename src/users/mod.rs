@@ -3,6 +3,8 @@ use std::{cmp::Reverse, collections::HashSet, fmt::Write, num::NonZeroI64};
 #[cfg(feature = "discord")]
 use {crate::discord::DiscordModule, std::sync::Arc};
 
+#[cfg(feature = "discord")]
+use crate::core::handler::ClientStateHandle;
 #[cfg(feature = "database")]
 use crate::{auth::ClientAccountData, users::database::AuditLogModel};
 
@@ -89,6 +91,19 @@ impl ComputedRole {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct LinkedDiscordAccount {
+    pub id: u64,
+    pub username: String,
+    pub avatar_url: String,
+}
+
+impl LinkedDiscordAccount {
+    pub fn new(id: u64, username: String, avatar_url: String) -> Self {
+        Self { id, username, avatar_url }
+    }
+}
+
 pub struct UsersModule {
     db: UsersDb,
     roles: Vec<Role>,       // index = numeric role ID
@@ -101,6 +116,69 @@ pub struct UsersModule {
 impl UsersModule {
     pub async fn get_user(&self, account_id: i32) -> DatabaseResult<Option<DbUser>> {
         self.db.get_user(account_id).await
+    }
+
+    #[cfg(feature = "discord")]
+    pub async fn get_linked_discord(
+        &self,
+        account_id: i32,
+    ) -> DatabaseResult<Option<LinkedDiscordAccount>> {
+        let Some(discord_id) = self.db.get_linked_discord(account_id).await? else {
+            return Ok(None);
+        };
+
+        let mut acc = LinkedDiscordAccount::new(discord_id, String::new(), String::new());
+
+        // try to get the avatar url
+        if let Some(discord) = self.discord.as_ref() {
+            match discord.get_user_data(discord_id).await {
+                Ok(data) => {
+                    acc.username = data.username;
+                    acc.avatar_url = data.avatar_url;
+                }
+
+                Err(e) => warn!("Failed to get user data for user {discord_id}: {e}"),
+            }
+        }
+
+        Ok(Some(acc))
+    }
+
+    #[cfg(not(feature = "discord"))]
+    pub async fn get_linked_discord(
+        &self,
+        account_id: i32,
+    ) -> DatabaseResult<Option<LinkedDiscordAccount>> {
+        Ok(None)
+    }
+
+    #[cfg(feature = "discord")]
+    pub async fn link_discord_account(
+        &self,
+        handle: &ClientStateHandle,
+        discord_id: u64,
+    ) -> DatabaseResult<()> {
+        let account_id = handle.account_id();
+        let username = handle.username();
+        let icons = handle.icons();
+
+        self.db
+            .update_user(
+                account_id,
+                username,
+                icons.cube,
+                icons.color1,
+                icons.color2,
+                icons.glow_color,
+            )
+            .await?;
+
+        self.db.link_discord_account(account_id, discord_id).await
+    }
+
+    #[cfg(feature = "discord")]
+    pub async fn get_linked_discord_inverse(&self, discord_id: u64) -> DatabaseResult<Option<DbUser>> {
+        self.db.get_linked_discord_inverse(discord_id).await
     }
 
     pub async fn query_user(&self, query: &str) -> DatabaseResult<Option<DbUser>> {

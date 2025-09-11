@@ -1,25 +1,53 @@
 use std::sync::Arc;
 
-use serenity::{Client, all::GatewayIntents, prelude::TypeMapKey};
+use tracing::info;
 
-use crate::discord::{event_handler::Handler, state::BotState};
+use super::serenity::{self, Client, GatewayIntents};
+
+use crate::discord::state::BotState;
 
 pub struct DiscordBot {
     client: Client,
 }
 
-pub struct BotStateType;
-
-impl TypeMapKey for BotStateType {
-    type Value = Arc<BotState>;
-}
-
 impl DiscordBot {
     pub async fn new(token: &str, state: Arc<BotState>) -> serenity::Result<Self> {
-        let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
+        let intents = GatewayIntents::non_privileged() | GatewayIntents::GUILD_MEMBERS;
 
-        let client = Client::builder(token, intents).event_handler(Handler::new()).await?;
-        client.data.write().await.insert::<BotStateType>(state);
+        let framework = poise::Framework::builder()
+            .options(poise::FrameworkOptions {
+                commands: super::commands::all(),
+                on_error: |error| Box::pin(super::event_handler::on_error(error)),
+                command_check: Some(|_ctx| {
+                    Box::pin(async move {
+                        // TODO allow from a specific guild?
+                        Ok(true)
+                    })
+                }),
+                event_handler: |ctx, event, framework, data| {
+                    Box::pin(super::event_handler::event_handler(ctx, event, framework, data))
+                },
+                ..Default::default()
+            })
+            .setup(move |ctx, ready, framework| {
+                Box::pin(async move {
+                    info!(
+                        "Discord bot is running, user: {} ({})",
+                        ready.user.display_name(),
+                        ready.user.id
+                    );
+
+                    state.set_ctx(ctx.clone()).await;
+
+                    // register commands
+                    poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+
+                    Ok(state)
+                })
+            })
+            .build();
+
+        let client = Client::builder(token, intents).framework(framework).await?;
 
         Ok(Self { client })
     }

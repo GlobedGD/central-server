@@ -1,6 +1,6 @@
 use std::num::NonZeroI64;
 
-use sea_orm::{QueryOrder, QuerySelect};
+use sea_orm::{FromQueryResult, QueryOrder, QuerySelect};
 use server_shared::MultiColor;
 #[cfg(feature = "database")]
 use smallvec::SmallVec;
@@ -42,6 +42,20 @@ pub enum DatabaseError {
     InvalidPunishmentType,
     #[error("User not found")]
     NotFound,
+}
+
+#[derive(DerivePartialModel, FromQueryResult)]
+#[sea_orm(entity = "User")]
+struct PartialDiscordUser {
+    #[sea_orm(from_col = "discord_id")]
+    pub discord_id: Option<i64>,
+}
+
+#[derive(DerivePartialModel, FromQueryResult)]
+#[sea_orm(entity = "Uident")]
+struct PartialAccountUident {
+    #[sea_orm(from_col = "account_id")]
+    pub account_id: i32,
 }
 
 pub type DatabaseResult<T> = Result<T, DatabaseError>;
@@ -98,6 +112,47 @@ impl UsersDb {
     #[cfg(not(feature = "database"))]
     pub async fn get_user(&self, _account_id: i32) -> DatabaseResult<Option<DbUser>> {
         Ok(None)
+    }
+
+    pub async fn get_linked_discord(&self, account_id: i32) -> DatabaseResult<Option<u64>> {
+        let user = User::find_by_id(account_id)
+            .into_partial_model::<PartialDiscordUser>()
+            .one(&self.conn)
+            .await?;
+
+        Ok(user.and_then(|x| x.discord_id.map(|x| x as u64)))
+    }
+
+    pub async fn get_linked_discord_inverse(
+        &self,
+        discord_id: u64,
+    ) -> DatabaseResult<Option<DbUser>> {
+        let user =
+            User::find().filter(user::Column::DiscordId.eq(discord_id)).one(&self.conn).await?;
+
+        let Some(model) = user else {
+            return Ok(None);
+        };
+
+        Ok(Some(self.post_user_fetch(model).await?))
+    }
+
+    pub async fn link_discord_account(
+        &self,
+        account_id: i32,
+        discord_id: u64,
+    ) -> DatabaseResult<()> {
+        let res = User::update_many()
+            .filter(user::Column::AccountId.eq(account_id))
+            .col_expr(user::Column::DiscordId, Expr::value(discord_id as i64))
+            .exec(&self.conn)
+            .await?;
+
+        if res.rows_affected == 0 {
+            return Err(DatabaseError::NotFound);
+        }
+
+        Ok(())
     }
 
     #[cfg(feature = "database")]
@@ -285,15 +340,14 @@ impl UsersDb {
     pub async fn get_accounts_for_uident(&self, ident: &str) -> DatabaseResult<SmallVec<[i32; 8]>> {
         let models = Uident::find()
             .filter(uident::Column::Ident.eq(ident))
-            .select_only()
-            .column(uident::Column::Id)
+            .into_partial_model::<PartialAccountUident>()
             .all(&self.conn)
             .await?;
 
         let mut out = SmallVec::new();
 
         for model in models {
-            out.push(model.id);
+            out.push(model.account_id);
         }
 
         Ok(out)

@@ -19,6 +19,7 @@ pub struct Model {
     pub active_mute: Option<i32>,
     pub active_ban: Option<i32>,
     pub active_room_ban: Option<i32>,
+    pub discord_id: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -370,6 +370,26 @@ impl AppHandler for ConnectionHandler {
                 self.handle_fetch_credits(client)
             },
 
+            GetDiscordLinkState(_message) => {
+                unpacked_data.reset(); // free up memory
+                self.handle_get_discord_link_state(client).await
+            },
+
+            SetDiscordPairingState(message) => {
+                let state = message.get_state();
+                unpacked_data.reset(); // free up memory
+
+                self.handle_set_discord_pairing_state(client, state)
+            },
+
+            DiscordLinkConfirm(message) => {
+                let id = message.get_id();
+                let accept = message.get_accept();
+                unpacked_data.reset(); // free up memory
+
+                self.handle_discord_link_confirm(client, id, accept)
+            },
+
             //
 
             AdminLogin(message) => {
@@ -648,8 +668,20 @@ impl ConnectionHandler {
 
     // Handling of clients.
 
-    fn find_client(&self, account_id: i32) -> Option<ClientStateHandle> {
+    pub fn find_client(&self, account_id: i32) -> Option<ClientStateHandle> {
         self.all_clients.get(&account_id).and_then(|x| x.upgrade())
+    }
+
+    /// TODO: this function is not fast
+    pub fn find_client_by_name(&self, username: &str) -> Option<ClientStateHandle> {
+        self.all_clients
+            .iter()
+            .filter_map(|r| match r.value().upgrade() {
+                Some(c) if c.username().eq_ignore_ascii_case(username) => Some(c),
+                Some(_) => None,
+                None => None,
+            })
+            .next()
     }
 
     fn send_banned(
