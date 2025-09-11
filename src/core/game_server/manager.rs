@@ -184,4 +184,27 @@ impl GameServerManager {
 
         Ok(())
     }
+
+    pub async fn notify_user_data(
+        &self,
+        server_id: u8,
+        account_id: i32,
+        muted: bool,
+    ) -> Result<(), GameServerError> {
+        let servers = self.servers.load();
+        let server = servers
+            .iter()
+            .find(|s| s.data.id == server_id)
+            .ok_or(GameServerError::ServerNotFound)?;
+
+        let buf = data::encode_message_unsafe!(self, 64, msg => {
+            let mut room_deleted = msg.init_notify_user_data();
+            room_deleted.set_account_id(account_id);
+            room_deleted.set_muted(muted);
+        })?;
+
+        server.qclient.send_data_bufkind(buf);
+
+        Ok(())
+    }
 }

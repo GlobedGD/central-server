@@ -79,6 +79,19 @@ impl ConnectionHandler {
         if !new_session.is_zero() {
             let mut ent = self.player_counts.entry(new_session.as_u64()).or_insert(0);
             *ent += 1;
+
+            // notify the appropriate game server
+            if let Err(e) = self
+                .game_server_manager
+                .notify_user_data(
+                    new_session.server_id(),
+                    client.account_id(),
+                    client.active_mute.lock().is_some(),
+                )
+                .await
+            {
+                warn!("Failed to send NotifyUserData to game server: {e}");
+            }
         }
 
         // if this is a follower room and the owner changed the level, warp all other players
