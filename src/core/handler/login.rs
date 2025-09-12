@@ -154,8 +154,21 @@ impl ConnectionHandler {
         info!("[{}] {} ({}) logged in", client.address, data.username, data.account_id);
         client.set_icons(icons);
 
+        if let Some(old_client) = self.all_clients.insert(data.account_id, Arc::downgrade(client)) {
+            // there already was a client with this account ID, disconnect them
+            if let Some(old_client) = old_client.upgrade() {
+                old_client.disconnect(Cow::Borrowed("Duplicate login detected, the same account logged in from a different location"));
+            }
+        }
+
+        client.set_account_data(data.clone());
+
+        // put the user in the global room
+        rooms.force_join_room(client, &self.game_server_manager, rooms.global_room()).await;
+
         // refresh the user's user token (or generate a new one)
-        let client_role = client.role().unwrap();
+        let client_role_lock = client.role();
+        let client_role = client_role_lock.as_ref().unwrap();
         let roles_str = users.make_role_string(&client_role.roles);
         let token = auth.generate_user_token(
             data.account_id,
@@ -165,24 +178,12 @@ impl ConnectionHandler {
             client_role.name_color.as_ref(),
         );
 
-        if let Some(old_client) = self.all_clients.insert(data.account_id, Arc::downgrade(client)) {
-            // there already was a client with this account ID, disconnect them
-            if let Some(old_client) = old_client.upgrade() {
-                old_client.disconnect(Cow::Borrowed("Duplicate login detected, the same account logged in from a different location"));
-            }
-        }
-
-        client.set_account_data(data);
-
-        // put the user in the global room
-        rooms.force_join_room(client, &self.game_server_manager, rooms.global_room()).await;
-
         // send login success message with all servers
         let servers = self.game_server_manager.servers();
         let all_roles = users.get_roles();
 
         // roughly estimate how many bytes will it take to encode the response
-        let cap = 104 + token.len() + servers.len() * 256 + all_roles.len() * 128;
+        let cap = 128 + token.len() + servers.len() * 256 + all_roles.len() * 128;
 
         let mut color_buf = [0u8; 256];
 

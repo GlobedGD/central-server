@@ -1,5 +1,6 @@
 use std::{borrow::Cow, fmt::Display};
 
+use qunet::buffers::ByteWriter;
 use server_shared::SessionId;
 
 use crate::{
@@ -33,7 +34,7 @@ impl ConnectionHandler {
     fn must_be_able(&self, client: &ClientStateHandle, action: ActionType) -> HandlerResult<()> {
         must_admin_auth(client)?;
 
-        let Some(role) = client.role() else {
+        let Some(role) = &*client.role() else {
             // dont send a message
             return Err(HandlerError::NotAdmin);
         };
@@ -495,6 +496,10 @@ impl ConnectionHandler {
         let users = self.module::<UsersModule>();
         let result = users.admin_edit_roles(client.account_id(), account_id, role_ids).await;
 
+        if result.is_ok() {
+            let _ = self.notify_user_data_changed(account_id, role_ids).await;
+        }
+
         self.send_admin_db_result(client, result)?;
 
         Ok(())
@@ -625,6 +630,44 @@ impl ConnectionHandler {
             }
         })?;
 
+        client.send_data_bufkind(buf);
+
+        Ok(())
+    }
+
+    async fn notify_user_data_changed(
+        &self,
+        account_id: i32,
+        new_roles: &[u8],
+    ) -> HandlerResult<()> {
+        let Some(client) = self.find_client(account_id) else {
+            return Ok(());
+        };
+
+        let users = self.module::<UsersModule>();
+        let new_role = users.compute_from_role_ids(account_id, new_roles.iter().cloned());
+
+        let buf = data::encode_message!(self, 512, msg => {
+            let mut changed = msg.init_user_data_changed();
+            let _ = changed.set_roles(new_role.roles.as_slice());
+            changed.set_is_moderator(new_role.can_moderate());
+            changed.set_can_mute(new_role.can_mute);
+            changed.set_can_ban(new_role.can_ban);
+            changed.set_can_set_password(new_role.can_set_password);
+            changed.set_can_edit_roles(new_role.can_edit_roles);
+            changed.set_can_send_features(new_role.can_send_features);
+            changed.set_can_rate_features(new_role.can_rate_features);
+
+            if let Some(nc) = new_role.name_color.as_ref() {
+                let mut buf = [0u8; 512];
+                let mut writer = ByteWriter::new(&mut buf);
+                nc.encode(&mut writer);
+
+                changed.set_name_color(writer.written());
+            }
+        })?;
+
+        client.set_role(new_role);
         client.send_data_bufkind(buf);
 
         Ok(())

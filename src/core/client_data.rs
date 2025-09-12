@@ -30,7 +30,7 @@ pub struct ClientData {
     pub active_mute: Mutex<Option<UserPunishment>>,
     pub active_room_ban: Mutex<Option<UserPunishment>>,
     admin_password_hash: Mutex<Option<String>>,
-    role: OnceLock<ComputedRole>,
+    role: Mutex<Option<ComputedRole>>,
     uident: OnceLock<[u8; 32]>,
 }
 
@@ -162,12 +162,12 @@ impl ClientData {
         *lock = hash;
     }
 
-    pub fn role(&self) -> Option<&ComputedRole> {
-        self.role.get()
+    pub fn role(&self) -> MutexGuard<'_, Option<ComputedRole>> {
+        self.role.lock()
     }
 
     pub fn set_role(&self, role: ComputedRole) {
-        let _ = self.role.set(role);
+        *self.role.lock() = Some(role);
     }
 
     pub fn authorized_admin(&self) -> bool {

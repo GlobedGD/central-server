@@ -65,7 +65,7 @@ pub struct FetchedMod {
     pub glow_color: u16,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ComputedRole {
     pub priority: i32,
     pub roles: heapless::Vec<u8, 32>,
@@ -88,6 +88,10 @@ impl ComputedRole {
             || self.can_ban
             || self.can_set_password
             || self.can_notice_everyone
+    }
+
+    pub fn is_special(&self) -> bool {
+        !self.roles.is_empty() || self.name_color.is_some()
     }
 }
 
@@ -177,7 +181,10 @@ impl UsersModule {
     }
 
     #[cfg(feature = "discord")]
-    pub async fn get_linked_discord_inverse(&self, discord_id: u64) -> DatabaseResult<Option<DbUser>> {
+    pub async fn get_linked_discord_inverse(
+        &self,
+        discord_id: u64,
+    ) -> DatabaseResult<Option<DbUser>> {
         self.db.get_linked_discord_inverse(discord_id).await
     }
 
@@ -231,10 +238,10 @@ impl UsersModule {
         ids
     }
 
-    pub fn compute_from_roles<'a>(
+    pub fn compute_from_role_ids<'a>(
         &'a self,
         account_id: i32,
-        mut iter: impl Iterator<Item = &'a str>,
+        iter: impl Iterator<Item = u8>,
     ) -> ComputedRole {
         // start with a baseline user role with minimum priority and no permissions
         let mut out_role = ComputedRole {
@@ -251,7 +258,9 @@ impl UsersModule {
         let mut can_send_features = None;
         let mut can_rate_features = None;
 
-        while let Some((role_index, role)) = iter.next().and_then(|s| self.get_role_by_str_id(s)) {
+        let iter = iter.filter_map(|id| self.get_role(id).map(|role| (id, role)));
+
+        for (role_id, role) in iter {
             // determine if this role is stronger than the current strongest role
             let is_weaker = role.priority < out_role.priority;
 
@@ -274,7 +283,7 @@ impl UsersModule {
             apply_permission(&mut can_rate_features, role.can_rate_features);
 
             out_role.priority = role.priority;
-            let _ = out_role.roles.push(role_index as u8);
+            let _ = out_role.roles.push(role_id);
 
             if !is_weaker {
                 out_role.name_color = Some(role.name_color.clone());
@@ -309,6 +318,17 @@ impl UsersModule {
         }
 
         out_role
+    }
+
+    pub fn compute_from_roles<'a>(
+        &'a self,
+        account_id: i32,
+        iter: impl Iterator<Item = &'a str>,
+    ) -> ComputedRole {
+        self.compute_from_role_ids(
+            account_id,
+            iter.filter_map(|x| self.get_role_by_str_id(x).map(|(idx, _)| idx as u8)),
+        )
     }
 
     pub fn compute_from_rolestr(&self, account_id: i32, rolestr: &str) -> ComputedRole {

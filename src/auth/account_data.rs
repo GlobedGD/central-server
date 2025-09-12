@@ -1,4 +1,4 @@
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct ClientAccountData {
     pub account_id: i32,
     pub user_id: i32,

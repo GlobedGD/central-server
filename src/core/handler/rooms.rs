@@ -10,8 +10,6 @@ use crate::{
 
 use super::{ConnectionHandler, util::*};
 
-const BYTES_PER_PLAYER: usize = 80;
-
 impl ConnectionHandler {
     pub async fn handle_create_room(
         &self,
@@ -180,7 +178,9 @@ impl ConnectionHandler {
 
         // TODO: privacy settings ... dont send this if not needed
 
-        if let Some(role) = player.role() {
+        if let Some(role) = &*player.role()
+            && role.is_special()
+        {
             let mut sdata = builder.reborrow().init_special_data();
 
             if let Some(nc) = role.name_color.as_ref() {
@@ -225,9 +225,15 @@ impl ConnectionHandler {
     ) -> HandlerResult<()> {
         let players = self.pick_players_to_send(client, room, filter).await;
 
+        let players_cap = if minimal && !full_room_check {
+            players.iter().map(|_| 64).sum::<usize>()
+        } else {
+            players.iter().map(bytes_for_room_player).sum::<usize>()
+        };
+
         let buf = if full_room_check {
             let team_count = room.team_count();
-            let cap = 112 + BYTES_PER_PLAYER * players.len() + 4 * team_count;
+            let cap = 120 + players_cap + 4 * team_count;
 
             data::encode_message_heap!(self, cap, msg => {
                 let mut room_state = msg.reborrow().init_room_state();
@@ -254,7 +260,7 @@ impl ConnectionHandler {
                 }
             })?
         } else if !minimal {
-            let cap = 48 + BYTES_PER_PLAYER * players.len();
+            let cap = 56 + players_cap;
 
             data::encode_message_heap!(self, cap, msg => {
                 let mut room_players = msg.reborrow().init_room_players();
@@ -267,7 +273,7 @@ impl ConnectionHandler {
                 }
             })?
         } else {
-            let cap = 48 + (BYTES_PER_PLAYER - 16) * players.len();
+            let cap = 48 + players_cap;
 
             data::encode_message_heap!(self, cap, msg => {
                 let mut room_players = msg.reborrow().init_global_players();
@@ -772,9 +778,16 @@ impl ConnectionHandler {
     }
 
     fn send_room_list(&self, client: &ClientStateHandle, rooms: &[Arc<Room>]) -> HandlerResult<()> {
-        const BYTES_PER_ROOM: usize = 128;
-
-        let cap = 64 + BYTES_PER_ROOM * rooms.len();
+        let cap = 64
+            + rooms
+                .iter()
+                .map(|x| {
+                    64 + x.name.len()
+                        + self
+                            .find_client(x.owner())
+                            .map_or(64, |owner| bytes_for_room_player(&owner))
+                })
+                .sum::<usize>();
 
         debug!("encoding {} rooms, cap: {}", rooms.len(), cap);
 
@@ -808,4 +821,14 @@ fn username_match(username: &str, filter: &str) -> bool {
         .as_bytes()
         .windows(filter.len())
         .any(|window| window.eq_ignore_ascii_case(filter.as_bytes()))
+}
+
+fn bytes_for_room_player(client: &ClientStateHandle) -> usize {
+    80 + if let Some(role) = &*client.role()
+        && role.is_special()
+    {
+        40 + role.roles.len() + role.name_color.as_ref().map(|x| x.encoded_len()).unwrap_or(0)
+    } else {
+        0
+    }
 }
