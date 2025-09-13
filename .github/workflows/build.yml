@@ -18,6 +18,7 @@ jobs:
             container: quay.io/pypa/manylinux_2_34_x86_64
             bin-suffix: "-x64"
 
+          # TODO: when releasing bring this back :p
           # - name: Linux ARM64
           #   os: ubuntu-latest
           #   target: aarch64-unknown-linux-gnu
