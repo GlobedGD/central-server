@@ -17,7 +17,7 @@ hex = "0.4.3"
 parking_lot = { version = "0.12.4", features = ["send_guard"] }
 qunet = { git = "https://github.com/dankmeme01/qunet", rev = "7bc0665d" }
 rand = "0.9.1"
-server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "d9705ba4", features = [
+server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "aec0f085", features = [
     "main",
     "srvc",
 ] }
@@ -51,6 +51,7 @@ generic-async-http-client = { version = "0.7.0", features = [
     "use_hyper",
     "http2",
 ] }
+crypto_secretbox = { version = "0.1.1", features = ["heapless"] }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5"

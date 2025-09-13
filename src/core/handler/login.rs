@@ -1,7 +1,9 @@
 use std::{borrow::Cow, sync::Arc};
 
-use qunet::buffers::ByteWriter;
+use crypto_secretbox::{KeyInit, aead::AeadMutInPlace};
+use qunet::buffers::{ByteReader, ByteReaderError, ByteWriter};
 use server_shared::{data::PlayerIconData, schema::main::LoginFailedReason};
+use thiserror::Error;
 
 use crate::{
     auth::{AuthModule, AuthVerdict, ClientAccountData, LoginKind},
@@ -10,6 +12,20 @@ use crate::{
 };
 
 use super::{ConnectionHandler, util::*};
+
+#[derive(Debug, Error)]
+enum UidentDecodeError {
+    #[error("Invalid key")]
+    InvalidKey,
+    #[error("Not enough data")]
+    NotEnoughData,
+    #[error("Invalid data: {0}")]
+    InvalidData(#[from] ByteReaderError),
+    #[error("Mismatch: expected account {0} but in token {1} was found")]
+    AccountMismatch(i32, i32),
+    #[error("Decryption failed: {0}")]
+    Decryption(crypto_secretbox::Error),
+}
 
 impl ConnectionHandler {
     pub async fn handle_login_attempt(
@@ -27,19 +43,36 @@ impl ConnectionHandler {
             return Ok(());
         }
 
-        let uident = match &kind {
-            LoginKind::Argon(_, _) | LoginKind::UserToken(_, _) => {
-                match uident.and_then(|x| x.try_into().ok()) {
-                    Some(x) => Some(x),
-                    None => {
-                        debug!("[{}] received login with no uident", client.address);
-                        return Ok(());
+        let ttkey = auth.trust_token_key();
+        debug!("test pre a");
+
+        let uident = if ttkey.is_empty() {
+            None
+        } else {
+            match &kind {
+                &LoginKind::Argon(accid, _) | &LoginKind::UserToken(accid, _) => {
+                    debug!("test  blasg");
+                    match uident.and_then(|x| {
+                        self.decrypt_uident(accid, x, ttkey)
+                            .inspect_err(|e| warn!("Failed to decode uident from user: {e}"))
+                            .ok()
+                    }) {
+                        Some(x) => Some(x),
+                        None => {
+                            debug!(
+                                "[{} @ {}] rejecting login due to missing trust token",
+                                client.address, accid
+                            );
+                            return Ok(());
+                        }
                     }
                 }
-            }
 
-            LoginKind::Plain(_) => None,
+                LoginKind::Plain(_) => None,
+            }
         };
+
+        debug!("test a");
 
         match auth.handle_login(kind).await {
             AuthVerdict::Success(data) => {
@@ -249,5 +282,47 @@ impl ConnectionHandler {
 
         client.send_data_bufkind(buf);
         Ok(())
+    }
+
+    fn decrypt_uident(
+        &self,
+        account_id: i32,
+        data: &[u8],
+        key_str: &str,
+    ) -> Result<[u8; 32], UidentDecodeError> {
+        use crypto_secretbox::aead::heapless::Vec;
+
+        if key_str.len() != 64 {
+            return Err(UidentDecodeError::InvalidKey);
+        }
+
+        if data.len() < 40 || data.len() > 128 {
+            return Err(UidentDecodeError::NotEnoughData);
+        }
+
+        let mut key = [0u8; 32];
+        let _ = hex::decode_to_slice(key_str, &mut key);
+
+        let mut cipher = crypto_secretbox::XSalsa20Poly1305::new((&key).into());
+
+        let nonce = &data[..24];
+        let ciphertext = &data[24..];
+
+        let mut decrypt_buffer = Vec::<u8, 128>::new();
+        let _ = decrypt_buffer.extend_from_slice(ciphertext);
+        cipher
+            .decrypt_in_place(nonce.into(), b"", &mut decrypt_buffer)
+            .map_err(UidentDecodeError::Decryption)?;
+
+        let mut reader = ByteReader::new(&decrypt_buffer);
+        let rid = reader.read_i32()?;
+        if rid != account_id {
+            return Err(UidentDecodeError::AccountMismatch(account_id, rid));
+        }
+
+        let mut uident_out = [0u8; 32];
+        reader.read_bytes(&mut uident_out)?;
+
+        Ok(uident_out)
     }
 }

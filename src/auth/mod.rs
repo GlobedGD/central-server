@@ -17,6 +17,7 @@ use tracing::{debug, warn};
 pub struct AuthModule {
     token_issuer: TokenIssuer,
     argon_client: Option<ArgonClient>,
+    trust_token_key: String,
 }
 
 pub enum AuthVerdict {
@@ -36,6 +37,10 @@ impl AuthModule {
 
     pub fn argon_client(&self) -> Option<&ArgonClient> {
         self.argon_client.as_ref()
+    }
+
+    pub fn trust_token_key(&self) -> &str {
+        self.trust_token_key.as_ref()
     }
 
     pub fn validate_user_token(
@@ -136,7 +141,11 @@ impl ServerModule for AuthModule {
             )
         });
 
-        Ok(Self { token_issuer, argon_client })
+        Ok(Self {
+            token_issuer,
+            argon_client,
+            trust_token_key: config.trust_token_key.clone(),
+        })
     }
 
     fn id() -> &'static str {
