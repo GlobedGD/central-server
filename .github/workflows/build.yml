@@ -8,17 +8,20 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container || '' }}
     strategy:
       matrix:
         include:
           - name: Linux
             os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
+            target: x86_64-unknown-linux-gnu
+            container: quay.io/pypa/manylinux_2_34_x86_64
             bin-suffix: "-x64"
 
           - name: Linux ARM64
             os: ubuntu-latest
-            target: aarch64-unknown-linux-musl
+            target: aarch64-unknown-linux-gnu
+            container: quay.io/pypa/manylinux_2_34_x86_64
             bin-suffix: "-arm64"
 
           - name: Windows
@@ -37,26 +40,19 @@ jobs:
           target: ${{ matrix.target }}
 
       - name: Add Rust target
-        if: matrix.target != 'aarch64-unknown-linux-musl'
+        if: matrix.target != 'aarch64-unknown-linux-gnu'
         run: rustup target add ${{ matrix.target }}
         shell: bash
 
-      - name: Install musl tools
-        if: startsWith(matrix.os, 'ubuntu')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl musl-dev musl-tools
-        shell: bash
-
       - name: Install cross
-        if: matrix.target == 'aarch64-unknown-linux-musl'
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
-          rustup target add x86_64-unknown-linux-musl
+          rustup target add x86_64-unknown-linux-gnu
           cargo install cross
         shell: bash
 
       - name: Build server (native)
-        if: matrix.target != 'aarch64-unknown-linux-musl'
+        if: matrix.target != 'aarch64-unknown-linux-gnu'
         run: |
           SERVER_SHARED_PREBUILT_DATA=1 cargo build --release --target ${{ matrix.target }}
         env:
@@ -64,7 +60,7 @@ jobs:
         shell: bash
 
       - name: Build server (cross)
-        if: matrix.target == 'aarch64-unknown-linux-musl'
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           SERVER_SHARED_PREBUILT_DATA=1 cross build --release --target ${{ matrix.target }}
         env:
