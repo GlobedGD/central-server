@@ -240,6 +240,7 @@ impl ConnectionHandler {
                 room_state.set_room_id(room.id);
                 room_state.set_room_owner(room.owner());
                 room_state.set_room_name(&room.name);
+                room_state.set_passcode(room.passcode);
                 room.settings.lock().encode(room_state.reborrow().init_settings());
 
                 let mut players_ser = room_state.reborrow().init_players(players.len() as u32);

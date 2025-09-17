@@ -88,7 +88,7 @@ impl ConnectionHandler {
                 .notify_user_data(
                     new_session.server_id(),
                     client.account_id(),
-                    client.active_mute.lock().is_some(),
+                    client.active_mute.lock().is_none(),
                 )
                 .await
             {
