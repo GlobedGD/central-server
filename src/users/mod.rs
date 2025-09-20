@@ -22,7 +22,7 @@ use crate::{
 use server_shared::MultiColor;
 
 mod config;
-mod database;
+pub mod database;
 mod pwhash;
 
 pub use config::Config;

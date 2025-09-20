@@ -1,6 +1,6 @@
 use std::num::NonZeroI64;
 
-use sea_orm::{FromQueryResult, QueryOrder, QuerySelect};
+use sea_orm::{FromQueryResult, QueryOrder, QuerySelect, ActiveValue::NotSet};
 use server_shared::MultiColor;
 #[cfg(feature = "database")]
 use smallvec::SmallVec;
@@ -519,7 +519,7 @@ impl UsersDb {
         updating: bool,
     ) -> DatabaseResult<()> {
         let pun = punishment::ActiveModel {
-            id: if updating { Set(p.id) } else { Set(0) },
+            id: if updating { Set(p.id) } else { NotSet },
             account_id: Set(p.account_id),
             r#type: Set(Some(
                 match p.r#type {

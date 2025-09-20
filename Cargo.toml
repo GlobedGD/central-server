@@ -17,7 +17,7 @@ hex = "0.4.3"
 parking_lot = { version = "0.12.4", features = ["send_guard"] }
 qunet = { git = "https://github.com/dankmeme01/qunet", rev = "97f22773" }
 rand = "0.9.1"
-server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "e168bb17", features = [
+server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "5ee87fe", features = [
     "main",
     "srvc",
 ] }
@@ -57,6 +57,6 @@ crypto_secretbox = { version = "0.1.1", features = ["heapless"] }
 tikv-jemallocator = "0.5"
 
 [features]
-default = ["database"]
+default = ["database", "discord"]
 database = ["dep:sea-orm", "dep:sea-orm-migration"]
 discord = ["dep:poise"]
