@@ -1,6 +1,6 @@
-use thiserror::Error;
 use generic_async_http_client::{Error as RequestError, Request};
 use serde::Serialize;
+use thiserror::Error;
 
 #[derive(Clone, Debug)]
 pub struct GDUser {
@@ -32,7 +32,7 @@ impl Default for GDUser {
 #[derive(Debug, Error)]
 pub enum GDApiFetchError {
     #[error("Error making request: {0}")]
-    Network(#[from] RequestError),
+    Network(Box<RequestError>),
     #[error("Rate limited by cloudflare (error 1015)")]
     RateLimited,
     #[error("IP banned by cloudflare (error 1006)")]
@@ -49,6 +49,12 @@ pub enum GDApiFetchError {
     InvalidUser,
 }
 
+impl From<RequestError> for GDApiFetchError {
+    fn from(e: RequestError) -> Self {
+        GDApiFetchError::Network(Box::new(e))
+    }
+}
+
 #[derive(Serialize)]
 pub struct GetUserInfoPayload {
     secret: &'static str,
@@ -63,20 +69,13 @@ pub struct GetUsersPayload {
     target: String,
 }
 
+#[derive(Default)]
 pub struct GDApiClient {}
-
-impl Default for GDApiClient {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 impl GDApiClient {
     // returns a GDUser from a server response string
-    pub fn user_from_string(&self, text: String) -> Result<Option<GDUser>, GDApiFetchError> {
-        let mut user = GDUser {
-            ..Default::default()
-        };
+    fn user_from_string(&self, text: String) -> Result<Option<GDUser>, GDApiFetchError> {
+        let mut user = GDUser::default();
 
         let mut no_glow = false;
 
@@ -113,15 +112,14 @@ impl GDApiClient {
         Ok(Some(user))
     }
 
-    // fetches a GDUser from boomlings by account ID
-    pub async fn fetch_user(&self, account_id: i32) -> Result<Option<GDUser>, GDApiFetchError> {
-        // TODO: uh gdps
-        let text = Request::post("http://www.boomlings.com/database/getGJUserInfo20.php")
+    async fn send_request(
+        &self,
+        url: &str,
+        payload: &impl Serialize,
+    ) -> Result<String, GDApiFetchError> {
+        let text = Request::post(url)
             .add_header("User-Agent", "")?
-            .form(&GetUserInfoPayload {
-                secret: "Wmfd2893gb7",
-                target: account_id,
-            })?
+            .form(payload)?
             .exec()
             .await?
             .text()
@@ -136,6 +134,22 @@ impl GDApiClient {
                 Err(_) => return Err(GDApiFetchError::BoomlingsUnparsable),
             }
         }
+
+        Ok(text)
+    }
+
+    // fetches a GDUser from boomlings by account ID
+    pub async fn fetch_user(&self, account_id: i32) -> Result<Option<GDUser>, GDApiFetchError> {
+        // TODO: uh gdps
+        let text = self
+            .send_request(
+                "http://www.boomlings.com/database/getGJUserInfo20.php",
+                &GetUserInfoPayload {
+                    secret: "Wmfd2893gb7",
+                    target: account_id,
+                },
+            )
+            .await?;
 
         if let Ok(ec) = text.parse::<i32>() {
             match ec {
@@ -152,28 +166,20 @@ impl GDApiClient {
     }
 
     // fetches a GDUser from boomlings by username
-    pub async fn fetch_user_by_username(&self, username: &String) -> Result<Option<GDUser>, GDApiFetchError> {
+    pub async fn fetch_user_by_username(
+        &self,
+        username: &String,
+    ) -> Result<Option<GDUser>, GDApiFetchError> {
         // TODO: uh gdps
-        let text = Request::post("http://www.boomlings.com/database/getGJUsers20.php")
-            .add_header("User-Agent", "")?
-            .form(&GetUsersPayload {
-                secret: "Wmfd2893gb7",
-                target: username.to_string(),
-            })?
-            .exec()
-            .await?
-            .text()
+        let text = self
+            .send_request(
+                "http://www.boomlings.com/database/getGJUsers20.php",
+                &GetUsersPayload {
+                    secret: "Wmfd2893gb7",
+                    target: username.to_string(),
+                },
+            )
             .await?;
-
-        if let Some(text) = text.strip_prefix("error code:").map(|x| x.trim()) {
-            match text.parse::<i32>() {
-                Ok(1005) => return Err(GDApiFetchError::AsnBlocked),
-                Ok(1006) => return Err(GDApiFetchError::IpBlocked),
-                Ok(1015) => return Err(GDApiFetchError::RateLimited),
-                Ok(code) => return Err(GDApiFetchError::Cloudflare(code)),
-                Err(_) => return Err(GDApiFetchError::BoomlingsUnparsable),
-            }
-        }
 
         if let Ok(ec) = text.parse::<i32>() {
             match ec {
