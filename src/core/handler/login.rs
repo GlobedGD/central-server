@@ -44,7 +44,6 @@ impl ConnectionHandler {
         }
 
         let ttkey = auth.trust_token_key();
-        debug!("test pre a");
 
         let uident = if ttkey.is_empty() {
             None
@@ -71,8 +70,6 @@ impl ConnectionHandler {
                 LoginKind::Plain(_) => None,
             }
         };
-
-        debug!("test a");
 
         match auth.handle_login(kind).await {
             AuthVerdict::Success(data) => {
