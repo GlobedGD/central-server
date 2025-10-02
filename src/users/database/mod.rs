@@ -1,6 +1,6 @@
 use std::num::NonZeroI64;
 
-use sea_orm::{FromQueryResult, QueryOrder, QuerySelect, ActiveValue::NotSet};
+use sea_orm::{ActiveValue::NotSet, FromQueryResult, QueryOrder, QuerySelect};
 use server_shared::MultiColor;
 #[cfg(feature = "database")]
 use smallvec::SmallVec;

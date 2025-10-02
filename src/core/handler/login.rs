@@ -7,6 +7,7 @@ use thiserror::Error;
 
 use crate::{
     auth::{AuthModule, AuthVerdict, ClientAccountData, LoginKind},
+    features::FeaturesModule,
     rooms::RoomModule,
     users::UsersModule,
 };
@@ -258,6 +259,13 @@ impl ConnectionHandler {
                 let mut role_buf = ByteWriter::new(&mut color_buf);
                 nc.encode(&mut role_buf);
                 login_ok.set_name_color(role_buf.written());
+            }
+
+            // encode featured level
+            #[cfg(feature = "featured-levels")]
+            {
+                let level = self.module::<FeaturesModule>().get_featured_level_id();
+                login_ok.set_featured_level(level);
             }
         })?;
 

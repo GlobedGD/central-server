@@ -12,6 +12,8 @@ use server_shared::config::parse_addr;
 use server_shared::logging::WorkerGuard;
 use tracing::{debug, error};
 
+#[cfg(feature = "featured-levels")]
+use crate::features::FeaturesModule;
 use crate::{
     auth::AuthModule,
     core::{
@@ -37,6 +39,8 @@ pub mod core;
 pub mod credits;
 #[cfg(feature = "discord")]
 pub mod discord;
+#[cfg(feature = "featured-levels")]
+pub mod features;
 pub mod rooms;
 pub mod users;
 
@@ -81,6 +85,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         //     // init modules that depend on discord
         // }
     }
+
+    #[cfg(feature = "featured-levels")]
+    init_module::<FeaturesModule>(&handler).await;
 
     // Add necessary modules
     init_module::<AuthModule>(&handler).await;
