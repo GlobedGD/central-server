@@ -76,16 +76,6 @@ impl Db {
 
     // Featured levels
 
-    pub async fn get_featured_level_id(&self) -> DatabaseResult<Option<i32>> {
-        // find the last featured level
-        let level = FeaturedLevel::find()
-            .order_by_desc(featured_level::Column::FeaturedAt)
-            .one(&self.conn)
-            .await?;
-
-        Ok(level.map(|x| x.id))
-    }
-
     pub async fn get_featured_level(&self) -> DatabaseResult<Option<featured_level::Model>> {
         // find the last featured level
         Ok(FeaturedLevel::find()

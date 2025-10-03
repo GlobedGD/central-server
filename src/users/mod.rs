@@ -238,8 +238,8 @@ impl UsersModule {
         ids
     }
 
-    pub fn compute_from_role_ids<'a>(
-        &'a self,
+    pub fn compute_from_role_ids(
+        &self,
         account_id: i32,
         iter: impl Iterator<Item = u8>,
     ) -> ComputedRole {
