@@ -1,4 +1,4 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::util::*;
 use crate::{
@@ -36,24 +36,15 @@ pub async fn punish(
         return Err(BotError::custom("Server handle not initialized"));
     };
 
-    let author = ctx.author();
     let users = server.handler().module::<UsersModule>();
-
-    // check if we're not linked
-    let user_result = users.get_linked_discord_inverse(author.id.get()).await?;
-    if user_result.is_none() {
-        ctx.reply(":x: Not linked to an account! Please link an account").await?;
-
+    let Some(user) = get_linked_gd_user(ctx, &server).await? else {
         return Ok(());
-    }
-
-    let user = user_result.unwrap();
+    };
 
     let can_moderate = users.compute_from_user(&user).can_moderate();
 
     if !can_moderate {
         ctx.reply(":x: You cannot moderate!").await?;
-
         return Ok(());
     }
 
@@ -95,48 +86,20 @@ pub async fn punish(
         return Ok(());
     };
 
-    let mut duration: u64 = 0;
-
-    if !duration_str.to_lowercase().contains("perma") {
-        let split_dur_str = duration_str.split(" ").collect::<Vec<&str>>();
-        if split_dur_str.len() < 2 {
-            ctx.reply(":x: Invalid duration; please follow the format!").await?;
-            return Ok(());
-        }
-        let Ok(duration_amount) = split_dur_str[0].parse::<u64>() else {
-            ctx.reply(":x: Invalid duration; please follow the format!").await?;
-            return Ok(());
-        };
-
-        let modifier: u64 = match split_dur_str[1] {
-            "second" => 1,
-            "seconds" => 1,
-            "minute" => 60,
-            "minutes" => 60,
-            "hour" => 3600,
-            "hours" => 3600,
-            "day" => 3600 * 24,
-            "days" => 3600 * 24,
-            "month" => 3600 * 24 * 30,
-            "months" => 3600 * 24 * 30,
-            "year" => 3600 * 24 * 30 * 12,
-            "years" => 3600 * 24 * 30 * 12,
-            _ => 0,
-        };
-
-        duration = duration_amount * modifier;
-    }
+    let Ok(duration) = parse_duration_str(&duration_str) else {
+        ctx.reply(":x: Invalid duration!").await?;
+        return Ok(());
+    };
 
     let ban_result = users
         .admin_punish_user(
             user.account_id,
             target.account_id,
             &reason,
-            if duration == 0 {
+            if duration.is_zero() {
                 0
             } else {
-                (SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
-                    + duration) as i64
+                (SystemTime::now().duration_since(UNIX_EPOCH).unwrap() + duration).as_secs() as i64
             },
             match punishment_type.as_str() {
                 "Ban" => crate::users::UserPunishmentType::Ban,
@@ -173,24 +136,15 @@ pub async fn unpunish(
         return Err(BotError::custom("Server handle not initialized"));
     };
 
-    let author = ctx.author();
     let users = server.handler().module::<UsersModule>();
-
-    // check if we're not linked
-    let user_result = users.get_linked_discord_inverse(author.id.get()).await?;
-    if user_result.is_none() {
-        ctx.reply(":x: Not linked to an account! Please link an account").await?;
-
+    let Some(user) = get_linked_gd_user(ctx, &server).await? else {
         return Ok(());
-    }
-
-    let user = user_result.unwrap();
+    };
 
     let can_moderate = users.compute_from_user(&user).can_moderate();
 
     if !can_moderate {
         ctx.reply(":x: You cannot moderate!").await?;
-
         return Ok(());
     }
 
@@ -290,17 +244,10 @@ pub async fn audit_log(ctx: Context<'_>) -> Result<(), BotError> {
         return Err(BotError::custom("Server handle not initialized"));
     };
 
-    let author = ctx.author();
     let users = server.handler().module::<UsersModule>();
-
-    // check if we're not linked
-    let user_result = users.get_linked_discord_inverse(author.id.get()).await?;
-    if user_result.is_none() {
-        ctx.reply(":x: Not linked to an account! Please link an account").await?;
+    let Some(user) = get_linked_gd_user(ctx, &server).await? else {
         return Ok(());
-    }
-
-    let user = user_result.unwrap();
+    };
 
     let can_moderate = users.compute_from_user(&user).can_moderate();
 
@@ -343,7 +290,7 @@ pub async fn audit_log(ctx: Context<'_>) -> Result<(), BotError> {
         // button was pressed
         .filter(move |press| press.data.custom_id.starts_with(&ctx_id.to_string()))
         // Timeout when no navigation button has been pressed for 24 hours
-        .timeout(std::time::Duration::from_secs(3600 * 24))
+        .timeout(Duration::from_secs(3600 * 24))
         .await
     {
         // Depending on which button was pressed, go to next or previous page

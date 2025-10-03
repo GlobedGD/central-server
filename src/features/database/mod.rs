@@ -44,6 +44,8 @@ pub enum DatabaseError {
     AlreadyFeatured,
     #[error("Level already was queued")]
     AlreadyQueued,
+    #[error("Level not found")]
+    NotFound,
 }
 
 pub type DatabaseResult<T> = Result<T, DatabaseError>;
@@ -76,23 +78,38 @@ impl Db {
 
     pub async fn get_featured_level_id(&self) -> DatabaseResult<Option<i32>> {
         // find the last featured level
-        let level =
-            FeaturedLevel::find().order_by_desc(featured_level::Column::Id).one(&self.conn).await?;
+        let level = FeaturedLevel::find()
+            .order_by_desc(featured_level::Column::FeaturedAt)
+            .one(&self.conn)
+            .await?;
 
         Ok(level.map(|x| x.id))
     }
 
     pub async fn get_featured_level(&self) -> DatabaseResult<Option<featured_level::Model>> {
         // find the last featured level
-        Ok(FeaturedLevel::find().order_by_desc(featured_level::Column::Id).one(&self.conn).await?)
+        Ok(FeaturedLevel::find()
+            .order_by_desc(featured_level::Column::FeaturedAt)
+            .one(&self.conn)
+            .await?)
     }
 
     pub async fn get_all_featured_levels(&self) -> DatabaseResult<Vec<featured_level::Model>> {
-        Ok(FeaturedLevel::find().order_by_asc(featured_level::Column::Id).all(&self.conn).await?)
+        Ok(FeaturedLevel::find()
+            .order_by_asc(featured_level::Column::FeaturedAt)
+            .all(&self.conn)
+            .await?)
     }
 
     pub async fn get_all_queued_levels(&self) -> DatabaseResult<Vec<queued_level::Model>> {
-        Ok(QueuedLevel::find().order_by_asc(queued_level::Column::Id).all(&self.conn).await?)
+        Ok(QueuedLevel::find()
+            .order_by_desc(queued_level::Column::Priority)
+            .all(&self.conn)
+            .await?)
+    }
+
+    pub async fn get_all_sent_levels(&self) -> DatabaseResult<Vec<sent_level::Model>> {
+        Ok(SentLevel::find().order_by_asc(sent_level::Column::Id).all(&self.conn).await?)
     }
 
     pub async fn get_featured_level_ids_page(
@@ -100,7 +117,7 @@ impl Db {
         page: u32,
     ) -> DatabaseResult<Vec<PartialFeaturedLevelId>> {
         let levels = FeaturedLevel::find()
-            .order_by_desc(featured_level::Column::Id)
+            .order_by_desc(featured_level::Column::FeaturedAt)
             .limit(FEATURE_PAGE_SIZE)
             .offset(page as u64 * FEATURE_PAGE_SIZE)
             .into_partial_model::<PartialFeaturedLevelId>()
@@ -205,6 +222,33 @@ impl Db {
         Ok(())
     }
 
+    pub async fn set_feature_duration(&self, level_id: i32, duration: i32) -> DatabaseResult<()> {
+        if let Some(level) = FeaturedLevel::find_by_id(level_id).one(&self.conn).await? {
+            let mut model = level.into_active_model();
+            model.feature_duration = Set(Some(duration));
+            model.update(&self.conn).await?;
+            Ok(())
+        } else if let Some(level) = QueuedLevel::find_by_id(level_id).one(&self.conn).await? {
+            let mut model = level.into_active_model();
+            model.feature_duration = Set(Some(duration));
+            model.update(&self.conn).await?;
+            Ok(())
+        } else {
+            Err(DatabaseError::NotFound)
+        }
+    }
+
+    pub async fn set_feature_priority(&self, level_id: i32, priority: i32) -> DatabaseResult<()> {
+        if let Some(level) = QueuedLevel::find_by_id(level_id).one(&self.conn).await? {
+            let mut model = level.into_active_model();
+            model.priority = Set(priority);
+            model.update(&self.conn).await?;
+            Ok(())
+        } else {
+            Err(DatabaseError::NotFound)
+        }
+    }
+
     pub async fn was_featured(&self, level_id: i32) -> DatabaseResult<bool> {
         Ok(FeaturedLevel::find_by_id(level_id).one(&self.conn).await?.is_some())
     }
@@ -214,12 +258,10 @@ impl Db {
     }
 
     pub async fn remove_sends_for(&self, level_id: i32) -> DatabaseResult<()> {
-        let filter = sent_level::ActiveModel {
-            level_id: Set(level_id),
-            ..Default::default()
-        };
-
-        SentLevel::delete(filter).exec(&self.conn).await?;
+        SentLevel::delete_many()
+            .filter(sent_level::Column::LevelId.eq(level_id))
+            .exec(&self.conn)
+            .await?;
 
         Ok(())
     }

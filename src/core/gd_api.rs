@@ -29,6 +29,25 @@ impl Default for GDUser {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct GDLevel {
+    pub id: i32,
+    pub name: heapless::String<32>,
+    pub author_id: i32,
+    pub author_name: heapless::String<24>,
+}
+
+impl Default for GDLevel {
+    fn default() -> Self {
+        Self {
+            id: -1,
+            name: heapless::String::new(),
+            author_id: -1,
+            author_name: heapless::String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum GDApiFetchError {
     #[error("Error making request: {0}")]
@@ -69,12 +88,151 @@ pub struct GetUsersPayload {
     target: String,
 }
 
+#[derive(Serialize)]
+pub struct GetLevelsPayload {
+    secret: &'static str,
+    #[serde(rename = "str")]
+    target: String,
+    r#type: i32,
+    #[serde(rename = "gameVersion")]
+    game_version: i32,
+    #[serde(rename = "binaryVersion")]
+    binary_version: i32,
+}
+
 #[derive(Default)]
-pub struct GDApiClient {}
+pub struct GDApiClient {
+    base_url: Option<String>,
+}
 
 impl GDApiClient {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_base_url(url: String) -> Self {
+        let mut ret = Self::default();
+        ret.set_base_url(url);
+        ret
+    }
+
+    /// TODO: actually make this a setting for gdps
+    pub fn set_base_url(&mut self, mut url: String) {
+        while url.ends_with('/') {
+            url.pop();
+        }
+
+        self.base_url = Some(url);
+    }
+
+    fn base_url(&self) -> &str {
+        self.base_url.as_deref().unwrap_or("http://www.boomlings.com/database")
+    }
+
+    fn make_url(&self, suffix: &str) -> String {
+        format!("{}/{}", self.base_url(), suffix)
+    }
+
+    async fn send_request(
+        &self,
+        url: &str,
+        payload: &impl Serialize,
+    ) -> Result<String, GDApiFetchError> {
+        let text = Request::post(url)
+            .add_header("User-Agent", "")?
+            .form(payload)?
+            .exec()
+            .await?
+            .text()
+            .await?;
+
+        if let Some(text) = text.strip_prefix("error code:").map(|x| x.trim()) {
+            match text.parse::<i32>() {
+                Ok(1005) => return Err(GDApiFetchError::AsnBlocked),
+                Ok(1006) => return Err(GDApiFetchError::IpBlocked),
+                Ok(1015) => return Err(GDApiFetchError::RateLimited),
+                Ok(code) => return Err(GDApiFetchError::Cloudflare(code)),
+                Err(_) => return Err(GDApiFetchError::BoomlingsUnparsable),
+            }
+        }
+
+        Ok(text)
+    }
+
+    // fetches a GDUser from boomlings by account ID
+    pub async fn fetch_user(&self, account_id: i32) -> Result<Option<GDUser>, GDApiFetchError> {
+        let text = self
+            .send_request(
+                &self.make_url("getGJUserInfo20.php"),
+                &GetUserInfoPayload {
+                    secret: "Wmfd2893gb7",
+                    target: account_id,
+                },
+            )
+            .await?;
+
+        if let Ok(ec) = text.parse::<i32>() {
+            match ec {
+                -1 => return Ok(None),
+                _ => return Err(GDApiFetchError::BoomlingsError(ec)),
+            }
+        }
+
+        self.user_from_string(&text)
+    }
+
+    // fetches a GDUser from boomlings by username
+    pub async fn fetch_user_by_username(
+        &self,
+        username: &String,
+    ) -> Result<Option<GDUser>, GDApiFetchError> {
+        let text = self
+            .send_request(
+                &self.make_url("getGJUsers20.php"),
+                &GetUsersPayload {
+                    secret: "Wmfd2893gb7",
+                    target: username.to_string(),
+                },
+            )
+            .await?;
+
+        if let Ok(ec) = text.parse::<i32>() {
+            match ec {
+                -1 => return Ok(None),
+                _ => return Err(GDApiFetchError::BoomlingsError(ec)),
+            }
+        }
+
+        self.user_from_string(&text)
+    }
+
+    // fetches a GDLevel from boomlings by level ID
+    pub async fn fetch_level(&self, level_id: i32) -> Result<Option<GDLevel>, GDApiFetchError> {
+        let text = self
+            .send_request(
+                &self.make_url("getGJLevels21.php"),
+                &GetLevelsPayload {
+                    secret: "Wmfd2893gb7",
+                    target: level_id.to_string(),
+                    r#type: 0,
+                    game_version: 22,
+                    binary_version: 45,
+                },
+            )
+            .await?;
+
+        if let Ok(ec) = text.parse::<i32>() {
+            match ec {
+                -1 => return Ok(None),
+                _ => return Err(GDApiFetchError::BoomlingsError(ec)),
+            }
+        }
+
+        self.level_from_string(&text)
+    }
+
     // returns a GDUser from a server response string
-    fn user_from_string(&self, text: String) -> Result<Option<GDUser>, GDApiFetchError> {
+    fn user_from_string(&self, text: &str) -> Result<Option<GDUser>, GDApiFetchError> {
         let mut user = GDUser::default();
 
         let mut no_glow = false;
@@ -112,86 +270,52 @@ impl GDApiClient {
         Ok(Some(user))
     }
 
-    async fn send_request(
-        &self,
-        url: &str,
-        payload: &impl Serialize,
-    ) -> Result<String, GDApiFetchError> {
-        let text = Request::post(url)
-            .add_header("User-Agent", "")?
-            .form(payload)?
-            .exec()
-            .await?
-            .text()
-            .await?;
+    fn level_from_string(&self, text: &str) -> Result<Option<GDLevel>, GDApiFetchError> {
+        // Example response:
+        // 1:123123123:2:123:5:8:6:50164049:8:10:9:30:10:4781:12:0:13:22:14:133:17::43:0:25::18:0:19:0:42:0:45:1401:3:VmVyeSBrb29sIGlkIDpEIC0gVXBkYXRlIHNvb24_:15:1:30:0:31:0:37:0:38:0:39:5:46:1:47:2:35:10003129#50164049:Lasokar:11982945#1~|~10003129~|~2~|~Scheming Weasel faster~|~3~|~10001856~|~4~|~Kevin MacLeod~|~5~|~1.3~|~6~|~~|~10~|~-~|~7~|~UCSZXFhRIx6b0dFX3xS8L1yQ~|~8~|~1#9999:0:10#e59e08b3bf21e41022ac274c0fe42dd4e78639e4
 
-        if let Some(text) = text.strip_prefix("error code:").map(|x| x.trim()) {
-            match text.parse::<i32>() {
-                Ok(1005) => return Err(GDApiFetchError::AsnBlocked),
-                Ok(1006) => return Err(GDApiFetchError::IpBlocked),
-                Ok(1015) => return Err(GDApiFetchError::RateLimited),
-                Ok(code) => return Err(GDApiFetchError::Cloudflare(code)),
-                Err(_) => return Err(GDApiFetchError::BoomlingsUnparsable),
-            }
-        }
+        let mut level = GDLevel::default();
 
-        Ok(text)
-    }
+        let mut parts = text.split('#');
+        let main_part = parts.next().ok_or(GDApiFetchError::BoomlingsUnparsable)?;
+        let user_part = parts.next().ok_or(GDApiFetchError::BoomlingsUnparsable)?;
 
-    // fetches a GDUser from boomlings by account ID
-    pub async fn fetch_user(&self, account_id: i32) -> Result<Option<GDUser>, GDApiFetchError> {
-        // TODO: uh gdps
-        let text = self
-            .send_request(
-                "http://www.boomlings.com/database/getGJUserInfo20.php",
-                &GetUserInfoPayload {
-                    secret: "Wmfd2893gb7",
-                    target: account_id,
-                },
-            )
-            .await?;
+        let mut user_id = None;
 
-        if let Ok(ec) = text.parse::<i32>() {
-            match ec {
-                -1 => return Ok(None),
-                _ => return Err(GDApiFetchError::BoomlingsError(ec)),
-            }
-        }
+        main_part.split(':').array_chunks::<2>().for_each(|[k, v]| match k {
+            "1" if let Ok(c) = v.parse() => level.id = c,
+            "2" => level.name = v.try_into().unwrap_or_else(|_| "Unknown".try_into().unwrap()),
+            "6" if let Ok(c) = v.parse::<i32>() => user_id = Some(c),
+            _ => {}
+        });
 
-        let Ok(Some(user)) = self.user_from_string(text) else {
-            return Err(GDApiFetchError::InvalidUser);
+        let Some(user_id) = user_id else {
+            return Err(GDApiFetchError::BoomlingsUnparsable);
         };
 
-        Ok(Some(user))
-    }
+        // User part looks like
+        // user_id:username:account_id
+        user_part.split('|').for_each(|segment| {
+            let mut split = segment.split(':');
+            if let Some(id) = split.next().and_then(|v| v.parse::<i32>().ok()) {
+                if id == user_id {
+                    level.author_name =
+                        split.next().and_then(|v| v.try_into().ok()).unwrap_or_default();
+                    level.author_id = split.next().and_then(|v| v.parse().ok()).unwrap_or(-1);
+                }
+            };
+        });
 
-    // fetches a GDUser from boomlings by username
-    pub async fn fetch_user_by_username(
-        &self,
-        username: &String,
-    ) -> Result<Option<GDUser>, GDApiFetchError> {
-        // TODO: uh gdps
-        let text = self
-            .send_request(
-                "http://www.boomlings.com/database/getGJUsers20.php",
-                &GetUsersPayload {
-                    secret: "Wmfd2893gb7",
-                    target: username.to_string(),
-                },
-            )
-            .await?;
-
-        if let Ok(ec) = text.parse::<i32>() {
-            match ec {
-                -1 => return Ok(None),
-                _ => return Err(GDApiFetchError::BoomlingsError(ec)),
-            }
+        if level.id <= 0
+            || level.name.is_empty()
+            || level.author_id <= 0
+            || level.author_name.is_empty()
+        {
+            return Err(GDApiFetchError::BoomlingsUnparsable);
         }
 
-        let Ok(Some(user)) = self.user_from_string(text) else {
-            return Err(GDApiFetchError::InvalidUser);
-        };
+        // finally
 
-        Ok(Some(user))
+        Ok(Some(level))
     }
 }

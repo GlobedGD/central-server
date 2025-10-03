@@ -1,22 +1,27 @@
+#[cfg(feature = "discord")]
+use std::sync::Arc;
 use std::{
+    collections::{HashMap, hash_map::Entry},
     error::Error,
     sync::atomic::{AtomicI32, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use qunet::server::ServerHandle;
-use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
+#[cfg(feature = "discord")]
+use crate::discord::DiscordModule;
 use crate::{
     core::{
         handler::ConnectionHandler,
         module::{ConfigurableModule, ModuleInitResult, ServerModule},
     },
     features::{
-        database::{DatabaseResult, Db},
+        database::{DatabaseResult, Db, FeaturedLevelModel},
         sheets_client::SheetsClient,
     },
+    users::UsersModule,
 };
 
 mod config;
@@ -34,6 +39,9 @@ pub struct FeaturesModule {
     active_level: AtomicI32,
     feature_cycle_interval: Duration,
     sheets: Option<SheetsClient>,
+    #[cfg(feature = "discord")]
+    discord: Option<Arc<DiscordModule>>,
+    users_module: Arc<UsersModule>,
 }
 
 impl FeaturesModule {
@@ -82,35 +90,73 @@ impl FeaturesModule {
         Ok(())
     }
 
-    async fn update_featured_level(&self) {
-        let level = match self.db.get_featured_level().await {
-            Ok(Some(l)) => l,
+    pub async fn set_feature_duration(
+        &self,
+        level_id: i32,
+        duration: Duration,
+    ) -> DatabaseResult<()> {
+        self.db.set_feature_duration(level_id, duration.as_secs() as i32).await?;
+        self.update_spreadsheet(true, true, false).await;
 
-            Ok(None) => {
-                self.active_level.store(0, Ordering::Relaxed);
-                return;
+        Ok(())
+    }
+
+    pub async fn set_feature_priority(&self, level_id: i32, priority: i32) -> DatabaseResult<()> {
+        self.db.set_feature_priority(level_id, priority).await?;
+        self.update_spreadsheet(false, true, false).await;
+
+        Ok(())
+    }
+
+    async fn reload_featured_level(&self) -> DatabaseResult<Option<FeaturedLevelModel>> {
+        match self.db.get_featured_level().await? {
+            Some(l) => {
+                self.active_level.store(l.id, Ordering::Relaxed);
+                Ok(Some(l))
             }
 
+            None => {
+                self.active_level.store(0, Ordering::Relaxed);
+                Ok(None)
+            }
+        }
+    }
+
+    async fn update_featured_level(&self) {
+        let level = match self.reload_featured_level().await {
+            Ok(l) => l,
+
             Err(e) => {
-                error!("failed to refresh featured level: {e}");
+                error!("failed to reload featured level: {e}");
                 return;
             }
         };
 
-        self.active_level.store(level.id, Ordering::Relaxed);
+        // don't cycle if interval is 0
+        if self.feature_cycle_interval.is_zero() {
+            return;
+        }
 
-        let dur = level
-            .feature_duration
-            .map_or(self.feature_cycle_interval, |d| Duration::from_secs(d as u64));
+        let expired = match &level {
+            Some(level) => {
+                let dur = level
+                    .feature_duration
+                    .map_or(self.feature_cycle_interval, |d| Duration::from_secs(d as u64));
 
-        let expired =
-            UNIX_EPOCH + Duration::from_secs(level.featured_at as u64) + dur <= SystemTime::now();
+                let until = (UNIX_EPOCH + Duration::from_secs(level.featured_at as u64) + dur)
+                    .duration_since(SystemTime::now())
+                    .unwrap_or_default();
+
+                debug!("Featured level {} expires in {:?}", level.id, until);
+
+                until.is_zero()
+            }
+
+            None => true,
+        };
 
         if expired {
-            info!(
-                "Cycling featured level, current one is {} ({}) by {} ({})",
-                level.name, level.id, level.author_name, level.author
-            );
+            info!("Cycling featured level, current: {level:?}");
             self.cycle_level().await;
         }
     }
@@ -134,7 +180,7 @@ impl FeaturesModule {
         }
     }
 
-    async fn update_spreadsheet(&self, featured: bool, queued: bool, sent: bool) {
+    pub async fn update_spreadsheet(&self, featured: bool, queued: bool, sent: bool) {
         if let Err(e) = self.update_spreadsheet_inner(featured, queued, sent).await {
             error!("failed to update spreadsheet: {e}");
         }
@@ -161,7 +207,24 @@ impl FeaturesModule {
         }
 
         if sent {
-            // TODO
+            let mut username_map = HashMap::new();
+            let sent = self.db.get_all_sent_levels().await?;
+
+            // build a map of all usernames .. lol
+            for level in &sent {
+                if let Entry::Vacant(e) = username_map.entry(level.sent_by) {
+                    if let Some(user) = self.users_module.get_user(level.sent_by).await? {
+                        e.insert(
+                            user.username
+                                .as_deref()
+                                .map(|x| x.try_into().unwrap())
+                                .unwrap_or_default(),
+                        );
+                    }
+                }
+            }
+
+            sheets.update_sent_sheet(sent, username_map).await?;
         }
 
         Ok(())
@@ -169,7 +232,7 @@ impl FeaturesModule {
 }
 
 impl ServerModule for FeaturesModule {
-    async fn new(config: &config::Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+    async fn new(config: &config::Config, handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         let db = Db::new(&config.database_url, config.database_pool_size).await?;
         db.run_migrations().await?;
 
@@ -182,11 +245,17 @@ impl ServerModule for FeaturesModule {
             None
         };
 
+        #[cfg(feature = "discord")]
+        let discord = handler.opt_module_owned::<DiscordModule>();
+
         let out = Self {
             db,
             active_level: AtomicI32::new(0),
             feature_cycle_interval: Duration::from_secs(config.feature_cycle_interval as u64),
             sheets,
+            #[cfg(feature = "discord")]
+            discord,
+            users_module: handler.opt_module_owned::<UsersModule>().unwrap(),
         };
 
         out.update_featured_level().await;

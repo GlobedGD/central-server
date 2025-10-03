@@ -75,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut handler = ConnectionHandler::new(config);
 
-    // Add optional modules
+    // Add optional modules that have dependents
     #[cfg(feature = "discord")]
     {
         let _discord =
@@ -86,14 +86,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // }
     }
 
-    #[cfg(feature = "featured-levels")]
-    init_module::<FeaturesModule>(&handler).await;
-
     // Add necessary modules
     init_module::<AuthModule>(&handler).await;
     init_module::<RoomModule>(&handler).await;
     init_module::<UsersModule>(&handler).await;
     init_module::<CreditsModule>(&handler).await;
+
+    // Add more optional modules
+    #[cfg(feature = "featured-levels")]
+    init_module::<FeaturesModule>(&handler).await;
 
     // Freeze handler, this disallows adding new modules and module configs,
     // but improves performance by removing the need for locks.
