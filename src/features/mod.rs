@@ -60,7 +60,6 @@ impl FeaturesModule {
         self.db.get_featured_level_pages().await
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn send_level(
         &self,
         sender_id: i32,

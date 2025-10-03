@@ -36,11 +36,13 @@ use crate::{
 };
 
 mod admin;
+mod featured;
 mod login;
 mod misc;
 mod rooms;
 mod session;
 mod util;
+use admin::ActionType;
 use util::*;
 pub use util::{ClientState, ClientStateHandle, WeakClientStateHandle};
 
@@ -512,7 +514,35 @@ impl AppHandler for ConnectionHandler {
                 unpacked_data.reset();
 
                 self.handle_admin_fetch_mods(client).await
-            }
+            },
+
+            GetFeaturedLevel(_message) => {
+                unpacked_data.reset();
+
+                #[cfg(feature = "featured-levels")]
+                let res = self.handle_get_featured_level(client);
+                #[cfg(not(feature = "featured-levels"))]
+                let res = Ok(());
+
+                res
+            },
+
+            SendFeaturedLevel(message) => {
+                let level_id = message.get_level_id();
+                let level_name = message.get_level_name()?.to_str()?;
+                let author_id = message.get_author_id();
+                let author_name = message.get_author_name()?.to_str()?;
+                let rate_tier = message.get_rate_tier();
+                let note = message.get_note()?.to_str()?;
+                let queue = message.get_queue();
+
+                #[cfg(feature = "featured-levels")]
+                let res = self.handle_send_featured_level(client, level_id, level_name, author_id, author_name, rate_tier, note, queue).await;
+                #[cfg(not(feature = "featured-levels"))]
+                let res = Ok(());
+
+                res
+            },
         });
 
         match result {

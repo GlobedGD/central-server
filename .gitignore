@@ -8,5 +8,5 @@ quic
 .cargo
 Cargo.lock
 
-db.sqlite
+*.sqlite
 .google.json

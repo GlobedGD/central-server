@@ -1,5 +1,5 @@
 #![feature(try_blocks, iter_array_chunks, if_let_guard)]
-#![allow(clippy::new_without_default, clippy::collapsible_if)]
+#![allow(clippy::new_without_default, clippy::collapsible_if, clippy::too_many_arguments)]
 
 use std::sync::Arc;
 

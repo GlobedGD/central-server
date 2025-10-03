@@ -10,7 +10,7 @@ use crate::{
 
 use super::{ConnectionHandler, util::*};
 
-enum ActionType {
+pub enum ActionType {
     Kick,
     Notice,
     NoticeEveryone,
@@ -19,6 +19,8 @@ enum ActionType {
     Mute,
     SetPassword,
     EditRoles,
+    SendFeatures,
+    RateFeatures,
 }
 
 #[derive(Default)]
@@ -31,7 +33,11 @@ struct FetchResponse<'a> {
 }
 
 impl ConnectionHandler {
-    fn must_be_able(&self, client: &ClientStateHandle, action: ActionType) -> HandlerResult<()> {
+    pub fn must_be_able(
+        &self,
+        client: &ClientStateHandle,
+        action: ActionType,
+    ) -> HandlerResult<()> {
         must_admin_auth(client)?;
 
         let Some(role) = &*client.role() else {
@@ -48,6 +54,8 @@ impl ConnectionHandler {
             ActionType::Mute => role.can_mute,
             ActionType::SetPassword => role.can_set_password,
             ActionType::EditRoles => true,
+            ActionType::SendFeatures => role.can_send_features,
+            ActionType::RateFeatures => role.can_rate_features,
         };
 
         if can {
@@ -58,7 +66,7 @@ impl ConnectionHandler {
         }
     }
 
-    fn send_admin_result<Fr: AsRef<str>>(
+    pub fn send_admin_result<Fr: AsRef<str>>(
         &self,
         client: &ClientStateHandle,
         result: Result<(), Fr>,
@@ -81,7 +89,7 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    fn send_admin_db_result<E: Display>(
+    pub fn send_admin_db_result<E: Display>(
         &self,
         client: &ClientStateHandle,
         result: Result<(), E>,
@@ -143,7 +151,6 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn handle_admin_notice(
         &self,
         client: &ClientStateHandle,
@@ -521,7 +528,6 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn handle_admin_update_user(
         &self,
         client: &ClientStateHandle,
@@ -543,7 +549,6 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn handle_admin_fetch_logs(
         &self,
         client: &ClientStateHandle,

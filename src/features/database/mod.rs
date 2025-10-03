@@ -158,7 +158,6 @@ impl Db {
         Ok(new.insert(&self.conn).await?)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn add_sent_level(
         &self,
         sender_id: i32,
@@ -174,19 +173,6 @@ impl Db {
         if self.was_featured(level_id).await? {
             return Err(DatabaseError::AlreadyFeatured);
         }
-
-        let model = sent_level::ActiveModel {
-            id: NotSet,
-            level_id: Set(level_id),
-            name: Set(level_name.to_string()),
-            author: Set(author_id),
-            author_name: Set(author_name.to_string()),
-            note: Set(note.to_string()),
-            rate_tier: Set(rate_tier as i32),
-            sent_by: Set(sender_id),
-        };
-
-        model.insert(&self.conn).await?;
 
         if queue {
             // check if this level has already been queued
@@ -207,6 +193,19 @@ impl Db {
             queued.insert(&self.conn).await?;
 
             self.remove_sends_for(level_id).await?;
+        } else {
+            let model = sent_level::ActiveModel {
+                id: NotSet,
+                level_id: Set(level_id),
+                name: Set(level_name.to_string()),
+                author: Set(author_id),
+                author_name: Set(author_name.to_string()),
+                note: Set(note.to_string()),
+                rate_tier: Set(rate_tier as i32),
+                sent_by: Set(sender_id),
+            };
+
+            model.insert(&self.conn).await?;
         }
 
         Ok(())
