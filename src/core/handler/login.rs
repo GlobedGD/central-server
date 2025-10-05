@@ -214,7 +214,7 @@ impl ConnectionHandler {
         let all_roles = users.get_roles();
 
         // roughly estimate how many bytes will it take to encode the response
-        let cap = 128 + token.len() + servers.len() * 256 + all_roles.len() * 128;
+        let cap = 140 + token.len() + servers.len() * 256 + all_roles.len() * 128;
 
         let mut color_buf = [0u8; 256];
 
@@ -264,8 +264,10 @@ impl ConnectionHandler {
             // encode featured level
             #[cfg(feature = "featured-levels")]
             {
-                let level = self.module::<FeaturesModule>().get_featured_level_id();
-                login_ok.set_featured_level(level);
+                let level = self.module::<FeaturesModule>().get_featured_level_meta();
+                login_ok.set_featured_level(level.id);
+                login_ok.set_featured_level_tier(level.rate_tier);
+                login_ok.set_featured_level_edition(level.edition);
             }
         })?;
 

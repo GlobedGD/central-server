@@ -29,10 +29,13 @@ const FEATURE_PAGE_SIZE: u64 = 25;
 
 #[derive(DerivePartialModel, FromQueryResult)]
 #[sea_orm(entity = "FeaturedLevel")]
-#[repr(transparent)]
 pub struct PartialFeaturedLevelId {
+    #[sea_orm(from_col = "level_id")]
+    pub level_id: i32,
     #[sea_orm(from_col = "id")]
-    pub id: i32,
+    pub edition: i32,
+    #[sea_orm(from_col = "rate_tier")]
+    pub rate_tier: i32,
 }
 
 #[derive(Error, Debug)]
@@ -146,7 +149,8 @@ impl Db {
         level: queued_level::Model,
     ) -> DatabaseResult<featured_level::Model> {
         let new = featured_level::ActiveModel {
-            id: Set(level.id),
+            id: NotSet,
+            level_id: Set(level.id),
             name: Set(level.name),
             author: Set(level.author),
             author_name: Set(level.author_name),

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::{
     collections::{HashMap, hash_map::Entry},
     error::Error,
-    sync::atomic::{AtomicI32, Ordering},
+    sync::atomic::{AtomicI32, AtomicU8, AtomicU32, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -28,6 +28,8 @@ mod config;
 mod database;
 mod sheets_client;
 
+pub use database::PartialFeaturedLevelId;
+
 #[derive(thiserror::Error, Debug)]
 pub enum FeaturesError {
     #[error("{0}")]
@@ -37,6 +39,8 @@ pub enum FeaturesError {
 pub struct FeaturesModule {
     db: Db,
     active_level: AtomicI32,
+    active_level_tier: AtomicU8,
+    active_level_edition: AtomicU32,
     feature_cycle_interval: Duration,
     sheets: Option<SheetsClient>,
     #[cfg(feature = "discord")]
@@ -44,20 +48,30 @@ pub struct FeaturesModule {
     users_module: Arc<UsersModule>,
 }
 
+pub struct FeaturedLevelMeta {
+    pub id: i32,
+    pub rate_tier: u8,
+    pub edition: u32,
+}
+
 impl FeaturesModule {
-    pub fn get_featured_level_id(&self) -> i32 {
-        self.active_level.load(Ordering::Relaxed)
+    pub fn get_featured_level_meta(&self) -> FeaturedLevelMeta {
+        let id = self.active_level.load(Ordering::Relaxed);
+        let rate_tier = self.active_level_tier.load(Ordering::Relaxed);
+        let edition = self.active_level_edition.load(Ordering::Relaxed);
+
+        FeaturedLevelMeta { id, rate_tier, edition }
     }
 
     pub async fn get_featured_levels_page(
         &self,
         page: u32,
-    ) -> DatabaseResult<Vec<database::PartialFeaturedLevelId>> {
-        self.db.get_featured_level_ids_page(page).await
+    ) -> Result<Vec<database::PartialFeaturedLevelId>, FeaturesError> {
+        Ok(self.db.get_featured_level_ids_page(page).await?)
     }
 
-    pub async fn get_featured_levels_total_pages(&self) -> DatabaseResult<u32> {
-        self.db.get_featured_level_pages().await
+    pub async fn get_featured_levels_total_pages(&self) -> Result<u32, FeaturesError> {
+        Ok(self.db.get_featured_level_pages().await?)
     }
 
     pub async fn send_level(
@@ -107,15 +121,23 @@ impl FeaturesModule {
         Ok(())
     }
 
+    fn set_active_from(&self, level: &FeaturedLevelModel) {
+        self.active_level.store(level.level_id, Ordering::Relaxed);
+        self.active_level_edition.store(level.id as u32, Ordering::Relaxed);
+        self.active_level_tier.store(level.rate_tier as u8, Ordering::Relaxed);
+    }
+
     async fn reload_featured_level(&self) -> DatabaseResult<Option<FeaturedLevelModel>> {
         match self.db.get_featured_level().await? {
             Some(l) => {
-                self.active_level.store(l.id, Ordering::Relaxed);
+                self.set_active_from(&l);
                 Ok(Some(l))
             }
 
             None => {
                 self.active_level.store(0, Ordering::Relaxed);
+                self.active_level_edition.store(0, Ordering::Relaxed);
+                self.active_level_tier.store(0, Ordering::Relaxed);
                 Ok(None)
             }
         }
@@ -146,7 +168,10 @@ impl FeaturesModule {
                     .duration_since(SystemTime::now())
                     .unwrap_or_default();
 
-                debug!("Featured level {} expires in {:?}", level.id, until);
+                debug!(
+                    "Featured level {} (edition {}) expires in {:?}",
+                    level.level_id, level.id, until
+                );
 
                 until.is_zero()
             }
@@ -164,10 +189,10 @@ impl FeaturesModule {
         match self.db.cycle_next_queued_level().await {
             Ok(Some(level)) => {
                 info!(
-                    "Featured new level: {} ({}) by {} ({})",
-                    level.name, level.id, level.author_name, level.author
+                    "Featured new level #{}: {} ({}) by {} ({})",
+                    level.id, level.name, level.level_id, level.author_name, level.author
                 );
-                self.active_level.store(level.id, Ordering::Relaxed);
+                self.set_active_from(&level);
                 self.update_spreadsheet(true, true, false).await;
             }
 
@@ -250,6 +275,8 @@ impl ServerModule for FeaturesModule {
         let out = Self {
             db,
             active_level: AtomicI32::new(0),
+            active_level_tier: AtomicU8::new(0),
+            active_level_edition: AtomicU32::new(0),
             feature_cycle_interval: Duration::from_secs(config.feature_cycle_interval as u64),
             sheets,
             #[cfg(feature = "discord")]

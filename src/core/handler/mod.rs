@@ -527,6 +527,19 @@ impl AppHandler for ConnectionHandler {
                 res
             },
 
+            GetFeaturedList(message) => {
+                let page = message.get_page();
+
+                unpacked_data.reset();
+
+                #[cfg(feature = "featured-levels")]
+                let res = self.handle_get_featured_list(client, page).await;
+                #[cfg(not(feature = "featured-levels"))]
+                let res = Ok(());
+
+                res
+            },
+
             SendFeaturedLevel(message) => {
                 let level_id = message.get_level_id();
                 let level_name = message.get_level_name()?.to_str()?;

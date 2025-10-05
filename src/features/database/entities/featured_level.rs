@@ -5,8 +5,10 @@ use sea_orm::entity::prelude::*;
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "featured_level")]
 pub struct Model {
-    #[sea_orm(primary_key, auto_increment = false)]
+    #[sea_orm(primary_key)]
     pub id: i32,
+    #[sea_orm(unique)]
+    pub level_id: i32,
     #[sea_orm(column_type = "Text")]
     pub name: String,
     pub author: i32,

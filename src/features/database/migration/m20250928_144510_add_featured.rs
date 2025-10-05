@@ -10,7 +10,8 @@ impl MigrationTrait for Migration {
             .create_table(
                 Table::create()
                     .table(FeaturedLevel::Table)
-                    .col(integer(FeaturedLevel::Id).primary_key())
+                    .col(pk_auto(FeaturedLevel::Id))
+                    .col(integer(FeaturedLevel::LevelId).unique_key())
                     .col(text(FeaturedLevel::Name))
                     .col(integer(FeaturedLevel::Author))
                     .col(text(FeaturedLevel::AuthorName))
@@ -68,6 +69,7 @@ impl MigrationTrait for Migration {
 enum FeaturedLevel {
     Table,
     Id,
+    LevelId,
     Name,
     Author,
     AuthorName,
