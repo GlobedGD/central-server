@@ -48,7 +48,7 @@ impl ConnectionHandler {
         }
 
         // TODO: benchmark size properly
-        let cap = 40 + out_vals.len() * 12;
+        let cap = 56 + out_vals.len() * 12;
 
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut player_counts = msg.reborrow().init_player_counts();
@@ -81,7 +81,7 @@ impl ConnectionHandler {
 
         let levels = self.gather_levels_in_room(room).await;
 
-        let cap = 40 + levels.len() * 12;
+        let cap = 56 + levels.len() * 12;
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut list = msg.reborrow().init_level_list();
 

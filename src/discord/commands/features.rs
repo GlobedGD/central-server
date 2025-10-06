@@ -132,7 +132,7 @@ async fn send_inner(
         return Ok(());
     }
 
-    ctx.reply("✅ Level sent successfully!").await?;
+    ctx.reply(format!("✅ Successfully sent {} by {}!", level.name, level.author_name)).await?;
 
     Ok(())
 }
