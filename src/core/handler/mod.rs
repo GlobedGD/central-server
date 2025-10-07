@@ -36,13 +36,13 @@ use crate::{
 };
 
 mod admin;
+#[cfg(feature = "featured-levels")]
 mod featured;
 mod login;
 mod misc;
 mod rooms;
 mod session;
 mod util;
-use admin::ActionType;
 use util::*;
 pub use util::{ClientState, ClientStateHandle, WeakClientStateHandle};
 
@@ -528,6 +528,7 @@ impl AppHandler for ConnectionHandler {
             },
 
             GetFeaturedList(message) => {
+                #[allow(unused)]
                 let page = message.get_page();
 
                 unpacked_data.reset();
@@ -541,18 +542,24 @@ impl AppHandler for ConnectionHandler {
             },
 
             SendFeaturedLevel(message) => {
-                let level_id = message.get_level_id();
-                let level_name = message.get_level_name()?.to_str()?;
-                let author_id = message.get_author_id();
-                let author_name = message.get_author_name()?.to_str()?;
-                let rate_tier = message.get_rate_tier();
-                let note = message.get_note()?.to_str()?;
-                let queue = message.get_queue();
-
                 #[cfg(feature = "featured-levels")]
-                let res = self.handle_send_featured_level(client, level_id, level_name, author_id, author_name, rate_tier, note, queue).await;
+                let res = {
+                    let level_id = message.get_level_id();
+                    let level_name = message.get_level_name()?.to_str()?;
+                    let author_id = message.get_author_id();
+                    let author_name = message.get_author_name()?.to_str()?;
+                    let rate_tier = message.get_rate_tier();
+                    let note = message.get_note()?.to_str()?;
+                    let queue = message.get_queue();
+
+                    self.handle_send_featured_level(client, level_id, level_name, author_id, author_name, rate_tier, note, queue).await
+                };
+
                 #[cfg(not(feature = "featured-levels"))]
-                let res = Ok(());
+                let res = {
+                    let _ = message;
+                    Ok(())
+                };
 
                 res
             },

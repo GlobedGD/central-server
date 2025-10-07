@@ -6,7 +6,6 @@ use std::{
 use serde::{Serialize, de::DeserializeOwned};
 use server_shared::{TypeMap, config::env_replace};
 use thiserror::Error;
-use tracing::error;
 
 trait ConfigTrait: Send + Sync + Default + DeserializeOwned + Serialize + 'static {}
 

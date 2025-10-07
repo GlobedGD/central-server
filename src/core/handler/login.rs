@@ -7,10 +7,12 @@ use thiserror::Error;
 
 use crate::{
     auth::{AuthModule, AuthVerdict, ClientAccountData, LoginKind},
-    features::FeaturesModule,
     rooms::RoomModule,
     users::UsersModule,
 };
+
+#[cfg(feature = "featured-levels")]
+use crate::features::FeaturesModule;
 
 use super::{ConnectionHandler, util::*};
 

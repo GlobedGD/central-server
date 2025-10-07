@@ -86,9 +86,9 @@ impl ConnectionHandler {
         self.must_be_able(
             client,
             if queue {
-                super::ActionType::RateFeatures
+                super::admin::ActionType::RateFeatures
             } else {
-                super::ActionType::SendFeatures
+                super::admin::ActionType::SendFeatures
             },
         )?;
 
