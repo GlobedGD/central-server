@@ -249,4 +249,60 @@ impl ConnectionHandler {
         client.send_data_bufkind(buf);
         Ok(())
     }
+
+    pub async fn handle_fetch_user(
+        &self,
+        client: &ClientStateHandle,
+        account_id: i32,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let users = self.module::<UsersModule>();
+
+        match users.get_user(account_id).await {
+            Ok(Some(user)) => {
+                self.send_fetch_user_response(
+                    client,
+                    account_id,
+                    Some(users.role_str_to_ids(&user.roles.unwrap_or_default())),
+                )?;
+            }
+
+            Ok(None) => {
+                self.send_fetch_user_response(client, 0, None)?;
+            }
+
+            Err(e) => {
+                warn!("Failed to fetch user: {}, {}", account_id, e);
+                self.send_fetch_user_response(client, 0, None)?;
+            }
+        };
+
+        Ok(())
+    }
+
+    fn send_fetch_user_response(
+        &self,
+        client: &ClientStateHandle,
+        account_id: i32,
+        roles: Option<Vec<u8>>,
+    ) -> HandlerResult<()> {
+        let buf = data::encode_message_heap!(self, 64 + roles.as_ref().map_or(0, |v| v.len()), msg => {
+            let mut fetch = msg.init_fetch_user_response();
+            fetch.set_account_id(account_id);
+            match roles {
+                Some(v) => {
+                    let _ = fetch.set_roles(&v[..]);
+                    fetch.set_found(true);
+                }
+
+                None => {
+                    fetch.set_found(false);
+                }
+            }
+        })?;
+
+        client.send_data_bufkind(buf);
+        Ok(())
+    }
 }

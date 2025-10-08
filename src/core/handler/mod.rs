@@ -563,6 +563,12 @@ impl AppHandler for ConnectionHandler {
 
                 res
             },
+
+            FetchUser(message) => {
+                let account_id = message.get_account_id();
+
+                self.handle_fetch_user(client, account_id).await
+            },
         });
 
         match result {
