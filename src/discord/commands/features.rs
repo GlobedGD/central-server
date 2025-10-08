@@ -5,7 +5,14 @@ use crate::{
 
 #[poise::command(
     slash_command,
-    subcommands("send", "queue", "update_spreadsheet", "set_duration", "set_priority")
+    subcommands(
+        "send",
+        "queue",
+        "update_spreadsheet",
+        "set_duration",
+        "set_priority",
+        "force_cycle"
+    )
 )]
 pub async fn feature(_ctx: Context<'_>) -> Result<(), BotError> {
     Ok(())
@@ -184,10 +191,9 @@ pub async fn set_priority(ctx: Context<'_>, level_id: i32, priority: i32) -> Res
         return Err(BotError::custom("Server handle not initialized"));
     };
 
-    let Some(user) = get_linked_gd_user(ctx, &server).await? else {
+    let Some(role) = get_linked_gd_role(ctx, &server).await? else {
         return Ok(());
     };
-    let role = server.handler().module::<UsersModule>().compute_from_user(&user);
 
     if !role.can_rate_features {
         ctx.reply(":x: You do not have permission to use this command.").await?;
@@ -201,5 +207,40 @@ pub async fn set_priority(ctx: Context<'_>, level_id: i32, priority: i32) -> Res
     }
 
     ctx.reply("✅ Feature priority updated successfully!").await?;
+    Ok(())
+}
+
+#[poise::command(slash_command, guild_only = true)]
+/// Set the feature priority for a level
+pub async fn force_cycle(ctx: Context<'_>) -> Result<(), BotError> {
+    let state = ctx.data();
+    let Some(server) = state.server() else {
+        return Err(BotError::custom("Server handle not initialized"));
+    };
+
+    let Some(role) = get_linked_gd_role(ctx, &server).await? else {
+        return Ok(());
+    };
+
+    if !role.can_rate_features {
+        ctx.reply(":x: You do not have permission to use this command.").await?;
+        return Ok(());
+    }
+
+    let features = server.handler().module::<FeaturesModule>();
+    match features.cycle_level().await {
+        Ok(true) => {
+            ctx.reply("✅ Feature priority updated successfully!").await?;
+        }
+
+        Ok(false) => {
+            ctx.reply("⚠️ No queued levels to feature.").await?;
+        }
+
+        Err(e) => {
+            ctx.reply(format!(":x: Failed to cycle featured level: {e}")).await?;
+        }
+    }
+
     Ok(())
 }

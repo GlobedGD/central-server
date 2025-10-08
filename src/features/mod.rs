@@ -181,11 +181,20 @@ impl FeaturesModule {
 
         if expired {
             info!("Cycling featured level, current: {level:?}");
-            self.cycle_level().await;
+
+            match self.cycle_level().await {
+                Ok(true) => {}
+                Ok(false) => {
+                    debug!("No queued levels to feature");
+                }
+                Err(e) => {
+                    error!("failed to cycle featured level: {e}")
+                }
+            }
         }
     }
 
-    async fn cycle_level(&self) {
+    pub async fn cycle_level(&self) -> DatabaseResult<bool> {
         match self.db.cycle_next_queued_level().await {
             Ok(Some(level)) => {
                 info!(
@@ -194,13 +203,12 @@ impl FeaturesModule {
                 );
                 self.set_active_from(&level);
                 self.update_spreadsheet(true, true, false).await;
+                Ok(true)
             }
 
-            Ok(None) => {
-                debug!("No queued levels to feature");
-            }
+            Ok(None) => Ok(false),
 
-            Err(e) => error!("failed to cycle featured level: {e}"),
+            Err(e) => Err(e),
         }
     }
 
