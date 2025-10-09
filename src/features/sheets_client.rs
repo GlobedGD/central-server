@@ -301,7 +301,7 @@ impl LevelToRow for SentLevelModel {
 }
 
 fn format_timestamp(ts: i64) -> String {
-    chrono::NaiveDateTime::from_timestamp(ts, 0).format("%Y-%m-%d %H:%M:%S").to_string()
+    time_format::strftime_utc("%Y-%m-%d %H:%M:%S", ts).unwrap()
 }
 
 fn format_dur_seconds(secs: i32) -> String {

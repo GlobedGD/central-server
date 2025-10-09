@@ -53,7 +53,7 @@ generic-async-http-client = { version = "0.7.0", features = [
 ] }
 crypto_secretbox = { version = "0.1.1", features = ["heapless"] }
 google-sheets4 = { version = "6.0.0", optional = true }
-chrono = "0.4.42"
+time-format = "1.2.2"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5"
