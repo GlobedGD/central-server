@@ -2,6 +2,7 @@
 
 pub mod prelude;
 
+pub mod blacklisted_feature_author;
 pub mod featured_level;
 pub mod queued_level;
 pub mod sent_level;

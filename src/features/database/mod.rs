@@ -49,6 +49,8 @@ pub enum DatabaseError {
     AlreadyQueued,
     #[error("Level not found")]
     NotFound,
+    #[error("Author is blacklisted")]
+    AuthorBlacklisted,
 }
 
 pub type DatabaseResult<T> = Result<T, DatabaseError>;
@@ -178,6 +180,8 @@ impl Db {
             return Err(DatabaseError::AlreadyFeatured);
         }
 
+        self.check_blacklist(author_id).await?;
+
         if queue {
             // check if this level has already been queued
             if self.was_queued(level_id).await? {
@@ -257,5 +261,17 @@ impl Db {
             .await?;
 
         Ok(())
+    }
+
+    pub async fn is_author_blacklisted(&self, author_id: i32) -> DatabaseResult<bool> {
+        Ok(BlacklistedFeatureAuthor::find_by_id(author_id).one(&self.conn).await?.is_some())
+    }
+
+    async fn check_blacklist(&self, author_id: i32) -> DatabaseResult<()> {
+        if self.is_author_blacklisted(author_id).await? {
+            Err(DatabaseError::AuthorBlacklisted)
+        } else {
+            Ok(())
+        }
     }
 }
