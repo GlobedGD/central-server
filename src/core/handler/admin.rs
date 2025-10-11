@@ -464,9 +464,10 @@ impl ConnectionHandler {
     async fn refresh_live_punishments(
         &self,
         client: &ClientStateHandle,
-        r#type: UserPunishmentType,
+        r#type: impl Into<Option<UserPunishmentType>>,
     ) -> Result<(), RefreshError> {
         let users = self.module::<UsersModule>();
+        let r#type = r#type.into();
 
         if let Some(user) = users.get_user(client.account_id()).await? {
             if let Some(ban) = user.active_ban {
@@ -474,7 +475,7 @@ impl ConnectionHandler {
             }
 
             if let Some(mute) = &user.active_mute
-                && r#type == UserPunishmentType::Mute
+                && r#type == Some(UserPunishmentType::Mute)
             {
                 self.send_muted(client, &mute.reason, mute.expires_at)?;
             }
@@ -540,6 +541,11 @@ impl ConnectionHandler {
         let result = users.admin_unpunish_user(client.account_id(), account_id, r#type).await;
 
         self.send_admin_db_result(client, result)?;
+
+        if let Some(user) = self.find_client(account_id) {
+            // tell the user they are unbanned
+            let _ = self.refresh_live_punishments(&user, None).await;
+        }
 
         Ok(())
     }
