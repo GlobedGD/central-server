@@ -653,7 +653,9 @@ impl UsersModule {
 
         #[cfg(feature = "discord")]
         {
-            if let Some(d) = &self.discord {
+            if let Some(d) = &self.discord
+                && self.log_channel != 0
+            {
                 let msg = Self::convert_to_discord_log(log);
 
                 if let Err(e) = d.send_message(self.log_channel, msg).await {

@@ -752,6 +752,23 @@ impl ConnectionHandler {
         Ok(())
     }
 
+    fn send_muted(
+        &self,
+        client: &ClientStateHandle,
+        reason: &str,
+        expires_at: Option<NonZeroI64>,
+    ) -> HandlerResult<()> {
+        let buf = data::encode_message_heap!(self, 64 + reason.len(), msg => {
+            let mut banned = msg.reborrow().init_muted();
+            banned.set_reason(reason);
+            banned.set_expires_at(expires_at.map_or(0, |x| x.get()));
+        })?;
+
+        client.send_data_bufkind(buf);
+
+        Ok(())
+    }
+
     fn send_warn(&self, client: &ClientStateHandle, message: impl AsRef<str>) -> HandlerResult<()> {
         let buf = data::encode_message_heap!(self, 48 + message.as_ref().len(), msg => {
             let mut warn = msg.reborrow().init_warn();

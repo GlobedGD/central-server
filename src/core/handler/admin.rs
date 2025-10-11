@@ -2,10 +2,11 @@ use std::{borrow::Cow, fmt::Display};
 
 use qunet::buffers::ByteWriter;
 use server_shared::SessionId;
+use thiserror::Error;
 
 use crate::{
     rooms::RoomModule,
-    users::{DatabaseResult, UserPunishmentType, UsersModule},
+    users::{DatabaseError, UserPunishment, UserPunishmentType, UsersModule},
 };
 
 use super::{ConnectionHandler, util::*};
@@ -29,7 +30,18 @@ struct FetchResponse<'a> {
     found: bool,
     whitelisted: bool,
     roles: &'a [u8],
+    active_ban: Option<&'a UserPunishment>,
+    active_room_ban: Option<&'a UserPunishment>,
+    active_mute: Option<&'a UserPunishment>,
     punishment_count: u32,
+}
+
+#[derive(Error, Debug)]
+enum RefreshError {
+    #[error("Database error: {0}")]
+    Database(#[from] DatabaseError),
+    #[error("Handler error: {0}")]
+    Handler(#[from] HandlerError),
 }
 
 impl ConnectionHandler {
@@ -315,6 +327,9 @@ impl ConnectionHandler {
                         found: true,
                         whitelisted: user.is_whitelisted,
                         roles: &users.role_str_to_ids(&user.roles.unwrap_or_default()),
+                        active_ban: user.active_ban.as_ref(),
+                        active_room_ban: user.active_room_ban.as_ref(),
+                        active_mute: user.active_mute.as_ref(),
                         punishment_count: users
                             .get_punishment_count(user.account_id)
                             .await
@@ -338,17 +353,46 @@ impl ConnectionHandler {
         client: &ClientStateHandle,
         resp: FetchResponse<'_>,
     ) -> HandlerResult<()> {
-        let buf = data::encode_message_heap!(self, 80 + resp.roles.len(), msg => {
+        let cap = 108
+            + resp.roles.len()
+            + resp.active_ban.map_or(0, |p| 32 + p.reason.len())
+            + resp.active_room_ban.map_or(0, |p| 32 + p.reason.len())
+            + resp.active_mute.map_or(0, |p| 32 + p.reason.len());
+
+        let buf = data::encode_message_heap!(self, cap, msg => {
             let mut fetch = msg.init_admin_fetch_response();
             fetch.set_account_id(resp.account_id);
             fetch.set_found(resp.found);
             fetch.set_whitelisted(resp.whitelisted);
             fetch.set_punishment_count(resp.punishment_count);
+
+            if let Some(ban) = resp.active_ban {
+                Self::encode_punishment(ban, &mut fetch.reborrow().init_active_ban());
+            }
+
+            if let Some(room_ban) = resp.active_room_ban {
+                Self::encode_punishment(room_ban, &mut fetch.reborrow().init_active_room_ban());
+            }
+
+            if let Some(mute) = resp.active_mute {
+                Self::encode_punishment(mute, &mut fetch.reborrow().init_active_mute());
+            }
+
             let _ = fetch.set_roles(resp.roles);
         })?;
 
         client.send_data_bufkind(buf);
         Ok(())
+    }
+
+    fn encode_punishment(
+        punishment: &UserPunishment,
+        out: &mut data::user_punishment::Builder<'_>,
+    ) {
+        out.set_issued_at(punishment.issued_at.map_or(0, |t| t.get()));
+        out.set_issued_by(punishment.issued_by);
+        out.set_expires_at(punishment.expires_at.map_or(0, |t| t.get()));
+        out.set_reason(&punishment.reason);
     }
 
     pub async fn handle_admin_ban(
@@ -417,14 +461,22 @@ impl ConnectionHandler {
         }
     }
 
-    async fn refresh_live_punishments(&self, client: &ClientStateHandle) -> DatabaseResult<()> {
+    async fn refresh_live_punishments(
+        &self,
+        client: &ClientStateHandle,
+        r#type: UserPunishmentType,
+    ) -> Result<(), RefreshError> {
         let users = self.module::<UsersModule>();
 
         if let Some(user) = users.get_user(client.account_id()).await? {
-            if user.is_banned() {
-                // TODO: banned message or something
-                client.disconnect(Cow::Borrowed("Banned from the server"));
-                return Ok(());
+            if let Some(ban) = user.active_ban {
+                self.send_banned(client, &ban.reason, ban.expires_at)?;
+            }
+
+            if let Some(mute) = &user.active_mute
+                && r#type == UserPunishmentType::Mute
+            {
+                self.send_muted(client, &mute.reason, mute.expires_at)?;
             }
 
             client.set_active_punishments(user.active_mute, user.active_room_ban);
@@ -459,7 +511,7 @@ impl ConnectionHandler {
         if let Some(user) = self.find_client(account_id) {
             self.try_save_uident(&user).await;
 
-            if let Err(e) = self.refresh_live_punishments(&user).await {
+            if let Err(e) = self.refresh_live_punishments(&user, r#type).await {
                 warn!("failed to apply punishments live to {}: {e}", user.account_id());
             }
         }
