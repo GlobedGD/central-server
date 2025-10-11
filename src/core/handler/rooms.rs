@@ -91,7 +91,8 @@ impl ConnectionHandler {
         reason: &str,
         expires_at: Option<NonZeroI64>,
     ) -> HandlerResult<()> {
-        let buf = data::encode_message!(self, 40, msg => {
+        let cap = 56 + reason.len();
+        let buf = data::encode_message_heap!(self, cap, msg => {
             let mut room_banned = msg.reborrow().init_room_banned();
             room_banned.set_reason(reason);
             room_banned.set_expires_at(expires_at.map_or(0, |x| x.get()));
