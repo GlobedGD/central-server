@@ -247,7 +247,11 @@ impl Db {
     }
 
     pub async fn was_featured(&self, level_id: i32) -> DatabaseResult<bool> {
-        Ok(FeaturedLevel::find_by_id(level_id).one(&self.conn).await?.is_some())
+        Ok(FeaturedLevel::find()
+            .filter(featured_level::Column::LevelId.eq(level_id))
+            .one(&self.conn)
+            .await?
+            .is_some())
     }
 
     pub async fn was_queued(&self, level_id: i32) -> DatabaseResult<bool> {

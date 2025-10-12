@@ -308,7 +308,7 @@ impl FeaturesModule {
                         CreateEmbed::new()
                             .author(CreateEmbedAuthor::new("New Featured Level"))
                             .title(format!("{} by {}", level.name, level.author_name))
-                            .field("Level ID", level.id.to_string(), true)
+                            .field("Level ID", level.level_id.to_string(), true)
                             .thumbnail(rate_tier_to_image(difficulty, level.rate_tier))
                             .color(hex_color_to_decimal("#4dace8").unwrap()),
                     ),
@@ -429,6 +429,8 @@ fn rate_tier_to_image(difficulty: GDDifficulty, tier: i32) -> String {
     };
 
     format!(
-        "https://raw.githubusercontent.com/GlobedGD/globed2/main/resources/_raw/globed-faces/{diffname}/{diffname}-{ratename}.png"
+        // TODO (release): replace this when we merge globed3
+        // "https://raw.githubusercontent.com/GlobedGD/globed2/main/resources/_raw/globed-faces/{diffname}/{diffname}-{ratename}.png"
+        "https://raw.githubusercontent.com/GlobedGD/globed2/main/assets/globed-faces/{diffname}/{diffname}-{ratename}.png"
     )
 }

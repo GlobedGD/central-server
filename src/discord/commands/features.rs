@@ -98,9 +98,9 @@ async fn send_inner(
     }
 
     let rate_tier = match rate_tier.as_str() {
-        "Normal" => 1,
-        "Featured" => 2,
-        "Outstanding" => 3,
+        "Normal" => 0,
+        "Featured" => 1,
+        "Outstanding" => 2,
         _ => {
             ctx.reply(":x: Invalid rate tier.").await?;
             return Ok(());
