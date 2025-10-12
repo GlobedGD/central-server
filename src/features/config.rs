@@ -26,6 +26,14 @@ pub struct Config {
     pub spreadsheet_id: Option<String>,
     #[serde(default)]
     pub google_credentials_path: Option<PathBuf>,
+    #[serde(default)]
+    pub exhaust_notif_channel: u64,
+    #[serde(default)]
+    pub exhaust_notif_message: Option<String>,
+    #[serde(default)]
+    pub feature_notif_channel: u64,
+    #[serde(default)]
+    pub feature_notif_message: Option<String>,
 }
 
 impl Default for Config {
@@ -36,6 +44,10 @@ impl Default for Config {
             feature_cycle_interval: default_feature_cycle_interval(),
             spreadsheet_id: None,
             google_credentials_path: None,
+            exhaust_notif_channel: 0,
+            exhaust_notif_message: None,
+            feature_notif_channel: 0,
+            feature_notif_message: None,
         }
     }
 }

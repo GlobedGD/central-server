@@ -10,10 +10,9 @@ use std::{
 use qunet::server::ServerHandle;
 use tracing::{debug, error, info};
 
-#[cfg(feature = "discord")]
-use crate::discord::DiscordModule;
 use crate::{
     core::{
+        gd_api::GDDifficulty,
         handler::ConnectionHandler,
         module::{ConfigurableModule, ModuleInitResult, ServerModule},
     },
@@ -22,6 +21,12 @@ use crate::{
         sheets_client::SheetsClient,
     },
     users::UsersModule,
+};
+#[cfg(feature = "discord")]
+use {
+    crate::discord::{DiscordMessage, DiscordModule},
+    poise::serenity_prelude::{CreateEmbed, CreateEmbedAuthor},
+    tracing::warn,
 };
 
 mod config;
@@ -46,6 +51,10 @@ pub struct FeaturesModule {
     #[cfg(feature = "discord")]
     discord: Option<Arc<DiscordModule>>,
     users_module: Arc<UsersModule>,
+    exhaust_notif_channel: u64,
+    exhaust_notif_message: Option<String>,
+    feature_notif_channel: u64,
+    feature_notif_message: Option<String>,
 }
 
 pub struct FeaturedLevelMeta {
@@ -186,6 +195,11 @@ impl FeaturesModule {
                 Ok(true) => {}
                 Ok(false) => {
                     debug!("No queued levels to feature");
+
+                    #[cfg(feature = "discord")]
+                    if let Err(e) = self.notify_features_exhausted_discord().await {
+                        warn!("failed to send discord msg: {e}");
+                    }
                 }
                 Err(e) => {
                     error!("failed to cycle featured level: {e}")
@@ -203,6 +217,12 @@ impl FeaturesModule {
                 );
                 self.set_active_from(&level);
                 self.update_spreadsheet(true, true, false).await;
+
+                #[cfg(feature = "discord")]
+                if let Err(e) = self.notify_new_featured_discord(&level).await {
+                    warn!("failed to send new featured level notification: {e}");
+                }
+
                 Ok(true)
             }
 
@@ -261,6 +281,63 @@ impl FeaturesModule {
 
         Ok(())
     }
+
+    #[cfg(feature = "discord")]
+    async fn notify_new_featured_discord(&self, level: &FeaturedLevelModel) -> anyhow::Result<()> {
+        use crate::core::gd_api::GDApiClient;
+
+        let Some(discord) = &self.discord else {
+            return Ok(());
+        };
+
+        if self.feature_notif_channel == 0 {
+            return Ok(());
+        }
+
+        let difficulty = GDApiClient::new()
+            .fetch_level(level.level_id)
+            .await?
+            .map_or(GDDifficulty::NA, |l| l.difficulty);
+
+        discord
+            .send_message(
+                self.feature_notif_channel,
+                DiscordMessage::new()
+                    .content(self.feature_notif_message.as_deref().unwrap_or_default())
+                    .add_embed(
+                        CreateEmbed::new()
+                            .author(CreateEmbedAuthor::new("New Featured Level"))
+                            .title(format!("{} by {}", level.name, level.author_name))
+                            .field("Level ID", level.id.to_string(), true)
+                            .thumbnail(rate_tier_to_image(difficulty, level.rate_tier))
+                            .color(hex_color_to_decimal("#4dace8").unwrap()),
+                    ),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "discord")]
+    async fn notify_features_exhausted_discord(&self) -> anyhow::Result<()> {
+        let Some(discord) = &self.discord else {
+            return Ok(());
+        };
+
+        if self.exhaust_notif_channel == 0 {
+            return Ok(());
+        }
+
+        discord
+            .send_message(
+                self.exhaust_notif_channel,
+                DiscordMessage::new()
+                    .content(self.exhaust_notif_message.as_deref().unwrap_or_default()),
+            )
+            .await?;
+
+        Ok(())
+    }
 }
 
 impl ServerModule for FeaturesModule {
@@ -290,6 +367,10 @@ impl ServerModule for FeaturesModule {
             #[cfg(feature = "discord")]
             discord,
             users_module: handler.opt_module_owned::<UsersModule>().unwrap(),
+            exhaust_notif_channel: config.exhaust_notif_channel,
+            exhaust_notif_message: config.exhaust_notif_message.clone(),
+            feature_notif_channel: config.feature_notif_channel,
+            feature_notif_message: config.feature_notif_message.clone(),
         };
 
         out.update_featured_level().await;
@@ -318,4 +399,36 @@ impl ServerModule for FeaturesModule {
 
 impl ConfigurableModule for FeaturesModule {
     type Config = config::Config;
+}
+
+fn hex_color_to_decimal(color: &str) -> Option<u32> {
+    let color = color.strip_prefix('#').unwrap_or(color);
+
+    u32::from_str_radix(color, 16).ok()
+}
+
+fn rate_tier_to_image(difficulty: GDDifficulty, tier: i32) -> String {
+    let diffname: &str = match difficulty {
+        GDDifficulty::Easy => "easy",
+        GDDifficulty::Normal => "normal",
+        GDDifficulty::Hard => "hard",
+        GDDifficulty::Harder => "harder",
+        GDDifficulty::Insane => "insane",
+        GDDifficulty::Demon
+        | GDDifficulty::DemonEasy
+        | GDDifficulty::DemonMedium
+        | GDDifficulty::DemonInsane
+        | GDDifficulty::DemonExtreme => "harddemon",
+        _ => "na",
+    };
+
+    let ratename: &str = match tier {
+        1 => "epic",
+        2 => "outstanding",
+        _ => "featured",
+    };
+
+    format!(
+        "https://raw.githubusercontent.com/GlobedGD/globed2/main/resources/_raw/globed-faces/{diffname}/{diffname}-{ratename}.png"
+    )
 }

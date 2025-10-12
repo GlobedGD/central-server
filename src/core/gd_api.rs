@@ -2,6 +2,23 @@ use generic_async_http_client::{Error as RequestError, Request};
 use serde::Serialize;
 use thiserror::Error;
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum GDDifficulty {
+    #[default]
+    NA = -1,
+    Auto = 0,
+    Easy = 1,
+    Normal = 2,
+    Hard = 3,
+    Harder = 4,
+    Insane = 5,
+    Demon = 6,
+    DemonEasy = 7,
+    DemonMedium = 8,
+    DemonInsane = 9,
+    DemonExtreme = 10,
+}
+
 #[derive(Clone, Debug)]
 pub struct GDUser {
     pub account_id: i32,
@@ -12,6 +29,15 @@ pub struct GDUser {
     pub color1: u16,
     pub color2: u16,
     pub glow_color: u16,
+}
+
+#[derive(Clone, Debug)]
+pub struct GDLevel {
+    pub id: i32,
+    pub name: heapless::String<32>,
+    pub author_id: i32,
+    pub author_name: heapless::String<24>,
+    pub difficulty: GDDifficulty,
 }
 
 impl Default for GDUser {
@@ -29,14 +55,6 @@ impl Default for GDUser {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct GDLevel {
-    pub id: i32,
-    pub name: heapless::String<32>,
-    pub author_id: i32,
-    pub author_name: heapless::String<24>,
-}
-
 impl Default for GDLevel {
     fn default() -> Self {
         Self {
@@ -44,7 +62,38 @@ impl Default for GDLevel {
             name: heapless::String::new(),
             author_id: -1,
             author_name: heapless::String::new(),
+            difficulty: GDDifficulty::NA,
         }
+    }
+}
+
+impl GDDifficulty {
+    pub fn new(val: i32) -> Self {
+        match val {
+            0 => GDDifficulty::Auto,
+            1 => GDDifficulty::Easy,
+            2 => GDDifficulty::Normal,
+            3 => GDDifficulty::Hard,
+            4 => GDDifficulty::Harder,
+            5 => GDDifficulty::Insane,
+            6 => GDDifficulty::Demon,
+            7 => GDDifficulty::DemonEasy,
+            8 => GDDifficulty::DemonMedium,
+            9 => GDDifficulty::DemonInsane,
+            10 => GDDifficulty::DemonExtreme,
+            _ => GDDifficulty::NA,
+        }
+    }
+
+    pub fn is_demon(&self) -> bool {
+        matches!(
+            self,
+            GDDifficulty::Demon
+                | GDDifficulty::DemonEasy
+                | GDDifficulty::DemonMedium
+                | GDDifficulty::DemonInsane
+                | GDDifficulty::DemonExtreme
+        )
     }
 }
 
@@ -281,13 +330,30 @@ impl GDApiClient {
         let user_part = parts.next().ok_or(GDApiFetchError::BoomlingsUnparsable)?;
 
         let mut user_id = None;
+        let mut diff_num = None;
+        let mut diff_denom = None;
+        let mut auto = false;
+        let mut is_demon = false;
+        let mut demon_difficulty = None;
 
         main_part.split(':').array_chunks::<2>().for_each(|[k, v]| match k {
             "1" if let Ok(c) = v.parse() => level.id = c,
             "2" => level.name = v.try_into().unwrap_or_else(|_| "Unknown".try_into().unwrap()),
             "6" if let Ok(c) = v.parse::<i32>() => user_id = Some(c),
+            "8" if let Ok(c) = v.parse::<i32>() => diff_num = Some(c),
+            "9" if let Ok(c) = v.parse::<i32>() => diff_denom = Some(c),
+            "17" if v == "1" => is_demon = true,
+            "25" if v == "1" => auto = true,
+            "43" if let Ok(c) = v.parse::<i32>() => demon_difficulty = Some(c),
             _ => {}
         });
+
+        if let Some(num) = diff_num
+            && let Some(denom) = diff_denom
+            && let Some(demon) = demon_difficulty
+        {
+            level.difficulty = Self::calc_difficulty(auto, num, denom, is_demon, demon)
+        };
 
         let Some(user_id) = user_id else {
             return Err(GDApiFetchError::BoomlingsUnparsable);
@@ -317,5 +383,33 @@ impl GDApiClient {
         // finally
 
         Ok(Some(level))
+    }
+
+    fn calc_difficulty(
+        auto: bool,
+        num: i32,
+        denom: i32,
+        is_demon: bool,
+        demon: i32,
+    ) -> GDDifficulty {
+        if auto {
+            return GDDifficulty::Auto;
+        }
+
+        if denom == 0 {
+            return GDDifficulty::NA;
+        }
+
+        if is_demon {
+            let mut fixed = demon.clamp(0, 6);
+            if fixed != 0 {
+                fixed -= 2;
+            }
+
+            GDDifficulty::new(6 + fixed)
+        } else {
+            let val = (num / denom).clamp(-1, 10);
+            GDDifficulty::new(val)
+        }
     }
 }
