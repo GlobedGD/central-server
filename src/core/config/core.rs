@@ -161,6 +161,15 @@ pub struct CoreConfig {
     /// Address for accepting QUIC connections from game servers. If blank, QUIC is not used.
     #[serde(default = "default_gs_quic_address")]
     pub gs_quic_address: Option<String>,
+
+    /// Override for the base URL used for communication with the GD servers.
+    /// Change this if you are hosting a server for a GDPS.
+    /// This should include the /database path part, e.g. "https://www.boomlings.com/database"
+    #[serde(default)]
+    pub gd_api_base_url: Option<String>,
+    /// Auth token for GD api requests, optional.
+    #[serde(default)]
+    pub gd_api_auth_token: Option<String>,
 }
 
 impl Default for CoreConfig {
@@ -185,6 +194,8 @@ impl Default for CoreConfig {
             gs_password: default_gs_password(),
             gs_tcp_address: default_gs_tcp_address(),
             gs_quic_address: default_gs_quic_address(),
+            gd_api_base_url: None,
+            gd_api_auth_token: None,
         }
     }
 }
@@ -212,5 +223,12 @@ impl CoreConfig {
         env_replace("GLOBED_CORE_UDP_ADDRESS", &mut self.udp_address);
 
         env_replace("GLOBED_CORE_QDB_PATH", &mut self.qdb_path);
+
+        env_replace("GLOBED_CORE_GS_PASSWORD", &mut self.gs_password);
+        env_replace("GLOBED_CORE_GS_TCP_ADDRESS", &mut self.gs_tcp_address);
+        env_replace("GLOBED_CORE_GS_QUIC_ADDRESS", &mut self.gs_quic_address);
+
+        env_replace("GLOBED_CORE_GD_API_BASE_URL", &mut self.gd_api_base_url);
+        env_replace("GLOBED_CORE_GD_API_AUTH_TOKEN", &mut self.gd_api_auth_token);
     }
 }

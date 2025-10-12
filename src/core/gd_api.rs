@@ -1,4 +1,7 @@
+use std::sync::LazyLock;
+
 use generic_async_http_client::{Error as RequestError, Request};
+use parking_lot::Mutex;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -149,6 +152,11 @@ pub struct GetLevelsPayload {
     binary_version: i32,
 }
 
+// global var for url and auth token
+static BASE_URL: LazyLock<Mutex<String>> =
+    LazyLock::new(|| Mutex::new(String::from("https://www.boomlings.com/database")));
+static AUTH_TOKEN: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
+
 #[derive(Default)]
 pub struct GDApiClient {
     base_url: Option<String>,
@@ -165,7 +173,6 @@ impl GDApiClient {
         ret
     }
 
-    /// TODO: actually make this a setting for gdps
     pub fn set_base_url(&mut self, mut url: String) {
         while url.ends_with('/') {
             url.pop();
@@ -174,12 +181,28 @@ impl GDApiClient {
         self.base_url = Some(url);
     }
 
-    fn base_url(&self) -> &str {
-        self.base_url.as_deref().unwrap_or("http://www.boomlings.com/database")
+    pub fn set_global_base_url(mut url: String) {
+        while url.ends_with('/') {
+            url.pop();
+        }
+
+        let mut guard = BASE_URL.lock();
+        *guard = url;
+    }
+
+    pub fn set_global_auth_token(token: String) {
+        let mut guard = AUTH_TOKEN.lock();
+        *guard = Some(token);
     }
 
     fn make_url(&self, suffix: &str) -> String {
-        format!("{}/{}", self.base_url(), suffix)
+        match self.base_url.as_deref() {
+            Some(base) => format!("{}/{}", base, suffix),
+            None => {
+                let base = &**BASE_URL.lock();
+                format!("{}/{}", base, suffix)
+            }
+        }
     }
 
     async fn send_request(
@@ -187,13 +210,13 @@ impl GDApiClient {
         url: &str,
         payload: &impl Serialize,
     ) -> Result<String, GDApiFetchError> {
-        let text = Request::post(url)
-            .add_header("User-Agent", "")?
-            .form(payload)?
-            .exec()
-            .await?
-            .text()
-            .await?;
+        let mut req = Request::post(url).add_header("User-Agent", "")?;
+
+        if let Some(token) = AUTH_TOKEN.lock().as_deref() {
+            req = req.add_header("Authorization", token)?;
+        }
+
+        let text = req.form(payload)?.exec().await?.text().await?;
 
         if let Some(text) = text.strip_prefix("error code:").map(|x| x.trim()) {
             match text.parse::<i32>() {

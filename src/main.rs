@@ -19,6 +19,7 @@ use crate::{
     core::{
         config::{Config, CoreConfig},
         game_server::GameServerHandler,
+        gd_api::GDApiClient,
         handler::ConnectionHandler,
         module::{ConfigurableModule, ServerModule},
     },
@@ -72,6 +73,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("Failed to install default crypto provider");
+
+    // set the globals for GD api requests
+    if let Some(url) = config.core().gd_api_base_url.clone() {
+        GDApiClient::set_global_base_url(url);
+    }
+    if let Some(token) = config.core().gd_api_auth_token.clone() {
+        GDApiClient::set_global_auth_token(token);
+    }
 
     let mut handler = ConnectionHandler::new(config);
 
