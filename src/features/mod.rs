@@ -24,7 +24,10 @@ use crate::{
 };
 #[cfg(feature = "discord")]
 use {
-    crate::discord::{DiscordMessage, DiscordModule},
+    crate::{
+        core::gd_api::GDApiClient,
+        discord::{DiscordMessage, DiscordModule, hex_color_to_decimal},
+    },
     poise::serenity_prelude::{CreateEmbed, CreateEmbedAuthor},
     tracing::warn,
 };
@@ -284,8 +287,6 @@ impl FeaturesModule {
 
     #[cfg(feature = "discord")]
     async fn notify_new_featured_discord(&self, level: &FeaturedLevelModel) -> anyhow::Result<()> {
-        use crate::core::gd_api::GDApiClient;
-
         let Some(discord) = &self.discord else {
             return Ok(());
         };
@@ -310,7 +311,7 @@ impl FeaturesModule {
                             .title(format!("{} by {}", level.name, level.author_name))
                             .field("Level ID", level.level_id.to_string(), true)
                             .thumbnail(rate_tier_to_image(difficulty, level.rate_tier))
-                            .color(hex_color_to_decimal("#4dace8").unwrap()),
+                            .color(hex_color_to_decimal("#4dace8")),
                     ),
             )
             .await?;
@@ -399,12 +400,6 @@ impl ServerModule for FeaturesModule {
 
 impl ConfigurableModule for FeaturesModule {
     type Config = config::Config;
-}
-
-fn hex_color_to_decimal(color: &str) -> Option<u32> {
-    let color = color.strip_prefix('#').unwrap_or(color);
-
-    u32::from_str_radix(color, 16).ok()
 }
 
 fn rate_tier_to_image(difficulty: GDDifficulty, tier: i32) -> String {

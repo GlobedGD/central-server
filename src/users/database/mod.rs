@@ -624,6 +624,16 @@ impl UsersDb {
 
     #[cfg(feature = "database")]
     pub async fn log_action(&self, account_id: i32, action: LogAction<'_>) -> DatabaseResult<()> {
+        // some actions are not logged to the db
+        if matches!(
+            action,
+            LogAction::NoticeEveryone { .. }
+                | LogAction::NoticeGroup { .. }
+                | LogAction::NoticeReply { .. }
+        ) {
+            return Ok(());
+        }
+
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
 
         let mut entry = audit_log::ActiveModel {
@@ -664,6 +674,8 @@ impl UsersDb {
             LogAction::EditPassword { .. } => {
                 // no extra fields
             }
+
+            _ => unreachable!(),
         }
 
         entry.insert(&self.conn).await?;

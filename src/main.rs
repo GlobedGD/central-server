@@ -1,4 +1,12 @@
-#![feature(try_blocks, iter_array_chunks, if_let_guard)]
+#![feature(
+    const_index,
+    const_cmp,
+    const_trait_impl,
+    const_result_trait_fn,
+    try_blocks,
+    iter_array_chunks,
+    if_let_guard
+)]
 #![allow(clippy::new_without_default, clippy::collapsible_if, clippy::too_many_arguments)]
 
 use std::sync::Arc;

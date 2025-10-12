@@ -117,3 +117,11 @@ impl ServerModule for DiscordModule {
 impl ConfigurableModule for DiscordModule {
     type Config = Config;
 }
+
+pub const fn hex_color_to_decimal(color: &'static str) -> u32 {
+    if color.as_bytes().first() == Some(&b'#') {
+        return hex_color_to_decimal(&color[1..]);
+    }
+
+    u32::from_str_radix(color, 16).unwrap_or_default()
+}

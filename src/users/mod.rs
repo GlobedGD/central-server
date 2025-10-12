@@ -9,7 +9,10 @@ use crate::core::handler::ClientStateHandle;
 use crate::{auth::ClientAccountData, users::database::AuditLogModel};
 
 #[cfg(all(feature = "discord", feature = "database"))]
-use crate::discord::DiscordMessage;
+use {
+    crate::discord::{DiscordMessage, hex_color_to_decimal},
+    poise::serenity_prelude::{CreateEmbed, CreateEmbedAuthor},
+};
 
 use crate::{
     core::{
@@ -530,12 +533,11 @@ impl UsersModule {
         let exp = NonZeroI64::new(expires_at);
         match self.db.punish_user(issuer_id, account_id, r#type, reason, exp).await? {
             Some(edit) => {
-                self.db
-                    .log_action(
-                        issuer_id,
-                        self.log_for_punish(account_id, reason, expires_at, r#type, edit),
-                    )
-                    .await?;
+                self.perform_log(
+                    issuer_id,
+                    self.log_for_punish(account_id, reason, expires_at, r#type, edit),
+                )
+                .await;
             }
 
             None => {
@@ -603,12 +605,38 @@ impl UsersModule {
         Ok((logs, datas))
     }
 
-    pub async fn log_kick(&self, issuer_id: i32, account_id: i32, reason: &str) {
-        self.perform_log(issuer_id, LogAction::Kick { account_id, reason }).await
+    pub async fn log_kick(&self, issuer_id: i32, account_id: i32, username: &str, reason: &str) {
+        self.perform_log(issuer_id, LogAction::Kick { account_id, username, reason }).await
     }
 
     pub async fn log_notice(&self, issuer_id: i32, account_id: i32, message: &str) {
         self.perform_log(issuer_id, LogAction::Notice { account_id, message }).await
+    }
+
+    pub async fn log_notice_group(&self, issuer_id: i32, message: &str, count: u32) {
+        self.perform_log(issuer_id, LogAction::NoticeGroup { message, count }).await
+    }
+
+    pub async fn log_notice_everyone(&self, issuer_id: i32, message: &str, count: u32) {
+        self.perform_log(issuer_id, LogAction::NoticeEveryone { message, count }).await
+    }
+
+    pub async fn log_notice_reply(
+        &self,
+        issuer_id: i32,
+        issuer_name: &str,
+        account_id: i32,
+        message: &str,
+    ) {
+        self.perform_log(
+            issuer_id,
+            LogAction::NoticeReply {
+                username: issuer_name,
+                reply_to: account_id,
+                message,
+            },
+        )
+        .await
     }
 
     fn log_for_punish<'a>(
@@ -656,19 +684,177 @@ impl UsersModule {
             if let Some(d) = &self.discord
                 && self.log_channel != 0
             {
-                let msg = Self::convert_to_discord_log(log);
+                match self.convert_to_discord_log(log, issuer_id).await {
+                    Ok(msg) => {
+                        if let Err(e) = d.send_message(self.log_channel, msg).await {
+                            warn!("Failed to log punishment on discord: {e}");
+                        }
+                    }
 
-                if let Err(e) = d.send_message(self.log_channel, msg).await {
-                    warn!("Failed to log punishment on discord: {e}");
+                    Err(e) => {
+                        warn!("Failed to convert log to discord message: {e}");
+                    }
                 }
             }
         }
     }
 
     #[cfg(all(feature = "discord", feature = "database"))]
-    fn convert_to_discord_log(log: LogAction<'_>) -> DiscordMessage<'_> {
-        // TODO: convert the log actions to embeds
-        DiscordMessage::new().content(format!("{log:?}"))
+    async fn convert_to_discord_log(
+        &self,
+        log: LogAction<'_>,
+        issuer_id: i32,
+    ) -> anyhow::Result<DiscordMessage<'_>> {
+        let mut msg = DiscordMessage::new();
+
+        let issuer = self.get_user(issuer_id).await?;
+
+        let target = if log.account_id() != 0 {
+            self.get_user(log.account_id()).await?
+        } else {
+            None
+        };
+
+        let mut issuer_name =
+            issuer.as_ref().and_then(|u| u.username.as_deref()).unwrap_or("Unknown");
+        let target_name = target.as_ref().and_then(|u| u.username.as_deref()).unwrap_or("Unknown");
+
+        if issuer_name == "Unknown" {
+            // try to extract the name from the log if possible
+            match log {
+                LogAction::Kick { username, .. } => {
+                    issuer_name = username;
+                }
+
+                LogAction::NoticeReply { username, .. } => {
+                    issuer_name = username;
+                }
+
+                _ => {}
+            }
+        }
+
+        let issuer_combo = format!("{} ({})", issuer_name, issuer_id);
+        let target_combo = format!("{} ({})", target_name, log.account_id());
+
+        match log {
+            // Notice to everyone or group
+            LogAction::NoticeEveryone { message, count }
+            | LogAction::NoticeGroup { message, count } => {
+                msg = msg.add_embed(
+                    CreateEmbed::new()
+                        .title(format!("Notice to {} people", count))
+                        .color(hex_color_to_decimal("#4dace8"))
+                        .description(message)
+                        .field("Performed by", issuer_combo, true),
+                )
+            }
+
+            // Notice to user
+            LogAction::Notice { message, .. } => {
+                msg = msg.add_embed(
+                    CreateEmbed::new()
+                        .title(format!("Notice to {}", target_combo))
+                        .color(hex_color_to_decimal("#4dace8"))
+                        .description(message)
+                        .field("Performed by", issuer_combo, true),
+                )
+            }
+
+            LogAction::NoticeReply { message, username, .. } => {
+                msg = msg.add_embed(
+                    CreateEmbed::new()
+                        .title(format!("Notice reply from {}", username))
+                        .color(hex_color_to_decimal("#55d9ed"))
+                        .description(message)
+                        .field("Sent to", target_combo, true),
+                )
+            }
+
+            LogAction::Kick { reason, .. } => {
+                msg = msg.add_embed(
+                    CreateEmbed::new()
+                        .title("User kicked")
+                        .color(hex_color_to_decimal("#e8d34d"))
+                        .description(reason)
+                        .author(CreateEmbedAuthor::new(target_combo))
+                        .field("Performed by", issuer_combo, true),
+                )
+            }
+
+            LogAction::Ban { reason, expires_at, .. }
+            | LogAction::Mute { reason, expires_at, .. }
+            | LogAction::RoomBan { reason, expires_at, .. }
+            | LogAction::EditBan { reason, expires_at, .. }
+            | LogAction::EditMute { reason, expires_at, .. }
+            | LogAction::EditRoomBan { reason, expires_at, .. } => {
+                let (title, color) = match log {
+                    LogAction::Ban { .. } => ("User banned", "#de3023"),
+                    LogAction::Mute { .. } => ("User muted", "#ded823"),
+                    LogAction::RoomBan { .. } => ("User room banned", "#d2a126"),
+                    LogAction::EditBan { .. } => ("User ban changed", "#de7a23"),
+                    LogAction::EditMute { .. } => ("User mute changed", "#de7a23"),
+                    LogAction::EditRoomBan { .. } => ("User room ban changed", "#de7a23"),
+                    _ => unreachable!(),
+                };
+
+                msg = msg.add_embed(
+                    CreateEmbed::new()
+                        .title(title)
+                        .color(hex_color_to_decimal(color))
+                        .description(if reason.is_empty() { "No reason provided" } else { reason })
+                        .author(CreateEmbedAuthor::new(target_combo))
+                        .field("Performed by", issuer_combo, true)
+                        .field("Expires", format_expiry(expires_at), true),
+                )
+            }
+
+            LogAction::Unban { .. } | LogAction::Unmute { .. } | LogAction::RoomUnban { .. } => {
+                let (title, color) = match log {
+                    LogAction::Unban { .. } => ("User unbanned", "#31bd31"),
+                    LogAction::Unmute { .. } => ("User unmuted", "#79bd31"),
+                    LogAction::RoomUnban { .. } => ("User room unbanned", "#388e3c"),
+                    _ => unreachable!(),
+                };
+
+                msg = msg.add_embed(
+                    CreateEmbed::new()
+                        .title(title)
+                        .color(hex_color_to_decimal(color))
+                        .author(CreateEmbedAuthor::new(target_combo))
+                        .field("Performed by", issuer_combo, true),
+                )
+            }
+
+            LogAction::EditRoles { rolediff, .. } => {
+                let mut added = Vec::new();
+                let mut removed = Vec::new();
+
+                for part in rolediff.split(',') {
+                    if let Some(part) = part.strip_prefix('+') {
+                        added.push(part);
+                    } else if let Some(part) = part.strip_prefix('-') {
+                        removed.push(part);
+                    }
+                }
+
+                msg = msg.add_embed(
+                    CreateEmbed::new()
+                        .title("Role change")
+                        .color(hex_color_to_decimal("#8b4de8"))
+                        .author(CreateEmbedAuthor::new(target_combo))
+                        .field("Performed by", issuer_combo, true)
+                        .field("Added roles", itertools::join(added.iter(), ", "), true)
+                        .field("Removed roles", itertools::join(removed.iter(), ", "), true),
+                )
+            }
+
+            LogAction::EditPassword { .. } => {
+                // not logged
+            }
+        }
+
+        Ok(msg)
     }
 
     fn has_stronger_role(&self, issuer: &DbUser, target: &DbUser) -> bool {
@@ -716,4 +902,12 @@ impl ServerModule for UsersModule {
 
 impl ConfigurableModule for UsersModule {
     type Config = Config;
+}
+
+fn format_expiry(expires_at: i64) -> String {
+    if expires_at == 0 {
+        "Never".to_string()
+    } else {
+        format!("<t:{0}:f> (<t:{0}:R>)", expires_at)
+    }
 }

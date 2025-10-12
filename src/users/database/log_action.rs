@@ -2,11 +2,28 @@
 pub enum LogAction<'a> {
     Kick {
         account_id: i32,
+        username: &'a str,
         reason: &'a str,
     },
 
     Notice {
         account_id: i32,
+        message: &'a str,
+    },
+
+    NoticeGroup {
+        message: &'a str,
+        count: u32,
+    },
+
+    NoticeEveryone {
+        message: &'a str,
+        count: u32,
+    },
+
+    NoticeReply {
+        username: &'a str,
+        reply_to: i32,
         message: &'a str,
     },
 
@@ -73,6 +90,9 @@ impl LogAction<'_> {
         match self {
             LogAction::Kick { .. } => "kick",
             LogAction::Notice { .. } => "notice",
+            LogAction::NoticeReply { .. } => "noticereply",
+            LogAction::NoticeGroup { .. } => "noticegroup",
+            LogAction::NoticeEveryone { .. } => "noticeeveryone",
             LogAction::Mute { .. } => "mute",
             LogAction::EditMute { .. } => "editmute",
             LogAction::Unmute { .. } => "unmute",
@@ -91,6 +111,7 @@ impl LogAction<'_> {
         match self {
             LogAction::Kick { account_id, .. } => *account_id,
             LogAction::Notice { account_id, .. } => *account_id,
+            LogAction::NoticeReply { reply_to, .. } => *reply_to,
             LogAction::Mute { account_id, .. } => *account_id,
             LogAction::EditMute { account_id, .. } => *account_id,
             LogAction::Unmute { account_id } => *account_id,
@@ -102,6 +123,7 @@ impl LogAction<'_> {
             LogAction::RoomUnban { account_id } => *account_id,
             LogAction::EditRoles { account_id, .. } => *account_id,
             LogAction::EditPassword { account_id, .. } => *account_id,
+            _ => 0,
         }
     }
 }

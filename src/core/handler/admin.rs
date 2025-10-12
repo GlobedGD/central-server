@@ -1,6 +1,6 @@
-use std::{borrow::Cow, fmt::Display};
+use std::{borrow::Cow, fmt::Display, sync::Arc};
 
-use qunet::buffers::ByteWriter;
+use qunet::{buffers::ByteWriter, message::BufferKind};
 use server_shared::SessionId;
 use thiserror::Error;
 
@@ -148,10 +148,10 @@ impl ConnectionHandler {
 
         let users = self.module::<UsersModule>();
 
-        let result = if let Some(client) = self.find_client(account_id) {
+        let result = if let Some(target) = self.find_client(account_id) {
             // kick the person
-            client.disconnect(Cow::Owned(reason.to_owned()));
-            users.log_kick(client.account_id(), account_id, reason).await;
+            target.disconnect(Cow::Owned(reason.to_owned()));
+            users.log_kick(client.account_id(), account_id, target.username(), reason).await;
 
             Ok(())
         } else {
@@ -245,7 +245,8 @@ impl ConnectionHandler {
         if targets.len() == 1 {
             let _ = users.log_notice(client.account_id(), targets[0].account_id(), message).await;
         } else {
-            let _ = users.log_notice(client.account_id(), 0, message).await;
+            let _ =
+                users.log_notice_group(client.account_id(), message, targets.len() as u32).await;
         }
 
         for target in targets {
@@ -263,23 +264,19 @@ impl ConnectionHandler {
         self.must_be_able(client, ActionType::NoticeEveryone)?;
 
         let users = self.module::<UsersModule>();
-        let _ = users.log_notice(client.account_id(), 0, message).await;
-
-        for user in self.all_clients.iter().filter_map(|x| x.value().upgrade()) {
-            self.send_notice(client, &user, message, false, false)?;
-        }
+        let count = self.send_notice_all(client, message, false, false).unwrap_or(0);
+        users.log_notice_everyone(client.account_id(), message, count as u32).await;
 
         Ok(())
     }
 
-    fn send_notice(
+    fn make_notice_buf(
         &self,
         sender: &ClientStateHandle,
-        target: &ClientStateHandle,
         message: &str,
         can_reply: bool,
         show_sender: bool,
-    ) -> HandlerResult<()> {
+    ) -> HandlerResult<BufferKind> {
         let buf = data::encode_message_heap!(self, 80 + message.len(), msg => {
             let mut notice = msg.init_notice();
             notice.set_message(message);
@@ -295,6 +292,17 @@ impl ConnectionHandler {
             }
         })?;
 
+        Ok(buf)
+    }
+
+    fn send_notice(
+        &self,
+        sender: &ClientStateHandle,
+        target: &ClientStateHandle,
+        message: &str,
+        can_reply: bool,
+        show_sender: bool,
+    ) -> HandlerResult<()> {
         info!(
             "[{} ({})] sent notice to {} ({}): \"{}\"",
             sender.username(),
@@ -304,9 +312,32 @@ impl ConnectionHandler {
             message
         );
 
-        target.send_data_bufkind(buf);
+        target.send_data_bufkind(self.make_notice_buf(sender, message, can_reply, show_sender)?);
 
         Ok(())
+    }
+
+    fn send_notice_all(
+        &self,
+        sender: &ClientStateHandle,
+        message: &str,
+        can_reply: bool,
+        show_sender: bool,
+    ) -> HandlerResult<usize> {
+        info!(
+            "[{} ({})] sent notice to EVERYONE!!: \"{}\"",
+            sender.username(),
+            sender.account_id(),
+            message
+        );
+
+        let buf = Arc::new(self.make_notice_buf(sender, message, can_reply, show_sender)?);
+
+        for target in self.all_clients.iter().filter_map(|x| x.value().upgrade()) {
+            target.send_data_bufkind(BufferKind::Reference(buf.clone()));
+        }
+
+        Ok(self.all_clients.len())
     }
 
     pub async fn handle_admin_fetch_user(
