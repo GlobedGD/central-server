@@ -5,7 +5,7 @@ use std::{
 
 use arc_swap::ArcSwap;
 use qunet::{
-    message::channel,
+    message::{BufferKind, channel},
     server::{ServerHandle, WeakServerHandle, client::ClientState},
 };
 use rustc_hash::FxHashMap;
@@ -201,9 +201,48 @@ impl GameServerManager {
             let mut notif = msg.init_notify_user_data();
             notif.set_account_id(account_id);
             notif.set_can_use_voice(can_use_voice);
+            notif.set_is_banned(false);
         })?;
 
         server.qclient.send_data_bufkind(buf);
+
+        Ok(())
+    }
+
+    pub async fn notify_user_banned(&self, account_id: i32) -> Result<(), GameServerError> {
+        let servers = self.servers.load();
+
+        let buf = data::encode_message_unsafe!(self, 64, msg => {
+            let mut notif = msg.init_notify_user_data();
+            notif.set_account_id(account_id);
+            notif.set_can_use_voice(false);
+            notif.set_is_banned(true);
+        })?;
+
+        let buf = Arc::new(buf);
+
+        for server in &**servers {
+            server.qclient.send_data_bufkind(BufferKind::Reference(buf.clone()));
+        }
+
+        Ok(())
+    }
+
+    pub async fn notify_user_muted(&self, account_id: i32) -> Result<(), GameServerError> {
+        let servers = self.servers.load();
+
+        let buf = data::encode_message_unsafe!(self, 64, msg => {
+            let mut notif = msg.init_notify_user_data();
+            notif.set_account_id(account_id);
+            notif.set_can_use_voice(false);
+            notif.set_is_banned(false);
+        })?;
+
+        let buf = Arc::new(buf);
+
+        for server in &**servers {
+            server.qclient.send_data_bufkind(BufferKind::Reference(buf.clone()));
+        }
 
         Ok(())
     }

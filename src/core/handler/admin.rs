@@ -481,6 +481,14 @@ impl ConnectionHandler {
             }
 
             client.set_active_punishments(user.active_mute, user.active_room_ban);
+
+            // tell all game servers about the ban/mute if the user is connected
+
+            if r#type == Some(UserPunishmentType::Ban) {
+                let _ = self.game_server_manager.notify_user_banned(client.account_id()).await;
+            } else if r#type == Some(UserPunishmentType::Mute) {
+                let _ = self.game_server_manager.notify_user_muted(client.account_id()).await;
+            }
         }
 
         Ok(())
