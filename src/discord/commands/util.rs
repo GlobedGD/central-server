@@ -24,6 +24,13 @@ pub async fn is_admin(ctx: Context<'_>) -> Result<bool, BotError> {
     Ok(ctx.author_member().await.is_some_and(|x| x.permissions.is_some_and(|x| x.administrator())))
 }
 
+pub async fn is_moderator(ctx: Context<'_>) -> Result<bool, BotError> {
+    Ok(ctx
+        .author_member()
+        .await
+        .is_some_and(|x| x.permissions.is_some_and(|x| x.ban_members() || x.manage_roles())))
+}
+
 pub async fn get_linked_gd_user(
     ctx: Context<'_>,
     server: &Server<ConnectionHandler>,

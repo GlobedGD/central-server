@@ -191,6 +191,11 @@ impl UsersModule {
         self.db.get_linked_discord_inverse(discord_id).await
     }
 
+    #[cfg(feature = "discord")]
+    pub async fn unlink_discord_inverse(&self, discord_id: u64) -> DatabaseResult<()> {
+        self.db.unlink_discord_inverse(discord_id).await
+    }
+
     pub async fn query_user(&self, query: &str) -> DatabaseResult<Option<DbUser>> {
         self.db.query_user(query).await
     }

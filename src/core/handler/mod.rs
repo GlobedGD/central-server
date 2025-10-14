@@ -718,6 +718,10 @@ impl ConnectionHandler {
 
     // Handling of clients.
 
+    pub fn client_count(&self) -> usize {
+        self.all_clients.len()
+    }
+
     pub fn find_client(&self, account_id: i32) -> Option<ClientStateHandle> {
         self.all_clients.get(&account_id).and_then(|x| x.upgrade())
     }

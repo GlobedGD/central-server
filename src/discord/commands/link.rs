@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use poise::serenity_prelude as serenity;
+
 use super::util::*;
 use crate::{discord::BotError, users::UsersModule};
 
@@ -110,6 +112,40 @@ pub async fn link(
             .await?;
         }
     }
+
+    Ok(())
+}
+
+#[poise::command(slash_command, guild_only = true)]
+/// Unlink a GD account, admin only command
+pub async fn unlink(ctx: Context<'_>, user: serenity::User) -> Result<(), BotError> {
+    if !is_moderator(ctx).await? {
+        ctx.reply(":x: This command can only be used by moderators. Contact staff if you need to unlink your GD account.").await?;
+        return Ok(());
+    }
+
+    let state = ctx.data();
+    let Some(server) = state.server() else {
+        return Err(BotError::custom("Server handle not initialized"));
+    };
+
+    let users = server.handler().module::<UsersModule>();
+
+    let linked_acc = users.get_linked_discord_inverse(user.id.get()).await?;
+    if linked_acc.is_none() {
+        ctx.reply(":x: User is not linked to any GD account.").await?;
+        return Ok(());
+    }
+
+    let linked_acc = linked_acc.unwrap();
+
+    users.unlink_discord_inverse(user.id.get()).await?;
+    ctx.reply(format!(
+        "✅ Successfully unlinked. Previously linked account: {} ({})",
+        linked_acc.username.as_deref().unwrap_or("Unknown"),
+        linked_acc.account_id
+    ))
+    .await?;
 
     Ok(())
 }
