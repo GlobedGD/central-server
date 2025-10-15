@@ -2,7 +2,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::util::*;
 use crate::{
-    core::gd_api::GDApiClient,
     discord::BotError,
     users::{UsersModule, database::AuditLogModel},
 };
@@ -48,38 +47,7 @@ pub async fn punish(
         return Ok(());
     }
 
-    // this code might suck but idk ill come back to it later lmao
-    // - underscored
-    let mut target = users.query_user(&target_user).await?;
-    if target.is_none() {
-        // maybe we're just not in the db
-        let gd_api = GDApiClient::default();
-
-        let gd_user = match gd_api.fetch_user_by_username(&target_user).await {
-            Ok(Some(u)) => Ok(Some(u)),
-            Ok(None) if let Ok(id) = target_user.parse::<i32>() => gd_api.fetch_user(id).await,
-            Ok(None) => Ok(None),
-            Err(e) => Err(e),
-        };
-
-        let Ok(Some(gd_user)) = gd_user else {
-            ctx.reply(":x: Failed to find the user by the given name").await?;
-            return Ok(());
-        };
-
-        let _ = users
-            .admin_update_user(
-                gd_user.account_id,
-                &gd_user.username,
-                gd_user.cube,
-                gd_user.color1,
-                gd_user.color2,
-                gd_user.glow_color,
-            )
-            .await;
-
-        target = users.query_user(&target_user).await?;
-    }
+    let target = users.query_or_create_user(&target_user).await?;
 
     let Some(target) = target else {
         ctx.reply(":x: Failed to find the user by the given name").await?;

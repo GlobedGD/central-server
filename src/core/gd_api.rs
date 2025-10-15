@@ -134,10 +134,10 @@ pub struct GetUserInfoPayload {
 }
 
 #[derive(Serialize)]
-pub struct GetUsersPayload {
+pub struct GetUsersPayload<'a> {
     secret: &'static str,
     #[serde(rename = "str")]
-    target: String,
+    target: &'a str,
 }
 
 #[derive(Serialize)]
@@ -256,14 +256,14 @@ impl GDApiClient {
     // fetches a GDUser from boomlings by username
     pub async fn fetch_user_by_username(
         &self,
-        username: &String,
+        username: &str,
     ) -> Result<Option<GDUser>, GDApiFetchError> {
         let text = self
             .send_request(
                 &self.make_url("getGJUsers20.php"),
                 &GetUsersPayload {
                     secret: "Wmfd2893gb7",
-                    target: username.to_string(),
+                    target: username,
                 },
             )
             .await?;

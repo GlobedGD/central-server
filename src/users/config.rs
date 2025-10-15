@@ -32,6 +32,8 @@ pub struct Role {
     pub icon: String,
     #[serde(default)]
     pub name_color: MultiColor,
+    #[serde(default)]
+    pub discord_id: u64,
 
     #[serde(default)]
     pub can_kick: Option<bool>,

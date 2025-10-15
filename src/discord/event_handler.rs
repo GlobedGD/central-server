@@ -3,14 +3,35 @@ use std::sync::Arc;
 use super::serenity::*;
 use tracing::warn;
 
-use crate::discord::{BotError, state::BotState};
+use crate::{
+    discord::{BotError, state::BotState},
+    users::UsersModule,
+};
 
 pub async fn event_handler(
     _ctx: &Context,
-    _event: &FullEvent,
+    event: &FullEvent,
     _framework: poise::FrameworkContext<'_, Arc<BotState>, BotError>,
-    _state: &Arc<BotState>,
+    state: &Arc<BotState>,
 ) -> Result<(), BotError> {
+    match event {
+        FullEvent::GuildMemberUpdate {
+            old_if_available,
+            new: Some(new),
+            event: _event,
+        } => state.on_member_updated(old_if_available.as_ref(), new).await?,
+
+        FullEvent::GuildMemberRemoval { user, .. } => {
+            // unlink user
+            let server = state.server().unwrap();
+            let module = server.handler().module::<UsersModule>();
+
+            let _ = module.unlink_discord_inverse(user.id.get()).await;
+        }
+
+        _ => {}
+    }
+
     Ok(())
 }
 

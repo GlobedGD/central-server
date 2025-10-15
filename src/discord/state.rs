@@ -5,15 +5,16 @@ use std::{
 
 use super::serenity::{self, ChannelId, Context, CreateMessage, UserId};
 use dashmap::DashMap;
+use poise::serenity_prelude::Member;
 use qunet::server::{ServerHandle, WeakServerHandle};
 use thiserror::Error;
 use tokio::sync::{RwLock, oneshot};
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::{
     core::handler::ConnectionHandler,
     discord::{DiscordMessage, DiscordUserData},
-    users::DatabaseError,
+    users::{DatabaseError, Error as UsersError, UsersModule},
 };
 
 struct LinkAttempt {
@@ -50,6 +51,15 @@ pub enum BotError {
     Database(#[from] DatabaseError),
     #[error("{0}")]
     Custom(String),
+}
+
+impl From<UsersError> for BotError {
+    fn from(e: UsersError) -> Self {
+        match e {
+            UsersError::Database(e) => BotError::Database(e),
+            _ => BotError::custom(e.to_string()),
+        }
+    }
 }
 
 impl BotError {
@@ -171,5 +181,49 @@ impl BotState {
             Ok(DiscordUserData::from_discord(&user))
         })
         .await
+    }
+
+    pub(super) async fn on_member_updated(
+        &self,
+        old: Option<&Member>,
+        new: &Member,
+    ) -> Result<(), BotError> {
+        if old.is_some_and(|o| o.roles == new.roles) {
+            return Ok(());
+        }
+
+        // ignore errors
+        let _ = self.sync_user_roles(new).await;
+
+        Ok(())
+    }
+
+    pub(super) async fn sync_user_roles(&self, user: &Member) -> Result<Vec<String>, BotError> {
+        let server = self.server().unwrap();
+        let users = server.handler().module::<UsersModule>();
+
+        let Some(dbuser) = users.get_linked_discord_inverse(user.user.id.get()).await? else {
+            return Err(BotError::custom(
+                "Cannot sync roles, user is not linked to any GD account",
+            ));
+        };
+
+        let mut new_roles = Vec::new();
+        let mut new_roles_idx = Vec::new();
+
+        for role in &user.roles {
+            if let Some(role_id) = users.get_role_id_by_discord_id(role.get())
+                && let Some(role) = users.get_role(role_id)
+            {
+                new_roles.push(role.id.clone());
+                new_roles_idx.push(role_id);
+            }
+        }
+
+        info!("Syncing roles for {} ({}): {:?}", user.user.name, dbuser.account_id, new_roles);
+
+        users.system_set_roles(dbuser.account_id, &new_roles_idx).await?;
+
+        Ok(new_roles)
     }
 }

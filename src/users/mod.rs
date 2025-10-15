@@ -1,3 +1,5 @@
+#[cfg(feature = "discord")]
+use std::collections::HashMap;
 use std::{cmp::Reverse, collections::HashSet, fmt::Write, num::NonZeroI64};
 
 #[cfg(feature = "discord")]
@@ -16,10 +18,11 @@ use {
 
 use crate::{
     core::{
+        gd_api::{GDApiClient, GDApiFetchError},
         handler::ConnectionHandler,
         module::{ConfigurableModule, ModuleInitResult, ServerModule},
     },
-    users::{config::Role, database::LogAction},
+    users::database::LogAction,
 };
 
 use server_shared::MultiColor;
@@ -29,6 +32,7 @@ pub mod database;
 mod pwhash;
 
 pub use config::Config;
+pub use config::Role;
 use database::UsersDb;
 pub use database::{DatabaseError, DatabaseResult, DbUser, UserPunishment, UserPunishmentType};
 use smallvec::SmallVec;
@@ -53,6 +57,10 @@ pub enum Error {
     Database(#[from] DatabaseError),
     #[error("Failed to find user in the database")]
     NotFound,
+    #[error("Insufficient permissions")]
+    Permissions,
+    #[error("Failed to fetch user from GD api: {0}")]
+    Fetch(#[from] GDApiFetchError),
 
     #[cfg(feature = "discord")]
     #[error("Failed to log action via discord bot: {0}")]
@@ -117,6 +125,8 @@ pub struct UsersModule {
     super_admins: Vec<i32>, // account IDs of super admins
     #[cfg(feature = "discord")]
     discord: Option<Arc<DiscordModule>>,
+    #[cfg(feature = "discord")]
+    discord_role_map: HashMap<u64, u8>,
     log_channel: u64,
 }
 
@@ -160,7 +170,7 @@ impl UsersModule {
     }
 
     #[cfg(feature = "discord")]
-    pub async fn link_discord_account(
+    pub async fn link_discord_account_online(
         &self,
         handle: &ClientStateHandle,
         discord_id: u64,
@@ -184,6 +194,15 @@ impl UsersModule {
     }
 
     #[cfg(feature = "discord")]
+    pub async fn link_discord_account_offline(
+        &self,
+        account_id: i32,
+        discord_id: u64,
+    ) -> DatabaseResult<()> {
+        self.db.link_discord_account(account_id, discord_id).await
+    }
+
+    #[cfg(feature = "discord")]
     pub async fn get_linked_discord_inverse(
         &self,
         discord_id: u64,
@@ -198,6 +217,28 @@ impl UsersModule {
 
     pub async fn query_user(&self, query: &str) -> DatabaseResult<Option<DbUser>> {
         self.db.query_user(query).await
+    }
+
+    pub async fn query_or_create_user(&self, query: &str) -> Result<Option<DbUser>, Error> {
+        if let Some(user) = self.db.query_user(query).await? {
+            return Ok(Some(user));
+        }
+
+        let Some(user) = GDApiClient::new().fetch_user_by_username(query).await? else {
+            return Ok(None);
+        };
+
+        self.admin_update_user(
+            user.account_id,
+            &user.username,
+            user.cube,
+            user.color1,
+            user.color2,
+            user.glow_color,
+        )
+        .await?;
+
+        Ok(self.db.get_user(user.account_id).await?)
     }
 
     pub async fn update_username(&self, account_id: i32, new_username: &str) -> DatabaseResult<()> {
@@ -379,6 +420,44 @@ impl UsersModule {
         account_id: i32,
         new_roles: &[u8],
     ) -> Result<(), Error> {
+        self.punishment_preconditions(issuer_id, account_id).await?;
+
+        // disallow adding roles higher than your highest
+        let highest_p = self.get_user_highest_priority(account_id).await?;
+
+        if new_roles.iter().any(|id| self.get_role(*id).is_some_and(|r| r.priority >= highest_p)) {
+            return Err(Error::Permissions);
+        }
+
+        let rolediff = self.compute_role_diff(account_id, new_roles).await?;
+        self.system_set_roles(account_id, new_roles).await?;
+
+        // log to db and discord
+        self.perform_log(
+            issuer_id,
+            LogAction::EditRoles {
+                account_id,
+                rolediff: &rolediff,
+            },
+        )
+        .await;
+
+        Ok(())
+    }
+
+    pub async fn system_set_roles(&self, account_id: i32, new_roles: &[u8]) -> Result<(), Error> {
+        // construct the new role string
+        let new_role_string = self.make_role_string(new_roles);
+
+        // update the user
+        if !self.db.update_roles(account_id, &new_role_string).await? {
+            return Err(Error::NotFound);
+        }
+
+        Ok(())
+    }
+
+    async fn compute_role_diff(&self, account_id: i32, new_roles: &[u8]) -> DatabaseResult<String> {
         // get the previous roles to compute the diff
         let prev_roles = match self.get_user(account_id).await? {
             Some(user) => user.roles.unwrap_or_default(),
@@ -412,25 +491,7 @@ impl UsersModule {
             rolediff.pop();
         }
 
-        // construct the new role string
-        let new_role_string = self.make_role_string(new_roles);
-
-        // update the user
-        if !self.db.update_roles(account_id, &new_role_string).await? {
-            return Err(Error::NotFound);
-        }
-
-        // log to db and discord
-        self.perform_log(
-            issuer_id,
-            LogAction::EditRoles {
-                account_id,
-                rolediff: &rolediff,
-            },
-        )
-        .await;
-
-        Ok(())
+        Ok(rolediff)
     }
 
     pub async fn admin_set_password(
@@ -488,12 +549,30 @@ impl UsersModule {
     }
 
     #[cfg(feature = "database")]
+    async fn get_user_highest_priority(&self, account_id: i32) -> DatabaseResult<i32> {
+        if self.super_admins.contains(&account_id) {
+            return Ok(i32::MAX);
+        }
+
+        let user = match self.get_user(account_id).await? {
+            Some(u) => u,
+            None => return Ok(0),
+        };
+
+        Ok(self.compute_from_user(&user).priority)
+    }
+
+    #[cfg(feature = "database")]
     async fn punishment_preconditions(
         &self,
         issuer_id: i32,
         account_id: i32,
     ) -> Result<(), PunishUserError> {
         // Check that the user has ability to punish (meaning they have a higher role)
+
+        if issuer_id == account_id {
+            return Ok(());
+        }
 
         // super admins can do anything
         if self.super_admins.contains(&issuer_id) {
@@ -868,6 +947,14 @@ impl UsersModule {
 
         issuer_role.priority > target_role.priority
     }
+
+    pub fn get_role_by_discord_id(&self, id: u64) -> Option<&Role> {
+        self.get_role(self.get_role_id_by_discord_id(id)?)
+    }
+
+    pub fn get_role_id_by_discord_id(&self, id: u64) -> Option<u8> {
+        self.discord_role_map.get(&id).copied()
+    }
 }
 
 impl ServerModule for UsersModule {
@@ -886,12 +973,27 @@ impl ServerModule for UsersModule {
         #[cfg(feature = "discord")]
         let discord = handler.opt_module_owned::<DiscordModule>();
 
+        #[cfg(feature = "discord")]
+        let discord_role_map = {
+            let mut map = HashMap::new();
+
+            for (id, role) in roles.iter().enumerate() {
+                if role.discord_id != 0 {
+                    map.insert(role.discord_id, id as u8);
+                }
+            }
+
+            map
+        };
+
         Ok(Self {
             db,
             roles,
             super_admins: config.super_admins.clone(),
             #[cfg(feature = "discord")]
             discord,
+            #[cfg(feature = "discord")]
+            discord_role_map,
             log_channel: config.mod_log_channel,
         })
     }

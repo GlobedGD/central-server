@@ -18,6 +18,7 @@ pub async fn link(
 
     // check if user is already linked
     let author = ctx.author();
+    let member = ctx.author_member().await.unwrap();
     let users = server.handler().module::<UsersModule>();
 
     if let Some(user) = users.get_linked_discord_inverse(author.id.get()).await? {
@@ -82,7 +83,8 @@ pub async fn link(
     match result {
         Ok(Ok(accepted)) => {
             if accepted {
-                users.link_discord_account(&target, author.id.get()).await?;
+                users.link_discord_account_online(&target, author.id.get()).await?;
+                state.sync_user_roles(&member).await?;
 
                 edit_message(
                     ctx,
@@ -117,8 +119,49 @@ pub async fn link(
 }
 
 #[poise::command(slash_command, guild_only = true)]
+/// Link someone's Discord account to a GD account
+pub async fn adminlink(
+    ctx: Context<'_>,
+    user: serenity::Member,
+    #[description = "Geometry Dash username"] gd_user: String,
+) -> Result<(), BotError> {
+    if !is_moderator(ctx).await? {
+        ctx.reply(":x: No permission.").await?;
+        return Ok(());
+    }
+
+    let state = ctx.data();
+    let Some(server) = state.server() else {
+        return Err(BotError::custom("Server handle not initialized"));
+    };
+
+    let users = server.handler().module::<UsersModule>();
+
+    // unlink any existing link
+    let _ = users.unlink_discord_inverse(user.user.id.get()).await;
+
+    let Some(target) = users.query_or_create_user(&gd_user).await? else {
+        ctx.reply(":x: Failed to find the user by the given name").await?;
+        return Ok(());
+    };
+
+    users.link_discord_account_offline(target.account_id, user.user.id.get()).await?;
+    state.sync_user_roles(&user).await?;
+
+    ctx.reply(format!(
+        "✅ Linked <@{}> to GD account {} ({})",
+        user.user.id,
+        target.username.as_deref().unwrap_or("Unknown"),
+        target.account_id
+    ))
+    .await?;
+
+    Ok(())
+}
+
+#[poise::command(slash_command, guild_only = true)]
 /// Unlink a GD account, admin only command
-pub async fn unlink(ctx: Context<'_>, user: serenity::User) -> Result<(), BotError> {
+pub async fn unlink(ctx: Context<'_>, user: serenity::Member) -> Result<(), BotError> {
     if !is_moderator(ctx).await? {
         ctx.reply(":x: This command can only be used by moderators. Contact staff if you need to unlink your GD account.").await?;
         return Ok(());
@@ -131,7 +174,7 @@ pub async fn unlink(ctx: Context<'_>, user: serenity::User) -> Result<(), BotErr
 
     let users = server.handler().module::<UsersModule>();
 
-    let linked_acc = users.get_linked_discord_inverse(user.id.get()).await?;
+    let linked_acc = users.get_linked_discord_inverse(user.user.id.get()).await?;
     if linked_acc.is_none() {
         ctx.reply(":x: User is not linked to any GD account.").await?;
         return Ok(());
@@ -139,13 +182,47 @@ pub async fn unlink(ctx: Context<'_>, user: serenity::User) -> Result<(), BotErr
 
     let linked_acc = linked_acc.unwrap();
 
-    users.unlink_discord_inverse(user.id.get()).await?;
+    users.unlink_discord_inverse(user.user.id.get()).await?;
+    users.system_set_roles(linked_acc.account_id, &[]).await?; // clear all roles
+
     ctx.reply(format!(
         "✅ Successfully unlinked. Previously linked account: {} ({})",
         linked_acc.username.as_deref().unwrap_or("Unknown"),
         linked_acc.account_id
     ))
     .await?;
+
+    Ok(())
+}
+
+#[poise::command(slash_command, guild_only = true)]
+/// Sync your roles with your GD account
+pub async fn sync(ctx: Context<'_>) -> Result<(), BotError> {
+    match ctx.data().sync_user_roles(&ctx.author_member().await.unwrap()).await {
+        Ok(roles) => {
+            ctx.reply(format!("✅ Successfully synced roles: {}", itertools::join(&roles, ", ")))
+                .await?;
+            Ok(())
+        }
+
+        Err(BotError::Custom(e)) => {
+            ctx.reply(format!(":x: Failed to sync roles: {e}")).await?;
+            Ok(())
+        }
+
+        Err(e) => Err(e),
+    }
+}
+
+#[poise::command(slash_command, guild_only = true)]
+/// Sync all users' roles with their GD accounts (admin only)
+pub async fn syncall(ctx: Context<'_>) -> Result<(), BotError> {
+    if !is_admin(ctx).await? {
+        ctx.reply(":x: No permission.").await?;
+        return Ok(());
+    }
+
+    // TODO
 
     Ok(())
 }
