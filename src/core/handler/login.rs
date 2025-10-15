@@ -39,6 +39,7 @@ impl ConnectionHandler {
         uident: Option<&[u8]>,
     ) -> HandlerResult<()> {
         let auth = self.module::<AuthModule>();
+        let users = self.module::<UsersModule>();
 
         if client.authorized() {
             // if the client is already authorized, ignore the login attempt
@@ -53,7 +54,6 @@ impl ConnectionHandler {
         } else {
             match &kind {
                 &LoginKind::Argon(accid, _) | &LoginKind::UserToken(accid, _) => {
-                    debug!("test  blasg");
                     match uident.and_then(|x| {
                         self.decrypt_uident(accid, x, ttkey)
                             .inspect_err(|e| warn!("Failed to decode uident from user: {e}"))
@@ -82,7 +82,13 @@ impl ConnectionHandler {
                     && data.username.is_ascii()
                     && !data.username.is_empty()
                 {
-                    self.on_login_success(client, data, icons, uident).await?;
+                    // verify that the user is whitelisted if whitelist is enabled
+                    if users.whitelist() && !users.is_whitelisted(data.account_id).await {
+                        self.on_login_failed(client, LoginFailedReason::NotWhitelisted)?;
+                    } else {
+                        // success!
+                        self.on_login_success(client, data, icons, uident).await?;
+                    }
                 } else {
                     self.on_login_failed(client, LoginFailedReason::InvalidAccountData)?;
                 }

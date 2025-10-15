@@ -128,6 +128,7 @@ pub struct UsersModule {
     #[cfg(feature = "discord")]
     discord_role_map: HashMap<u64, u8>,
     log_channel: u64,
+    whitelist: bool,
 }
 
 impl UsersModule {
@@ -271,6 +272,14 @@ impl UsersModule {
 
     pub fn get_roles(&self) -> &[Role] {
         &self.roles
+    }
+
+    pub fn whitelist(&self) -> bool {
+        self.whitelist
+    }
+
+    pub async fn is_whitelisted(&self, account_id: i32) -> bool {
+        self.get_user(account_id).await.ok().flatten().is_some_and(|x| x.is_whitelisted)
     }
 
     /// Converts a comma-separated string of string role IDs into a vector of numeric IDs
@@ -995,6 +1004,7 @@ impl ServerModule for UsersModule {
             #[cfg(feature = "discord")]
             discord_role_map,
             log_channel: config.mod_log_channel,
+            whitelist: config.whitelist,
         })
     }
 
