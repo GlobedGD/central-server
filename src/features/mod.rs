@@ -1,9 +1,10 @@
-#[cfg(feature = "discord")]
-use std::sync::Arc;
 use std::{
     collections::{HashMap, hash_map::Entry},
     error::Error,
-    sync::atomic::{AtomicI32, AtomicU8, AtomicU32, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicI32, AtomicU8, AtomicU32, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -12,7 +13,6 @@ use tracing::{debug, error, info};
 
 use crate::{
     core::{
-        gd_api::GDDifficulty,
         handler::ConnectionHandler,
         module::{ConfigurableModule, ModuleInitResult, ServerModule},
     },
@@ -25,7 +25,7 @@ use crate::{
 #[cfg(feature = "discord")]
 use {
     crate::{
-        core::gd_api::GDApiClient,
+        core::gd_api::{GDApiClient, GDDifficulty},
         discord::{DiscordMessage, DiscordModule, hex_color_to_decimal},
     },
     poise::serenity_prelude::{CreateEmbed, CreateEmbedAuthor},
@@ -54,9 +54,13 @@ pub struct FeaturesModule {
     #[cfg(feature = "discord")]
     discord: Option<Arc<DiscordModule>>,
     users_module: Arc<UsersModule>,
+    #[cfg(feature = "discord")]
     exhaust_notif_channel: u64,
+    #[cfg(feature = "discord")]
     exhaust_notif_message: Option<String>,
+    #[cfg(feature = "discord")]
     feature_notif_channel: u64,
+    #[cfg(feature = "discord")]
     feature_notif_message: Option<String>,
 }
 
@@ -368,9 +372,13 @@ impl ServerModule for FeaturesModule {
             #[cfg(feature = "discord")]
             discord,
             users_module: handler.opt_module_owned::<UsersModule>().unwrap(),
+            #[cfg(feature = "discord")]
             exhaust_notif_channel: config.exhaust_notif_channel,
+            #[cfg(feature = "discord")]
             exhaust_notif_message: config.exhaust_notif_message.clone(),
+            #[cfg(feature = "discord")]
             feature_notif_channel: config.feature_notif_channel,
+            #[cfg(feature = "discord")]
             feature_notif_message: config.feature_notif_message.clone(),
         };
 
@@ -402,6 +410,7 @@ impl ConfigurableModule for FeaturesModule {
     type Config = config::Config;
 }
 
+#[cfg(feature = "discord")]
 fn rate_tier_to_image(difficulty: GDDifficulty, tier: i32) -> String {
     let diffname: &str = match difficulty {
         GDDifficulty::Easy => "easy",

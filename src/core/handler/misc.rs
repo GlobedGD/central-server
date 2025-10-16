@@ -228,6 +228,9 @@ impl ConnectionHandler {
             discord.finish_link_attempt(client.account_id(), id, accept);
         }
 
+        let _ = id;
+        let _ = accept;
+
         Ok(())
     }
 

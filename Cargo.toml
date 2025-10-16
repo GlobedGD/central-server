@@ -64,6 +64,7 @@ tikv-jemalloc-ctl = "0.5"
 
 [features]
 featured-levels = ["dep:google-sheets4"]
-default = ["database", "discord"]
+default = ["database"]
 database = ["dep:sea-orm", "dep:sea-orm-migration"]
 discord = ["dep:poise"]
+quic = ["qunet/quic"]

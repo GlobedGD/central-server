@@ -632,7 +632,7 @@ impl ConnectionHandler {
 
     // Handling of game servers.
 
-    pub fn get_game_servers(&self) -> Vec<Arc<StoredGameServer>> {
+    pub fn get_game_servers(&self) -> Arc<Vec<StoredGameServer>> {
         self.game_server_manager.servers()
     }
 

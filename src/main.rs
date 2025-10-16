@@ -125,14 +125,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_max_messages_per_second(10) // allow 10 messages, client does not really need more than this
         .with_app_handler(handler);
 
-    // TODO: quic support
-    // if core.enable_quic {
-    //     builder = builder.with_quic(
-    //         parse_addr(&core.quic_address, "quic_address"),
-    //         &core.quic_tls_cert,
-    //         &core.quic_tls_key,
-    //     );
-    // }
+    #[cfg(feature = "quic")]
+    {
+        if core.enable_quic {
+            builder = builder.with_quic(
+                parse_addr(&core.quic_address, "quic_address"),
+                &core.quic_tls_cert,
+                &core.quic_tls_key,
+            );
+        }
+    }
 
     if core.enable_tcp {
         builder = builder.with_tcp(parse_addr(&core.tcp_address, "tcp_address"));

@@ -127,6 +127,7 @@ pub struct UsersModule {
     discord: Option<Arc<DiscordModule>>,
     #[cfg(feature = "discord")]
     discord_role_map: HashMap<u64, u8>,
+    #[cfg(feature = "discord")]
     log_channel: u64,
     whitelist: bool,
 }
@@ -165,7 +166,7 @@ impl UsersModule {
     #[cfg(not(feature = "discord"))]
     pub async fn get_linked_discord(
         &self,
-        account_id: i32,
+        _account_id: i32,
     ) -> DatabaseResult<Option<LinkedDiscordAccount>> {
         Ok(None)
     }
@@ -957,10 +958,12 @@ impl UsersModule {
         issuer_role.priority > target_role.priority
     }
 
+    #[cfg(feature = "discord")]
     pub fn get_role_by_discord_id(&self, id: u64) -> Option<&Role> {
         self.get_role(self.get_role_id_by_discord_id(id)?)
     }
 
+    #[cfg(feature = "discord")]
     pub fn get_role_id_by_discord_id(&self, id: u64) -> Option<u8> {
         self.discord_role_map.get(&id).copied()
     }
@@ -995,6 +998,8 @@ impl ServerModule for UsersModule {
             map
         };
 
+        let _ = handler;
+
         Ok(Self {
             db,
             roles,
@@ -1003,6 +1008,7 @@ impl ServerModule for UsersModule {
             discord,
             #[cfg(feature = "discord")]
             discord_role_map,
+            #[cfg(feature = "discord")]
             log_channel: config.mod_log_channel,
             whitelist: config.whitelist,
         })
@@ -1021,6 +1027,7 @@ impl ConfigurableModule for UsersModule {
     type Config = Config;
 }
 
+#[cfg(all(feature = "discord", feature = "database"))]
 fn format_expiry(expires_at: i64) -> String {
     if expires_at == 0 {
         "Never".to_string()
