@@ -188,14 +188,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         builder = builder.with_tcp(parse_addr(addr, "gs_tcp_address"));
     }
 
-    // TODO: quic support
-    // if let Some(addr) = &core.gs_quic_address {
-    //     builder = builder.with_quic(
-    //         parse_addr(addr, "gs_quic_address"),
-    //         &core.quic_tls_cert,
-    //         &core.quic_tls_key,
-    //     );
-    // }
+    #[cfg(feature = "quic")]
+    {
+        if let Some(addr) = &core.gs_quic_address {
+            builder = builder.with_quic(
+                parse_addr(addr, "gs_quic_address"),
+                &core.quic_tls_cert,
+                &core.quic_tls_key,
+            );
+        }
+    }
 
     // TODO: qdb
 
