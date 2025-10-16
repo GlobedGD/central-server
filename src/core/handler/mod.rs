@@ -29,7 +29,7 @@ use crate::{
         client_data::ClientData,
         config::Config,
         data::{self, decode_message_match},
-        game_server::{GameServerHandler, GameServerManager},
+        game_server::{GameServerHandler, GameServerManager, StoredGameServer},
         module::ServerModule,
     },
     rooms::{RoomModule, RoomSettings},
@@ -631,6 +631,10 @@ impl ConnectionHandler {
     }
 
     // Handling of game servers.
+
+    pub fn get_game_servers(&self) -> Vec<Arc<StoredGameServer>> {
+        self.game_server_manager.servers()
+    }
 
     pub async fn notify_game_server_handler_started(
         &self,

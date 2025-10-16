@@ -1,6 +1,6 @@
 use std::{
     sync::{Arc, OnceLock},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use arc_swap::ArcSwap;
@@ -18,7 +18,14 @@ use crate::core::game_server::GameServerHandler;
 #[derive(Clone)]
 pub struct StoredGameServer {
     qclient: Arc<ClientState<GameServerHandler>>,
+    connected_at: Instant,
     pub data: GameServerData,
+}
+
+impl StoredGameServer {
+    pub fn uptime(&self) -> Duration {
+        self.connected_at.elapsed()
+    }
 }
 
 #[derive(Default)]
@@ -83,6 +90,7 @@ impl GameServerManager {
 
             servers.push(StoredGameServer {
                 qclient: server.clone(),
+                connected_at: Instant::now(),
                 data: data.clone(),
             });
             servers
