@@ -69,11 +69,11 @@ pub async fn status(ctx: Context<'_>) -> Result<(), BotError> {
     {
         // jemalloc stats!
         use tikv_jemalloc_ctl::{epoch, stats};
-        epoch::advance().unwrap();
+        let _ = epoch::advance();
 
-        let allocated = stats::allocated::read().unwrap();
-        let active = stats::active::read().unwrap();
-        let resident = stats::resident::read().unwrap();
+        let allocated = stats::allocated::read().unwrap_or(0);
+        let active = stats::active::read().unwrap_or(0);
+        let resident = stats::resident::read().unwrap_or(0);
 
         writeln!(
             text,
