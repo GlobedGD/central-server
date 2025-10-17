@@ -7,6 +7,7 @@ use thiserror::Error;
 
 use crate::{
     auth::{AuthModule, AuthVerdict, ClientAccountData, LoginKind},
+    discord::{DiscordMessage, DiscordModule},
     rooms::RoomModule,
     users::UsersModule,
 };
@@ -171,8 +172,22 @@ impl ConnectionHandler {
                     }
                 };
 
-                // TODO: flag account in some way??
-                _ = accounts;
+                if accounts.len() > 1 {
+                    if let Err(e) = users.insert_uident(data.account_id, &uident).await {
+                        warn!(
+                            "[{}] failed to insert ident ({}, {}): {e}",
+                            client.address, data.account_id, uident
+                        );
+                    }
+
+                    #[cfg(feature = "discord")]
+                    self.module::<DiscordModule>()
+                        .send_alert(DiscordMessage::new().content(format!(
+                            "⚠️ Potential alt account logged in: {} ({}), accounts: {:?}",
+                            data.username, data.account_id, accounts
+                        )))
+                        .await;
+                }
             }
 
             if let Some(ban) = &user.active_ban {

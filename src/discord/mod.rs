@@ -42,6 +42,7 @@ impl DiscordUserData {
 pub struct DiscordModule {
     handle: JoinHandle<()>,
     state: Arc<BotState>,
+    alert_channel: u64,
 }
 
 impl DiscordModule {
@@ -51,6 +52,14 @@ impl DiscordModule {
         msg: DiscordMessage<'_>,
     ) -> Result<(), BotError> {
         self.state.send_message(channel_id, msg).await
+    }
+
+    pub async fn send_alert(&self, msg: DiscordMessage<'_>) -> Result<(), BotError> {
+        if self.alert_channel == 0 {
+            return Ok(());
+        }
+
+        self.state.send_message(self.alert_channel, msg).await
     }
 
     pub async fn get_user_data(&self, account_id: u64) -> Result<DiscordUserData, BotError> {
@@ -80,6 +89,9 @@ pub struct Config {
     pub enabled: bool,
     #[serde(default)]
     pub token: String,
+    #[cfg(feature = "discord")]
+    #[serde(default)]
+    pub alert_channel: u64,
 }
 
 impl ServerModule for DiscordModule {
@@ -94,7 +106,11 @@ impl ServerModule for DiscordModule {
             }
         });
 
-        Ok(Self { handle, state })
+        Ok(Self {
+            handle,
+            state,
+            alert_channel: config.alert_channel,
+        })
     }
 
     fn id() -> &'static str {
