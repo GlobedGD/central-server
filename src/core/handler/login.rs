@@ -138,6 +138,8 @@ impl ConnectionHandler {
             client.set_uident(uident);
         }
 
+        let uident = uident.map(hex::encode);
+
         if let Some(user) = user {
             // do some checks
 
@@ -148,45 +150,17 @@ impl ConnectionHandler {
                 let _ = users.update_username(data.account_id, &data.username).await;
             }
 
-            if let Some(uident) = uident {
-                let uident = hex::encode(uident);
-
+            if let Some(uident) = uident.as_ref() {
                 if user.active_ban.is_some()
                     || user.active_mute.is_some()
                     || user.active_room_ban.is_some()
                 {
-                    if let Err(e) = users.insert_uident(data.account_id, &uident).await {
+                    if let Err(e) = users.insert_uident(data.account_id, uident).await {
                         warn!(
                             "[{}] failed to insert ident ({}, {}): {e}",
                             client.address, data.account_id, uident
                         );
                     }
-                }
-
-                let accounts = match users.get_accounts_for_uident(&uident).await {
-                    Ok(x) => x,
-                    Err(e) => {
-                        warn!("[{}] failed to get alt accounts: {}", client.address, e);
-                        return self
-                            .on_login_failed(client, data::LoginFailedReason::InternalDbError);
-                    }
-                };
-
-                if accounts.len() > 1 {
-                    if let Err(e) = users.insert_uident(data.account_id, &uident).await {
-                        warn!(
-                            "[{}] failed to insert ident ({}, {}): {e}",
-                            client.address, data.account_id, uident
-                        );
-                    }
-
-                    #[cfg(feature = "discord")]
-                    self.module::<DiscordModule>()
-                        .send_alert(DiscordMessage::new().content(format!(
-                            "⚠️ Potential alt account logged in: {} ({}), accounts: {:?}",
-                            data.username, data.account_id, accounts
-                        )))
-                        .await;
                 }
             }
 
@@ -203,6 +177,40 @@ impl ConnectionHandler {
             client.set_admin_password_hash(user.admin_password_hash);
         } else {
             client.set_role(users.compute_from_roles(data.account_id, std::iter::empty()));
+        }
+
+        // check potential alt account
+        if let Some(uident) = uident.as_ref() {
+            let accounts = match users.get_accounts_for_uident(uident).await {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("[{}] failed to get alt accounts: {}", client.address, e);
+                    return self.on_login_failed(client, data::LoginFailedReason::InternalDbError);
+                }
+            };
+
+            if accounts.iter().any(|&id| id != data.account_id) {
+                match users.insert_uident(data.account_id, uident).await {
+                    Ok(true) => {
+                        // notify on discord
+                        #[cfg(feature = "discord")]
+                        let _ = self
+                            .module::<DiscordModule>()
+                            .send_alert(DiscordMessage::new().content(format!(
+                                "⚠️ Potential alt account logged in: {} ({}), accounts: {:?}",
+                                data.username, data.account_id, accounts
+                            )))
+                            .await;
+                    }
+
+                    Ok(false) => {}
+
+                    Err(e) => warn!(
+                        "[{}] failed to insert ident ({}, {}): {e}",
+                        client.address, data.account_id, uident
+                    ),
+                }
+            }
         }
 
         info!("[{}] {} ({}) logged in", client.address, data.username, data.account_id);

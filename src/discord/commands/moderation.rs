@@ -1,4 +1,7 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    fmt::Write,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use super::util::*;
 use crate::{
@@ -37,13 +40,12 @@ pub async fn punish(
 
     let users = server.handler().module::<UsersModule>();
     let Some(user) = get_linked_gd_user(ctx, &server).await? else {
+        ctx.reply(":x: You cannot moderate!").await?;
         return Ok(());
     };
 
-    let can_moderate = users.compute_from_user(&user).can_moderate();
-
-    if !can_moderate {
-        ctx.reply(":x: You cannot moderate!").await?;
+    if !users.compute_from_user(&user).can_moderate() {
+        ctx.reply(":x: No permission.").await?;
         return Ok(());
     }
 
@@ -106,13 +108,12 @@ pub async fn unpunish(
 
     let users = server.handler().module::<UsersModule>();
     let Some(user) = get_linked_gd_user(ctx, &server).await? else {
+        ctx.reply(":x: No permission.").await?;
         return Ok(());
     };
 
-    let can_moderate = users.compute_from_user(&user).can_moderate();
-
-    if !can_moderate {
-        ctx.reply(":x: You cannot moderate!").await?;
+    if !users.compute_from_user(&user).can_moderate() {
+        ctx.reply(":x: No permission.").await?;
         return Ok(());
     }
 
@@ -214,13 +215,12 @@ pub async fn audit_log(ctx: Context<'_>) -> Result<(), BotError> {
 
     let users = server.handler().module::<UsersModule>();
     let Some(user) = get_linked_gd_user(ctx, &server).await? else {
+        ctx.reply(":x: No permission.").await?;
         return Ok(());
     };
 
-    let can_moderate = users.compute_from_user(&user).can_moderate();
-
-    if !can_moderate {
-        ctx.reply(":x: You cannot moderate!").await?;
+    if !users.compute_from_user(&user).can_moderate() {
+        ctx.reply(":x: No permission.").await?;
         return Ok(());
     }
 
@@ -292,6 +292,50 @@ pub async fn audit_log(ctx: Context<'_>) -> Result<(), BotError> {
             )
             .await?;
     }
+
+    Ok(())
+}
+
+#[poise::command(slash_command, guild_only = true)]
+pub async fn check_alts(
+    ctx: Context<'_>,
+    #[description = "GD username or account ID of the target user"] user: String,
+) -> Result<(), BotError> {
+    let state = ctx.data();
+    let Some(server) = state.server() else {
+        return Err(BotError::custom("Server handle not initialized"));
+    };
+
+    let users = server.handler().module::<UsersModule>();
+    if get_linked_gd_role(ctx, &server).await?.is_none_or(|r| !r.can_moderate()) {
+        ctx.reply(":x: No permission.").await?;
+        return Ok(());
+    };
+
+    let uident = match users.query_user(&user).await? {
+        Some(u) => users.get_user_uident(u.account_id).await?,
+        None => None,
+    };
+
+    let alts = match uident {
+        Some(uid) => users.get_accounts_for_uident(&uid).await?,
+        None => {
+            ctx.reply(":x: Failed to find the user or their uident. This means the user likely hasn't tried logging in since their punishment.").await?;
+            return Ok(());
+        }
+    };
+
+    let mut out_str = format!("Found {} accounts:\n", alts.len());
+
+    for id in alts {
+        let acc = users.get_user(id).await?;
+
+        let username = acc.as_ref().and_then(|u| u.username.as_deref()).unwrap_or("Unknown");
+
+        writeln!(out_str, "* {} ({})", username, id).unwrap();
+    }
+
+    ctx.reply(out_str).await?;
 
     Ok(())
 }

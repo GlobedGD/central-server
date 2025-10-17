@@ -1,28 +1,23 @@
-#[cfg(feature = "discord")]
-use std::collections::HashMap;
 use std::{cmp::Reverse, collections::HashSet, fmt::Write, num::NonZeroI64};
 
 #[cfg(feature = "discord")]
-use {crate::discord::DiscordModule, std::sync::Arc};
-
-#[cfg(feature = "discord")]
-use crate::core::handler::ClientStateHandle;
-#[cfg(feature = "database")]
-use crate::{auth::ClientAccountData, users::database::AuditLogModel};
-
-#[cfg(all(feature = "discord", feature = "database"))]
 use {
-    crate::discord::{DiscordMessage, hex_color_to_decimal},
+    crate::{
+        core::handler::ClientStateHandle,
+        discord::{DiscordMessage, DiscordModule, hex_color_to_decimal},
+    },
     poise::serenity_prelude::{CreateEmbed, CreateEmbedAuthor},
+    std::{collections::HashMap, sync::Arc},
 };
 
 use crate::{
+    auth::ClientAccountData,
     core::{
         gd_api::{GDApiClient, GDApiFetchError},
         handler::ConnectionHandler,
         module::{ConfigurableModule, ModuleInitResult, ServerModule},
     },
-    users::database::LogAction,
+    users::database::{AuditLogModel, LogAction},
 };
 
 use server_shared::MultiColor;
@@ -37,7 +32,7 @@ use database::UsersDb;
 pub use database::{DatabaseError, DatabaseResult, DbUser, UserPunishment, UserPunishmentType};
 use smallvec::SmallVec;
 use thiserror::Error;
-use tracing::warn;
+use tracing::{info, warn};
 
 #[derive(Error, Debug)]
 pub enum PunishUserError {
@@ -247,7 +242,8 @@ impl UsersModule {
         self.db.update_username(account_id, new_username).await
     }
 
-    pub async fn insert_uident(&self, account_id: i32, ident: &str) -> DatabaseResult<()> {
+    pub async fn insert_uident(&self, account_id: i32, ident: &str) -> DatabaseResult<bool> {
+        info!("Inserting uident association: {account_id} - {ident}");
         self.db.insert_uident(account_id, ident).await
     }
 
@@ -257,6 +253,10 @@ impl UsersModule {
         } else {
             self.db.get_accounts_for_uident(ident).await
         }
+    }
+
+    pub async fn get_user_uident(&self, account_id: i32) -> DatabaseResult<Option<String>> {
+        self.db.get_user_uident(account_id).await
     }
 
     pub async fn get_punishment_count(&self, account_id: i32) -> DatabaseResult<u32> {
@@ -558,7 +558,6 @@ impl UsersModule {
         Ok(out)
     }
 
-    #[cfg(feature = "database")]
     async fn get_user_highest_priority(&self, account_id: i32) -> DatabaseResult<i32> {
         if self.super_admins.contains(&account_id) {
             return Ok(i32::MAX);
@@ -572,7 +571,6 @@ impl UsersModule {
         Ok(self.compute_from_user(&user).priority)
     }
 
-    #[cfg(feature = "database")]
     async fn punishment_preconditions(
         &self,
         issuer_id: i32,
@@ -613,7 +611,6 @@ impl UsersModule {
         Ok(())
     }
 
-    #[cfg(feature = "database")]
     pub async fn admin_punish_user(
         &self,
         issuer_id: i32,
@@ -643,7 +640,6 @@ impl UsersModule {
         Ok(())
     }
 
-    #[cfg(feature = "database")]
     pub async fn admin_unpunish_user(
         &self,
         issuer_id: i32,
@@ -656,7 +652,6 @@ impl UsersModule {
         Ok(())
     }
 
-    #[cfg(feature = "database")]
     pub async fn admin_fetch_logs(
         &self,
         issuer: i32,
@@ -793,7 +788,7 @@ impl UsersModule {
         }
     }
 
-    #[cfg(all(feature = "discord", feature = "database"))]
+    #[cfg(feature = "discord")]
     async fn convert_to_discord_log(
         &self,
         log: LogAction<'_>,
@@ -1027,7 +1022,7 @@ impl ConfigurableModule for UsersModule {
     type Config = Config;
 }
 
-#[cfg(all(feature = "discord", feature = "database"))]
+#[cfg(feature = "discord")]
 fn format_expiry(expires_at: i64) -> String {
     if expires_at == 0 {
         "Never".to_string()

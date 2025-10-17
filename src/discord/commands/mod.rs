@@ -19,6 +19,7 @@ pub fn all() -> Vec<poise::Command<Arc<BotState>, BotError>> {
         moderation::punish(),
         moderation::unpunish(),
         moderation::audit_log(),
+        moderation::check_alts(),
         #[cfg(feature = "featured-levels")]
         features::feature(),
         maintenance::status(),

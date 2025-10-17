@@ -1,41 +1,32 @@
-use std::num::NonZeroI64;
-
-use sea_orm::{ActiveValue::NotSet, FromQueryResult, QueryOrder, QuerySelect};
 use server_shared::MultiColor;
-#[cfg(feature = "database")]
 use smallvec::SmallVec;
+use std::{
+    num::NonZeroI64,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use thiserror::Error;
 
-#[cfg(feature = "database")]
-use {
-    sea_orm::{
-        ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectOptions, Database,
-        DatabaseConnection, EntityTrait, IntoActiveModel, QueryFilter, prelude::*,
-    },
-    sea_orm_migration::MigratorTrait,
-    std::time::{SystemTime, UNIX_EPOCH},
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::NotSet, ActiveValue::Set, ColumnTrait, ConnectOptions, Database,
+    DatabaseConnection, EntityTrait, FromQueryResult, IntoActiveModel, QueryFilter, QueryOrder,
+    QuerySelect, prelude::*,
 };
+use sea_orm_migration::MigratorTrait;
 
 mod log_action;
 pub use audit_log::Model as AuditLogModel;
 pub use log_action::LogAction;
 
 #[allow(warnings)]
-#[cfg(feature = "database")]
 mod entities;
-#[cfg(feature = "database")]
 mod migration;
 
-#[cfg(feature = "database")]
 pub use entities::prelude::*;
-#[cfg(feature = "database")]
 use entities::*;
-#[cfg(feature = "database")]
 use migration::Migrator;
 
 #[derive(Error, Debug)]
 pub enum DatabaseError {
-    #[cfg(feature = "database")]
     #[error("Database error: {0}")]
     Db(#[from] sea_orm::DbErr),
     #[error("Invalid punishment type in the database")]
@@ -62,7 +53,6 @@ pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
 pub struct UsersDb {
     // slightly misleading name but this is a connection pool, not a single connection
-    #[cfg(feature = "database")]
     conn: DatabaseConnection,
 }
 
@@ -72,7 +62,6 @@ fn timestamp() -> NonZeroI64 {
 }
 
 impl UsersDb {
-    #[cfg(feature = "database")]
     pub async fn new(url: &str, pool_size: u32) -> DatabaseResult<Self> {
         let mut opt = ConnectOptions::new(url);
         opt.max_connections(pool_size).min_connections(1);
@@ -82,23 +71,10 @@ impl UsersDb {
         Ok(Self { conn: db })
     }
 
-    #[cfg(not(feature = "database"))]
-    pub async fn new(_url: &str, _pool_size: u32) -> DatabaseResult<Self> {
-        Ok(Self {})
-    }
-
-    #[cfg(feature = "database")]
     pub async fn run_migrations(&self) -> DatabaseResult<()> {
         Migrator::up(&self.conn, None).await?;
         Ok(())
     }
-
-    #[cfg(not(feature = "database"))]
-    pub async fn run_migrations(&self) -> DatabaseResult<()> {
-        Ok(())
-    }
-
-    #[cfg(feature = "database")]
     pub async fn get_user(&self, account_id: i32) -> DatabaseResult<Option<DbUser>> {
         let user = User::find_by_id(account_id).one(&self.conn).await?;
 
@@ -107,11 +83,6 @@ impl UsersDb {
         };
 
         Ok(Some(self.post_user_fetch(model).await?))
-    }
-
-    #[cfg(not(feature = "database"))]
-    pub async fn get_user(&self, _account_id: i32) -> DatabaseResult<Option<DbUser>> {
-        Ok(None)
     }
 
     pub async fn get_linked_discord(&self, account_id: i32) -> DatabaseResult<Option<u64>> {
@@ -169,7 +140,6 @@ impl UsersDb {
         Ok(())
     }
 
-    #[cfg(feature = "database")]
     pub async fn query_user(&self, query: &str) -> DatabaseResult<Option<DbUser>> {
         // if it's an integer, try fetch by ID
 
@@ -195,12 +165,6 @@ impl UsersDb {
         }
     }
 
-    #[cfg(not(feature = "database"))]
-    pub async fn query_user(&self, query: &str) -> DatabaseResult<Option<DbUser>> {
-        Ok(None)
-    }
-
-    #[cfg(feature = "database")]
     pub async fn query_user_with_role(&self, role_id: &str) -> DatabaseResult<Vec<DbUser>> {
         let users =
             User::find().filter(user::Column::Roles.contains(role_id)).all(&self.conn).await?;
@@ -219,12 +183,6 @@ impl UsersDb {
         Ok(out)
     }
 
-    #[cfg(not(feature = "database"))]
-    pub async fn query_user_with_role(&self, query: &str) -> DatabaseResult<Vec<DbUser>> {
-        Ok(Vec::new())
-    }
-
-    #[cfg(feature = "database")]
     pub async fn post_user_fetch(&self, model: user::Model) -> DatabaseResult<DbUser> {
         use tracing::warn;
 
@@ -273,7 +231,6 @@ impl UsersDb {
         Ok(user)
     }
 
-    #[cfg(feature = "database")]
     pub async fn get_punishment(&self, id: i32) -> DatabaseResult<Option<UserPunishment>> {
         let punishment = Punishment::find_by_id(id).one(&self.conn).await?;
 
@@ -296,12 +253,6 @@ impl UsersDb {
         })
     }
 
-    #[cfg(not(feature = "database"))]
-    pub async fn get_punishment(&self, _id: i32) -> DatabaseResult<Option<UserPunishment>> {
-        Ok(None)
-    }
-
-    #[cfg(feature = "database")]
     pub async fn update_username(&self, account_id: i32, new_username: &str) -> DatabaseResult<()> {
         let res = User::update_many()
             .filter(user::Column::AccountId.eq(account_id))
@@ -315,14 +266,7 @@ impl UsersDb {
 
         Ok(())
     }
-
-    #[cfg(not(feature = "database"))]
-    pub async fn update_username(&self, _: i32, _: &str) -> DatabaseResult<()> {
-        Ok(())
-    }
-
-    #[cfg(feature = "database")]
-    pub async fn insert_uident(&self, account_id: i32, ident: &str) -> DatabaseResult<()> {
+    pub async fn insert_uident(&self, account_id: i32, ident: &str) -> DatabaseResult<bool> {
         let existing = Uident::find()
             .filter(uident::Column::AccountId.eq(account_id))
             .filter(uident::Column::Ident.eq(ident))
@@ -331,7 +275,7 @@ impl UsersDb {
             > 0;
 
         if existing {
-            return Ok(());
+            return Ok(false);
         }
 
         let model = uident::ActiveModel {
@@ -342,15 +286,13 @@ impl UsersDb {
 
         model.insert(&self.conn).await?;
 
-        Ok(())
+        Ok(true)
     }
 
-    #[cfg(feature = "database")]
     pub async fn get_account_count_for_uident(&self, ident: &str) -> DatabaseResult<u64> {
         Ok(Uident::find().filter(uident::Column::Ident.eq(ident)).count(&self.conn).await?)
     }
 
-    #[cfg(feature = "database")]
     pub async fn get_accounts_for_uident(&self, ident: &str) -> DatabaseResult<SmallVec<[i32; 8]>> {
         let models = Uident::find()
             .filter(uident::Column::Ident.eq(ident))
@@ -367,7 +309,13 @@ impl UsersDb {
         Ok(out)
     }
 
-    #[cfg(feature = "database")]
+    pub async fn get_user_uident(&self, account_id: i32) -> DatabaseResult<Option<String>> {
+        let uident =
+            Uident::find().filter(uident::Column::AccountId.eq(account_id)).one(&self.conn).await?;
+
+        Ok(uident.map(|x| x.ident))
+    }
+
     pub async fn update_user(
         &self,
         account_id: i32,
@@ -406,13 +354,11 @@ impl UsersDb {
         Ok(())
     }
 
-    #[cfg(feature = "database")]
     pub async fn fetch_all_with_roles(&self) -> DatabaseResult<Vec<user::Model>> {
         Ok(User::find().filter(user::Column::Roles.is_not_null()).all(&self.conn).await?)
     }
 
     /// Returns whether the user was modified
-    #[cfg(feature = "database")]
     fn expire_punishments(&self, user: &mut DbUser) -> bool {
         let mut modified = false;
 
@@ -432,19 +378,12 @@ impl UsersDb {
         modified
     }
 
-    #[cfg(feature = "database")]
     pub async fn get_admin_password_hash(&self, account_id: i32) -> DatabaseResult<Option<String>> {
         let user = User::find_by_id(account_id).one(&self.conn).await?;
 
         Ok(user.and_then(|u| u.admin_password_hash))
     }
 
-    #[cfg(not(feature = "database"))]
-    pub async fn get_admin_password_hash(&self, _: i32) -> DatabaseResult<Option<String>> {
-        Ok(None)
-    }
-
-    #[cfg(feature = "database")]
     pub async fn set_admin_password_hash(&self, account_id: i32, hash: &str) -> DatabaseResult<()> {
         User::update_many()
             .filter(user::Column::AccountId.eq(account_id))
@@ -455,12 +394,6 @@ impl UsersDb {
         Ok(())
     }
 
-    #[cfg(not(feature = "database"))]
-    pub async fn set_admin_password_hash(&self, _: i32, _: &str) -> DatabaseResult<()> {
-        Ok(())
-    }
-
-    #[cfg(feature = "database")]
     pub async fn get_punishment_count(&self, account_id: i32) -> DatabaseResult<u32> {
         let count = Punishment::find()
             .filter(punishment::Column::AccountId.eq(account_id))
@@ -468,11 +401,6 @@ impl UsersDb {
             .await?;
 
         Ok(count as u32)
-    }
-
-    #[cfg(not(feature = "database"))]
-    pub async fn get_punishment_count(&self, account_id: i32) -> DatabaseResult<u32> {
-        Ok(0)
     }
 
     /// Punish a user, returns whether the user was already punished and the punishment was updated.
@@ -517,7 +445,6 @@ impl UsersDb {
         Ok(Some(updating))
     }
 
-    #[cfg(feature = "database")]
     pub async fn unpunish_user(
         &self,
         account_id: i32,
@@ -526,7 +453,6 @@ impl UsersDb {
         self.update_active_punishment(account_id, r#type, None).await
     }
 
-    #[cfg(feature = "database")]
     async fn insert_or_update_punishment(
         &self,
         p: UserPunishment,
@@ -636,7 +562,6 @@ impl UsersDb {
         Ok(results)
     }
 
-    #[cfg(feature = "database")]
     pub async fn log_action(&self, account_id: i32, action: LogAction<'_>) -> DatabaseResult<()> {
         // some actions are not logged to the db
         if matches!(

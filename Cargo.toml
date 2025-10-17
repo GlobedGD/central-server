@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+sea-orm-migration = { version = "1.1.14" }
 base64 = "0.22.1"
 blake3 = "1.8.2"
 capnp = { version = "0.21.2", default-features = false, features = [
@@ -34,12 +35,11 @@ toml = "0.9.2"
 tracing = "0.1.41"
 arc-swap = "1.7.1"
 rustc-hash = "2.1.1"
-sea-orm = { version = "1.1.14", default-features = false, optional = true, features = [
+sea-orm = { version = "1.1.14", default-features = false, features = [
     "macros",
     "runtime-tokio-rustls",
     "sqlx-sqlite",
 ] }
-sea-orm-migration = { version = "1.1.14", optional = true }
 rustls = { version = "0.23.31", features = ["ring"] }
 itertools = "0.14.0"
 bcrypt = "0.17.0"
@@ -64,7 +64,7 @@ tikv-jemalloc-ctl = "0.5"
 
 [features]
 featured-levels = ["dep:google-sheets4"]
-default = ["database"]
-database = ["dep:sea-orm", "dep:sea-orm-migration"]
+default = []
 discord = ["dep:poise"]
 quic = ["qunet/quic"]
+all = ["discord", "quic", "featured-levels"]

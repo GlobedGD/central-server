@@ -40,7 +40,6 @@ pub struct PartialFeaturedLevelId {
 
 #[derive(Error, Debug)]
 pub enum DatabaseError {
-    #[cfg(feature = "database")]
     #[error("Database error: {0}")]
     Db(#[from] sea_orm::DbErr),
     #[error("Level already was featured")]
