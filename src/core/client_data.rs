@@ -5,7 +5,7 @@ use std::sync::{
 
 use parking_lot::{Mutex, MutexGuard};
 use rustc_hash::FxHashSet;
-use server_shared::data::PlayerIconData;
+use server_shared::{UserSettings, data::PlayerIconData};
 
 use crate::{
     auth::ClientAccountData,
@@ -32,6 +32,7 @@ pub struct ClientData {
     admin_password_hash: Mutex<Option<String>>,
     role: Mutex<Option<ComputedRole>>,
     uident: OnceLock<[u8; 32]>,
+    settings: Mutex<UserSettings>,
 }
 
 impl ClientData {
@@ -184,6 +185,14 @@ impl ClientData {
 
     pub fn uident(&self) -> Option<&[u8; 32]> {
         self.uident.get()
+    }
+
+    pub fn set_settings(&self, settings: UserSettings) {
+        *self.settings.lock() = settings;
+    }
+
+    pub fn settings(&self) -> UserSettings {
+        *self.settings.lock()
     }
 
     pub fn set_discord_pairing(&self, enabled: bool) {

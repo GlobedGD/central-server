@@ -2,7 +2,7 @@ use std::{borrow::Cow, sync::Arc};
 
 use crypto_secretbox::{KeyInit, aead::AeadMutInPlace};
 use qunet::buffers::{ByteReader, ByteReaderError, ByteWriter};
-use server_shared::{data::PlayerIconData, schema::main::LoginFailedReason};
+use server_shared::{UserSettings, data::PlayerIconData, schema::main::LoginFailedReason};
 use thiserror::Error;
 
 use crate::{
@@ -38,6 +38,7 @@ impl ConnectionHandler {
         kind: LoginKind<'_>,
         icons: PlayerIconData,
         uident: Option<&[u8]>,
+        settings: UserSettings,
     ) -> HandlerResult<()> {
         let auth = self.module::<AuthModule>();
         let users = self.module::<UsersModule>();
@@ -88,7 +89,7 @@ impl ConnectionHandler {
                         self.on_login_failed(client, LoginFailedReason::NotWhitelisted)?;
                     } else {
                         // success!
-                        self.on_login_success(client, data, icons, uident).await?;
+                        self.on_login_success(client, data, icons, uident, settings).await?;
                     }
                 } else {
                     self.on_login_failed(client, LoginFailedReason::InvalidAccountData)?;
@@ -120,6 +121,7 @@ impl ConnectionHandler {
         data: ClientAccountData,
         icons: PlayerIconData,
         uident: Option<[u8; 32]>,
+        settings: UserSettings,
     ) -> HandlerResult<()> {
         let auth = self.module::<AuthModule>();
         let rooms = self.module::<RoomModule>();
@@ -137,6 +139,8 @@ impl ConnectionHandler {
         if let Some(uident) = uident {
             client.set_uident(uident);
         }
+
+        client.set_settings(settings);
 
         let uident = uident.map(hex::encode);
 

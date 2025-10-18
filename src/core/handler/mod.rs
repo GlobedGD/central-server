@@ -18,9 +18,9 @@ use qunet::{
 };
 use rustc_hash::FxHashSet;
 use server_shared::{
-    TypeMap,
+    TypeMap, UserSettings,
     data::{GameServerData, PlayerIconData},
-    encoding::heapless_str_from_reader,
+    encoding::{DataDecodeError, heapless_str_from_reader},
 };
 
 use crate::{
@@ -155,36 +155,10 @@ impl AppHandler for ConnectionHandler {
         data: MsgData<'_>,
     ) {
         let result = decode_message_match!(self, data, unpacked_data, {
-            LoginUToken(message) => {
-                let account_id = message.get_account_id();
-                let token = message.get_token()?.to_str()?;
-                let icons = PlayerIconData::from_reader(message.get_icons()?)?;
-                let uident = message.get_uident()?;
+            Login(message) => {
+                let LoginData { kind, icons, uident, settings } = decode_login_data(message)?;
 
-                self.handle_login_attempt(client, LoginKind::UserToken(account_id, token), icons, Some(uident)).await
-            },
-
-            LoginArgon(message) => {
-                let account_id = message.get_account_id();
-                let token = message.get_token()?.to_str()?;
-                let icons = PlayerIconData::from_reader(message.get_icons()?)?;
-                let uident = message.get_uident()?;
-
-                self.handle_login_attempt(client, LoginKind::Argon(account_id, token), icons, Some(uident)).await
-            },
-
-            LoginPlain(message) => {
-                let data = message.get_data()?;
-                let account_id = data.get_account_id();
-                let user_id = data.get_user_id();
-                let username = heapless_str_from_reader(data.get_username()?)?;
-                let icons = PlayerIconData::from_reader(message.get_icons()?)?;
-
-                unpacked_data.reset(); // free up memory
-
-                self.handle_login_attempt(client, LoginKind::Plain(ClientAccountData {
-                    account_id, user_id, username
-                }), icons, None).await
+                self.handle_login_attempt(client, kind, icons, uident, settings).await
             },
 
             UpdateOwnData(message) => {
@@ -787,4 +761,38 @@ impl ConnectionHandler {
 
         Ok(())
     }
+}
+
+struct LoginData<'a> {
+    kind: LoginKind<'a>,
+    icons: PlayerIconData,
+    uident: Option<&'a [u8]>,
+    settings: UserSettings,
+}
+
+fn decode_login_data<'a>(
+    message: server_shared::schema::main::login_message::Reader<'a>,
+) -> Result<LoginData<'a>, DataDecodeError> {
+    use server_shared::schema::main::login_message::Which;
+
+    let account_id = message.get_account_id();
+    let icons = PlayerIconData::from_reader(message.get_icons()?)?;
+    let uident = if message.has_uident() { Some(message.get_uident()?) } else { None };
+    let settings = UserSettings::from_reader(message.get_settings()?);
+
+    let kind = match message.which().map_err(|_| DataDecodeError::InvalidDiscriminant)? {
+        Which::Utoken(m) => LoginKind::UserToken(account_id, m?.to_str()?),
+
+        Which::Argon(m) => LoginKind::Argon(account_id, m?.to_str()?),
+
+        Which::Plain(m) => {
+            let data = m?;
+            let username = heapless_str_from_reader(data.get_username()?)?;
+            let user_id = data.get_user_id();
+
+            LoginKind::Plain(ClientAccountData { account_id, user_id, username })
+        }
+    };
+
+    Ok(LoginData { kind, icons, uident, settings })
 }
