@@ -53,6 +53,16 @@ pub struct Role {
     pub can_rate_features: Option<bool>,
 }
 
+impl Role {
+    pub fn can_moderate(&self) -> bool {
+        self.can_kick.unwrap_or(false)
+            || self.can_mute.unwrap_or(false)
+            || self.can_ban.unwrap_or(false)
+            || self.can_set_password.unwrap_or(false)
+            || self.can_notice_everyone.unwrap_or(false)
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 pub struct Config {
     #[serde(default = "default_database_url")]

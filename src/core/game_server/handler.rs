@@ -144,6 +144,7 @@ impl GameServerHandler {
                 let mut role_ser = roles_ser.reborrow().get(i as u32);
                 role_ser.set_id(i as u8);
                 role_ser.set_string_id(&role.id);
+                role_ser.set_can_moderate(role.can_moderate());
             }
         })
         .expect("failed to encode login success message");
