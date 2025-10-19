@@ -130,7 +130,7 @@ impl ConnectionHandler {
         };
 
         if result.is_ok() {
-            client.set_authorized_admin();
+            client.set_authorized_mod();
         }
 
         self.send_admin_result(client, result)?;

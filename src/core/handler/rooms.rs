@@ -160,6 +160,7 @@ impl ConnectionHandler {
     }
 
     pub(crate) fn encode_room_player(
+        is_mod: bool,
         player: &ClientStateHandle,
         mut builder: data::room_player::Builder<'_>,
     ) {
@@ -177,9 +178,10 @@ impl ConnectionHandler {
         builder.reborrow().set_session(player.session_id());
         builder.set_team_id(player.team_id());
 
-        // TODO: privacy settings ... dont send this if not needed
+        let should_send_roles = is_mod || !player.settings().hide_roles;
 
-        if let Some(role) = &*player.role()
+        if should_send_roles
+            && let Some(role) = &*player.role()
             && role.is_special()
         {
             let mut sdata = builder.reborrow().init_special_data();
@@ -232,6 +234,8 @@ impl ConnectionHandler {
             players.iter().map(bytes_for_room_player).sum::<usize>()
         };
 
+        let is_mod = client.can_moderate();
+
         let buf = if full_room_check {
             let team_count = room.team_count();
             let cap = 120 + players_cap + 4 * team_count;
@@ -248,7 +252,7 @@ impl ConnectionHandler {
 
                 for (i, player) in players.iter().enumerate() {
                     let mut player_ser = players_ser.reborrow().get(i as u32);
-                    Self::encode_room_player(player, player_ser.reborrow());
+                    Self::encode_room_player(is_mod, player, player_ser.reborrow());
                 }
 
                 // encode teams
@@ -271,7 +275,7 @@ impl ConnectionHandler {
 
                 for (i, player) in players.iter().enumerate() {
                     let mut player_ser = players_ser.reborrow().get(i as u32);
-                    Self::encode_room_player(player, player_ser.reborrow());
+                    Self::encode_room_player(is_mod, player, player_ser.reborrow());
                 }
             })?
         } else {
@@ -315,31 +319,44 @@ impl ConnectionHandler {
             let friend_list = client.friend_list.lock();
             for friend in friend_list.iter() {
                 if let Some(friend) = self.find_client(*friend)
-                    && let Some(room_id) = friend.get_room_id()
-                    && room_id == room.id
+                    && friend.get_room_id().unwrap_or(0) == room.id
+                    && filter(&friend)
                 {
                     out.push(friend);
-                }
 
-                if out.len() == player_count {
-                    break;
+                    if out.len() == player_count {
+                        break;
+                    }
                 }
             }
         }
 
         debug_assert!(out.len() <= player_count);
 
+        let account_id = client.account_id();
+        let new_filter = |p: &ClientStateHandle| {
+            if p.account_id() == account_id || !filter(p) {
+                return false;
+            }
+
+            // check user settings, if the user chose to be hidden then don't send them unless we are a moderator
+            if p.settings().hide_in_menus && !client.can_moderate() {
+                return false;
+            }
+
+            true
+        };
+
         let begin = out.len();
 
         // put a bunch of dummy values into the vec, as `choose_multiple_fill` requires a mutable slice of initialized Arcs
         out.resize(player_count, client.clone());
-        let account_id = client.account_id();
 
         let written = room
             .with_players(|_, players| {
                 players
                     .map(|x| x.1.handle.clone())
-                    .filter(|x| x.account_id() != account_id && filter(x))
+                    .filter(new_filter)
                     .choose_multiple_fill(&mut rand::rng(), &mut out[begin..])
             })
             .await;
@@ -791,6 +808,8 @@ impl ConnectionHandler {
                 })
                 .sum::<usize>();
 
+        let is_mod = client.can_moderate();
+
         debug!("encoding {} rooms, cap: {}", rooms.len(), cap);
 
         let buf = data::encode_message_heap!(self, cap, msg => {
@@ -807,7 +826,7 @@ impl ConnectionHandler {
 
                 if let Some(owner) = self.find_client(room.owner()) {
                     let mut owner_ser = room_ser.reborrow().init_room_owner();
-                    Self::encode_room_player(&owner, owner_ser.reborrow());
+                    Self::encode_room_player(is_mod, &owner, owner_ser.reborrow());
                 }
             }
         })?;

@@ -1,6 +1,6 @@
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashSet;
-use server_shared::data::PlayerIconData;
+use server_shared::{UserSettings, data::PlayerIconData};
 
 use crate::{
     credits::CreditsModule,
@@ -26,6 +26,18 @@ impl ConnectionHandler {
         if let Some(friends) = friends {
             client.set_friends(friends);
         };
+
+        Ok(())
+    }
+
+    pub fn handle_update_user_settings(
+        &self,
+        client: &ClientStateHandle,
+        settings: UserSettings,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        client.set_settings(settings);
 
         Ok(())
     }

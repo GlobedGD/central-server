@@ -168,7 +168,6 @@ impl AppHandler for ConnectionHandler {
                     None
                 };
 
-
                 let fl = if message.has_friend_list() {
                     let mut fl = FxHashSet::default();
                     let friend_list = message.get_friend_list()?;
@@ -182,6 +181,13 @@ impl AppHandler for ConnectionHandler {
                 };
 
                 self.handle_update_own_data(client, icons, fl)
+            },
+
+            UpdateUserSettings(message) => {
+                let settings = UserSettings::from_reader(message.get_settings()?);
+                unpacked_data.reset(); // free up memory
+
+                self.handle_update_user_settings(client, settings)
             },
 
             RequestPlayerCounts(message) => {

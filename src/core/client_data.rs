@@ -171,11 +171,15 @@ impl ClientData {
         *self.role.lock() = Some(role);
     }
 
-    pub fn authorized_admin(&self) -> bool {
+    pub fn can_moderate(&self) -> bool {
+        self.role().as_ref().is_some_and(|x| x.can_moderate())
+    }
+
+    pub fn authorized_mod(&self) -> bool {
         self.authorized_admin.load(Ordering::Relaxed)
     }
 
-    pub fn set_authorized_admin(&self) {
+    pub fn set_authorized_mod(&self) {
         self.authorized_admin.store(true, Ordering::Relaxed);
     }
 
