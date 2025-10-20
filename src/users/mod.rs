@@ -32,7 +32,7 @@ use database::UsersDb;
 pub use database::{DatabaseError, DatabaseResult, DbUser, UserPunishment, UserPunishmentType};
 use smallvec::SmallVec;
 use thiserror::Error;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 #[derive(Error, Debug)]
 pub enum PunishUserError {
@@ -433,7 +433,11 @@ impl UsersModule {
         self.punishment_preconditions(issuer_id, account_id).await?;
 
         // disallow adding roles higher than your highest
-        let highest_p = self.get_user_highest_priority(account_id).await?;
+        let highest_p = self.get_user_highest_priority(issuer_id).await?;
+
+        debug!(
+            "User {issuer_id} editing roles for {account_id}, new roles: {new_roles:?}, highest priority: {highest_p}"
+        );
 
         if new_roles.iter().any(|id| self.get_role(*id).is_some_and(|r| r.priority >= highest_p)) {
             return Err(Error::Permissions);

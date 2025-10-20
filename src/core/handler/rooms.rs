@@ -227,6 +227,7 @@ impl ConnectionHandler {
         filter: impl Fn(&ClientStateHandle) -> bool,
     ) -> HandlerResult<()> {
         let players = self.pick_players_to_send(client, room, filter).await;
+        let total_player_count = room.player_count();
 
         let players_cap = if minimal && !full_room_check {
             players.iter().map(|_| 64).sum::<usize>()
@@ -246,6 +247,8 @@ impl ConnectionHandler {
                 room_state.set_room_owner(room.owner());
                 room_state.set_room_name(&room.name);
                 room_state.set_passcode(room.passcode);
+                room_state.set_player_count(total_player_count as u32);
+
                 room.settings.lock().encode(room_state.reborrow().init_settings());
 
                 let mut players_ser = room_state.reborrow().init_players(players.len() as u32);
