@@ -162,7 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(srv) => srv,
         Err(e) => {
             error!("Failed to setup server: {e}");
-            std::process::exit(1);
+            return Ok(());
         }
     };
 
@@ -205,7 +205,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(srv) => srv,
         Err(e) => {
             error!("Failed to setup game server listener: {e}");
-            std::process::exit(1);
+            return Ok(());
         }
     };
 
@@ -258,7 +258,7 @@ async fn init_optional_module<T: ServerModule + ConfigurableModule>(
 
     if let Err(e) = config.init_module::<T>() {
         error!("Failed to initialize config for module {} ({}): {e}", T::name(), T::id());
-        std::process::exit(1);
+        return None;
     }
 
     let conf = config.module::<T>();
@@ -271,7 +271,7 @@ async fn init_optional_module<T: ServerModule + ConfigurableModule>(
         Ok(m) => m,
         Err(e) => {
             error!("Failed to initialize module {} ({}): {e}", T::name(), T::id());
-            std::process::exit(1);
+            return None;
         }
     };
 
