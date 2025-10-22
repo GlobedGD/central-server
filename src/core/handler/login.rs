@@ -7,13 +7,15 @@ use thiserror::Error;
 
 use crate::{
     auth::{AuthModule, AuthVerdict, ClientAccountData, LoginKind},
-    discord::{DiscordMessage, DiscordModule},
     rooms::RoomModule,
     users::UsersModule,
 };
 
 #[cfg(feature = "featured-levels")]
 use crate::features::FeaturesModule;
+
+#[cfg(feature = "discord")]
+use crate::discord::{DiscordMessage, DiscordModule};
 
 use super::{ConnectionHandler, util::*};
 
