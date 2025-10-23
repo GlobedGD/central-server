@@ -167,4 +167,11 @@ impl<'a> DiscordMessage<'a> {
         self.embeds.push(embed);
         self
     }
+
+    pub fn into_owned(self) -> DiscordMessage<'static> {
+        DiscordMessage {
+            content: self.content.map(|c| c.into_owned().into()),
+            embeds: self.embeds,
+        }
+    }
 }

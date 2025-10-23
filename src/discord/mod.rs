@@ -4,7 +4,7 @@ use poise::serenity_prelude as serenity;
 use qunet::server::ServerHandle;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::{
     core::{
@@ -46,20 +46,24 @@ pub struct DiscordModule {
 }
 
 impl DiscordModule {
-    pub async fn send_message(
-        &self,
-        channel_id: u64,
-        msg: DiscordMessage<'_>,
-    ) -> Result<(), BotError> {
-        self.state.send_message(channel_id, msg).await
+    pub fn send_message(&self, channel_id: u64, msg: DiscordMessage<'_>) {
+        let msg = msg.into_owned();
+        let state = self.state.clone();
+
+        tokio::spawn(async move {
+            match state.send_message(channel_id, msg).await {
+                Ok(()) => {}
+                Err(e) => warn!("Failed to send message ({channel_id}): {e}"),
+            }
+        });
     }
 
-    pub async fn send_alert(&self, msg: DiscordMessage<'_>) -> Result<(), BotError> {
+    pub fn send_alert(&self, msg: DiscordMessage<'_>) {
         if self.alert_channel == 0 {
-            return Ok(());
+            return;
         }
 
-        self.state.send_message(self.alert_channel, msg).await
+        self.send_message(self.alert_channel, msg)
     }
 
     pub async fn get_user_data(&self, account_id: u64) -> Result<DiscordUserData, BotError> {

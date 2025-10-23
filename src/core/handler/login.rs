@@ -200,13 +200,12 @@ impl ConnectionHandler {
                     Ok(true) => {
                         // notify on discord
                         #[cfg(feature = "discord")]
-                        let _ = self
-                            .module::<DiscordModule>()
-                            .send_alert(DiscordMessage::new().content(format!(
+                        self.module::<DiscordModule>().send_alert(DiscordMessage::new().content(
+                            format!(
                                 "⚠️ Potential alt account logged in: {} ({}), accounts: {:?}",
                                 data.username, data.account_id, accounts
-                            )))
-                            .await;
+                            ),
+                        ));
                     }
 
                     Ok(false) => {}

@@ -779,9 +779,7 @@ impl UsersModule {
             {
                 match self.convert_to_discord_log(log, issuer_id).await {
                     Ok(msg) => {
-                        if let Err(e) = d.send_message(self.log_channel, msg).await {
-                            warn!("Failed to log punishment on discord: {e}");
-                        }
+                        d.send_message(self.log_channel, msg);
                     }
 
                     Err(e) => {

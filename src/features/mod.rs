@@ -304,21 +304,19 @@ impl FeaturesModule {
             .await?
             .map_or(GDDifficulty::NA, |l| l.difficulty);
 
-        discord
-            .send_message(
-                self.feature_notif_channel,
-                DiscordMessage::new()
-                    .content(self.feature_notif_message.as_deref().unwrap_or_default())
-                    .add_embed(
-                        CreateEmbed::new()
-                            .author(CreateEmbedAuthor::new("New Featured Level"))
-                            .title(format!("{} by {}", level.name, level.author_name))
-                            .field("Level ID", level.level_id.to_string(), true)
-                            .thumbnail(rate_tier_to_image(difficulty, level.rate_tier))
-                            .color(hex_color_to_decimal("#4dace8")),
-                    ),
-            )
-            .await?;
+        discord.send_message(
+            self.feature_notif_channel,
+            DiscordMessage::new()
+                .content(self.feature_notif_message.as_deref().unwrap_or_default())
+                .add_embed(
+                    CreateEmbed::new()
+                        .author(CreateEmbedAuthor::new("New Featured Level"))
+                        .title(format!("{} by {}", level.name, level.author_name))
+                        .field("Level ID", level.level_id.to_string(), true)
+                        .thumbnail(rate_tier_to_image(difficulty, level.rate_tier))
+                        .color(hex_color_to_decimal("#4dace8")),
+                ),
+        );
 
         Ok(())
     }
@@ -333,13 +331,11 @@ impl FeaturesModule {
             return Ok(());
         }
 
-        discord
-            .send_message(
-                self.exhaust_notif_channel,
-                DiscordMessage::new()
-                    .content(self.exhaust_notif_message.as_deref().unwrap_or_default()),
-            )
-            .await?;
+        discord.send_message(
+            self.exhaust_notif_channel,
+            DiscordMessage::new()
+                .content(self.exhaust_notif_message.as_deref().unwrap_or_default()),
+        );
 
         Ok(())
     }
