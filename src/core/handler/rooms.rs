@@ -654,22 +654,24 @@ impl ConnectionHandler {
 
         match r#type {
             data::RoomOwnerActionType::BanUser => {
-                room.ban_player(target);
-
-                drop(room_lock);
-
                 // try to locate the user
-                if let Some(target) = self.find_client(target) {
+                if let Some(target_arc) = self.find_client(target)
+                    && can_kick_from_room(&target_arc)
+                {
+                    room.ban_player(target);
+                    drop(room_lock);
                     // just leave for them lol
-                    self.handle_leave_room(&target).await?;
+                    self.handle_leave_room(&target_arc).await?;
                 }
             }
 
             data::RoomOwnerActionType::KickUser => {
                 drop(room_lock);
 
-                if let Some(target) = self.find_client(target) {
-                    self.handle_leave_room(&target).await?;
+                if let Some(target_arc) = self.find_client(target)
+                    && can_kick_from_room(&target_arc)
+                {
+                    self.handle_leave_room(&target_arc).await?;
                 }
             }
 
@@ -855,4 +857,8 @@ fn bytes_for_room_player(client: &ClientStateHandle) -> usize {
     } else {
         0
     }
+}
+
+fn can_kick_from_room(client: &ClientStateHandle) -> bool {
+    !client.authorized_mod()
 }
