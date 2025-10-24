@@ -505,6 +505,14 @@ impl AppHandler for ConnectionHandler {
                 self.handle_admin_set_whitelisted(client, account_id, whitelisted).await
             },
 
+            AdminCloseRoom(message) => {
+                let room_id = message.get_room_id();
+
+                unpacked_data.reset();
+
+                self.handle_admin_close_room(client, room_id).await
+            },
+
             GetFeaturedLevel(_message) => {
                 unpacked_data.reset();
 

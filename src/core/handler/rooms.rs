@@ -640,8 +640,6 @@ impl ConnectionHandler {
         target: i32,
     ) -> HandlerResult<()> {
         must_auth(client)?;
-
-        let rooms = self.module::<RoomModule>();
         let room_lock = client.lock_room();
 
         let Some(room) = &*room_lock else {
@@ -678,14 +676,19 @@ impl ConnectionHandler {
             data::RoomOwnerActionType::CloseRoom => {
                 let room_id = room.id;
                 drop(room_lock);
+                self.close_room_by_id(room_id).await?;
+            }
+        }
 
-                if let Some(users) = rooms.close_room(room_id, &self.game_server_manager).await {
-                    for user in users {
-                        if let Some(room) = &*user.lock_room() {
-                            self.send_room_data(&user, room).await?;
-                        }
-                    }
-                }
+        Ok(())
+    }
+
+    pub async fn close_room_by_id(&self, room_id: u32) -> HandlerResult<()> {
+        let rooms = self.module::<RoomModule>();
+
+        if let Some(users) = rooms.close_room(room_id, &self.game_server_manager).await {
+            for user in users {
+                self.send_room_data(&user, &rooms.global_room()).await?;
             }
         }
 

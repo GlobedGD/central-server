@@ -24,6 +24,18 @@ fn default_script_sign_key() -> String {
     hex::encode(secret_key)
 }
 
+fn default_mute_reasons() -> Vec<String> {
+    vec![]
+}
+
+fn default_ban_reasons() -> Vec<String> {
+    vec![]
+}
+
+fn default_room_ban_reasons() -> Vec<String> {
+    vec![]
+}
+
 #[derive(Deserialize, Serialize, Clone)]
 pub struct Role {
     pub id: String,
@@ -63,6 +75,16 @@ impl Role {
     }
 }
 
+#[derive(Deserialize, Serialize, Clone)]
+pub struct PunishReasons {
+    #[serde(default = "default_mute_reasons")]
+    pub mute: Vec<String>,
+    #[serde(default = "default_ban_reasons")]
+    pub ban: Vec<String>,
+    #[serde(default = "default_room_ban_reasons")]
+    pub room: Vec<String>,
+}
+
 #[derive(Deserialize, Serialize)]
 pub struct Config {
     #[serde(default = "default_database_url")]
@@ -81,6 +103,19 @@ pub struct Config {
     /// Where logs are sent on Discord, requires `discord` feature and module to be enabled.
     #[serde(default)]
     pub mod_log_channel: u64,
+
+    #[serde(default)]
+    pub punishment_reasons: PunishReasons,
+}
+
+impl Default for PunishReasons {
+    fn default() -> Self {
+        Self {
+            mute: default_mute_reasons(),
+            ban: default_ban_reasons(),
+            room: default_room_ban_reasons(),
+        }
+    }
 }
 
 impl Default for Config {
@@ -93,6 +128,7 @@ impl Default for Config {
             script_sign_key: default_script_sign_key(),
             whitelist: false,
             mod_log_channel: Default::default(),
+            punishment_reasons: PunishReasons::default(),
         }
     }
 }

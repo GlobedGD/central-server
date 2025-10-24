@@ -131,6 +131,20 @@ impl ConnectionHandler {
 
         if result.is_ok() {
             client.set_authorized_mod();
+
+            let reasons = users.get_punishment_reasons();
+            let cap = 80
+                + reasons.ban.iter().map(|r| r.len() + 16).sum::<usize>()
+                + reasons.mute.iter().map(|r| r.len() + 16).sum::<usize>()
+                + reasons.room.iter().map(|r| r.len() + 16).sum::<usize>();
+
+            let buf = data::encode_message_heap!(self, cap, msg => {
+                let mut msg = msg.init_admin_punishment_reasons();
+                let _ = msg.set_ban(&reasons.ban[..]);
+                let _ = msg.set_mute(&reasons.mute[..]);
+                let _ = msg.set_room_ban(&reasons.room[..]);
+            })?;
+            client.send_data_bufkind(buf);
         }
 
         self.send_admin_result(client, result)?;
@@ -768,6 +782,16 @@ impl ConnectionHandler {
         )?;
 
         Ok(())
+    }
+
+    pub async fn handle_admin_close_room(
+        &self,
+        client: &ClientStateHandle,
+        room_id: u32,
+    ) -> HandlerResult<()> {
+        self.must_be_able(client, ActionType::Kick)?;
+
+        self.close_room_by_id(room_id).await
     }
 
     async fn notify_user_data_changed(

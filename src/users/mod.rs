@@ -17,7 +17,10 @@ use crate::{
         handler::ConnectionHandler,
         module::{ConfigurableModule, ModuleInitResult, ServerModule},
     },
-    users::database::{AuditLogModel, LogAction},
+    users::{
+        config::PunishReasons,
+        database::{AuditLogModel, LogAction},
+    },
 };
 
 use server_shared::MultiColor;
@@ -125,6 +128,8 @@ pub struct UsersModule {
     #[cfg(feature = "discord")]
     log_channel: u64,
     whitelist: bool,
+
+    punish_reasons: PunishReasons,
 }
 
 impl UsersModule {
@@ -277,6 +282,10 @@ impl UsersModule {
 
     pub fn whitelist(&self) -> bool {
         self.whitelist
+    }
+
+    pub fn get_punishment_reasons(&self) -> &PunishReasons {
+        &self.punish_reasons
     }
 
     pub async fn is_whitelisted(&self, account_id: i32) -> bool {
@@ -1017,6 +1026,7 @@ impl ServerModule for UsersModule {
             #[cfg(feature = "discord")]
             log_channel: config.mod_log_channel,
             whitelist: config.whitelist,
+            punish_reasons: config.punishment_reasons.clone(),
         })
     }
 
