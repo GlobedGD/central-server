@@ -496,6 +496,15 @@ impl AppHandler for ConnectionHandler {
                 self.handle_admin_fetch_mods(client).await
             },
 
+            AdminSetWhitelisted(message) => {
+                let account_id = message.get_account_id();
+                let whitelisted = message.get_whitelisted();
+
+                unpacked_data.reset();
+
+                self.handle_admin_set_whitelisted(client, account_id, whitelisted).await
+            },
+
             GetFeaturedLevel(_message) => {
                 unpacked_data.reset();
 

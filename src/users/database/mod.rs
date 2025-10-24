@@ -354,6 +354,20 @@ impl UsersDb {
         Ok(())
     }
 
+    pub async fn set_whitelisted(&self, account_id: i32, whitelisted: bool) -> DatabaseResult<()> {
+        let result = User::update_many()
+            .filter(user::Column::AccountId.eq(account_id))
+            .col_expr(user::Column::IsWhitelisted, Expr::value(whitelisted))
+            .exec(&self.conn)
+            .await?;
+
+        if result.rows_affected == 0 {
+            return Err(DatabaseError::NotFound);
+        }
+
+        Ok(())
+    }
+
     pub async fn fetch_all_with_roles(&self) -> DatabaseResult<Vec<user::Model>> {
         Ok(User::find().filter(user::Column::Roles.is_not_null()).all(&self.conn).await?)
     }

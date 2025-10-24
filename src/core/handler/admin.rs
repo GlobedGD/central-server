@@ -737,6 +737,24 @@ impl ConnectionHandler {
         Ok(())
     }
 
+    pub async fn handle_admin_set_whitelisted(
+        &self,
+        client: &ClientStateHandle,
+        account_id: i32,
+        whitelisted: bool,
+    ) -> HandlerResult<()> {
+        self.must_be_able(client, ActionType::Ban)?;
+
+        self.send_admin_db_result(
+            client,
+            self.module::<UsersModule>()
+                .admin_set_whitelisted(client.account_id(), account_id, whitelisted)
+                .await,
+        )?;
+
+        Ok(())
+    }
+
     async fn notify_user_data_changed(
         &self,
         account_id: i32,

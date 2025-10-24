@@ -532,6 +532,15 @@ impl UsersModule {
         self.db.update_user(account_id, username, cube, color1, color2, glow_color).await
     }
 
+    pub async fn admin_set_whitelisted(
+        &self,
+        _issuer_id: i32,
+        account_id: i32,
+        whitelisted: bool,
+    ) -> DatabaseResult<()> {
+        self.db.set_whitelisted(account_id, whitelisted).await
+    }
+
     pub async fn fetch_moderators(&self) -> DatabaseResult<Vec<FetchedMod>> {
         // TODO: this function is not very fast
 
