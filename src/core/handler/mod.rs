@@ -552,6 +552,13 @@ impl AppHandler for ConnectionHandler {
 
                 res
             },
+
+            NoticeReply(message) => {
+                let target_user = message.get_receiver_id();
+                let message = message.get_message()?.to_str()?;
+
+                self.handle_notice_reply(client, target_user, message).await
+            },
         });
 
         match result {

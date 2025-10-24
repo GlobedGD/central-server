@@ -3,6 +3,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicI32, AtomicU16, AtomicU64, Ordering},
 };
 
+use nohash_hasher::IntSet;
 use parking_lot::{Mutex, MutexGuard};
 use rustc_hash::FxHashSet;
 use server_shared::{UserSettings, data::PlayerIconData};
@@ -26,6 +27,7 @@ pub struct ClientData {
     deauthorized: AtomicBool,
     team_id: AtomicU16,
     discord_pairing_on: AtomicBool,
+    awaiting_notice_reply_from: Mutex<IntSet<i32>>,
 
     pub active_mute: Mutex<Option<UserPunishment>>,
     pub active_room_ban: Mutex<Option<UserPunishment>>,
@@ -205,5 +207,13 @@ impl ClientData {
 
     pub fn discord_pairing(&self) -> bool {
         self.discord_pairing_on.load(Ordering::Relaxed)
+    }
+
+    pub fn take_awaiting_notice_reply(&self, user_id: i32) -> bool {
+        self.awaiting_notice_reply_from.lock().remove(&user_id)
+    }
+
+    pub fn add_awaiting_notice_reply(&self, user_id: i32) {
+        self.awaiting_notice_reply_from.lock().insert(user_id);
     }
 }

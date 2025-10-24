@@ -264,4 +264,30 @@ impl ConnectionHandler {
         client.send_data_bufkind(buf);
         Ok(())
     }
+
+    pub async fn handle_notice_reply(
+        &self,
+        client: &ClientStateHandle,
+        target_user: i32,
+        message: &str,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let Some(target) = self.find_client(target_user) else {
+            warn!("notice reply target {target_user} not found");
+            self.send_warn(client, "Failed to send notice reply: target not found")?;
+            return Ok(());
+        };
+
+        if target.take_awaiting_notice_reply(client.account_id()) {
+            let users = self.module::<UsersModule>();
+            let _ = users
+                .log_notice_reply(client.account_id(), client.username(), target_user, message)
+                .await;
+
+            target.send_data_bufkind(self.make_notice_buf(client, message, false, true, true)?);
+        }
+
+        Ok(())
+    }
 }

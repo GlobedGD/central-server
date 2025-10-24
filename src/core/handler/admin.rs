@@ -182,6 +182,9 @@ impl ConnectionHandler {
             },
         )?;
 
+        // to be able to reply, we must show the sender
+        let show_sender = show_sender || can_reply;
+
         let users = self.module::<UsersModule>();
 
         let targets = if let Some(target) =
@@ -270,17 +273,19 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    fn make_notice_buf(
+    pub fn make_notice_buf(
         &self,
         sender: &ClientStateHandle,
         message: &str,
         can_reply: bool,
+        is_reply: bool,
         show_sender: bool,
     ) -> HandlerResult<BufferKind> {
         let buf = data::encode_message_heap!(self, 80 + message.len(), msg => {
             let mut notice = msg.init_notice();
             notice.set_message(message);
             notice.set_can_reply(can_reply);
+            notice.set_is_reply(is_reply);
 
             if show_sender {
                 let account_data = sender.account_data().expect("must have account data");
@@ -312,7 +317,17 @@ impl ConnectionHandler {
             message
         );
 
-        target.send_data_bufkind(self.make_notice_buf(sender, message, can_reply, show_sender)?);
+        if can_reply {
+            sender.add_awaiting_notice_reply(target.account_id());
+        }
+
+        target.send_data_bufkind(self.make_notice_buf(
+            sender,
+            message,
+            can_reply,
+            false,
+            show_sender,
+        )?);
 
         Ok(())
     }
@@ -331,7 +346,7 @@ impl ConnectionHandler {
             message
         );
 
-        let buf = Arc::new(self.make_notice_buf(sender, message, can_reply, show_sender)?);
+        let buf = Arc::new(self.make_notice_buf(sender, message, can_reply, false, show_sender)?);
 
         for target in self.all_clients.iter().filter_map(|x| x.value().upgrade()) {
             target.send_data_bufkind(BufferKind::Reference(buf.clone()));
