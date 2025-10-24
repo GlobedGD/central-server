@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt::Display, sync::Arc};
+use std::{fmt::Display, sync::Arc};
 
 use qunet::{buffers::ByteWriter, message::BufferKind};
 use server_shared::SessionId;
@@ -150,7 +150,7 @@ impl ConnectionHandler {
 
         let result = if let Some(target) = self.find_client(account_id) {
             // kick the person
-            target.disconnect(Cow::Owned(reason.to_owned()));
+            target.disconnect(format!("Kicked by moderator: {reason}"));
             users.log_kick(client.account_id(), account_id, target.username(), reason).await;
 
             Ok(())
