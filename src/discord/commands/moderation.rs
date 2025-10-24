@@ -40,7 +40,6 @@ pub async fn punish(
 
     let users = server.handler().module::<UsersModule>();
     let Some(user) = get_linked_gd_user(ctx, &server).await? else {
-        ctx.reply(":x: You cannot moderate!").await?;
         return Ok(());
     };
 
@@ -108,7 +107,6 @@ pub async fn unpunish(
 
     let users = server.handler().module::<UsersModule>();
     let Some(user) = get_linked_gd_user(ctx, &server).await? else {
-        ctx.reply(":x: No permission.").await?;
         return Ok(());
     };
 
@@ -215,7 +213,6 @@ pub async fn audit_log(ctx: Context<'_>) -> Result<(), BotError> {
 
     let users = server.handler().module::<UsersModule>();
     let Some(user) = get_linked_gd_user(ctx, &server).await? else {
-        ctx.reply(":x: No permission.").await?;
         return Ok(());
     };
 
@@ -308,7 +305,6 @@ pub async fn check_alts(
 
     let users = server.handler().module::<UsersModule>();
     if get_linked_gd_role(ctx, &server).await?.is_none_or(|r| !r.can_moderate()) {
-        ctx.reply(":x: No permission.").await?;
         return Ok(());
     };
 
