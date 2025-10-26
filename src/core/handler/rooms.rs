@@ -239,7 +239,7 @@ impl ConnectionHandler {
 
         let buf = if full_room_check {
             let team_count = room.team_count();
-            let cap = 120 + players_cap + 4 * team_count;
+            let cap = 120 + room.name.len() + players_cap + 4 * team_count;
 
             data::encode_message_heap!(self, cap, msg => {
                 let mut room_state = msg.reborrow().init_room_state();
@@ -809,7 +809,7 @@ impl ConnectionHandler {
             + rooms
                 .iter()
                 .map(|x| {
-                    64 + x.name.len()
+                    72 + x.name.len()
                         + self
                             .find_client(x.owner())
                             .map_or(64, |owner| bytes_for_room_player(&owner))

@@ -66,7 +66,7 @@ struct StoredInviteToken {
 
 pub struct Room {
     pub id: u32,
-    pub name: heapless::String<64>,
+    pub name: heapless::String<32>,
     pub passcode: u32,
     pub owner: AtomicI32,
     pub original_owner: i32,
@@ -87,7 +87,7 @@ impl Room {
     pub fn new(
         id: u32,
         owner: i32,
-        name: heapless::String<64>,
+        name: heapless::String<32>,
         passcode: u32,
         settings: RoomSettings,
     ) -> Self {

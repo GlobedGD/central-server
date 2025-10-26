@@ -217,7 +217,7 @@ impl AppHandler for ConnectionHandler {
             },
 
             CreateRoom(message) => {
-                let name: heapless::String<64> = heapless_str_from_reader(message.get_name()?)?;
+                let name = heapless_str_from_reader::<32>(message.get_name()?)?;
                 let settings = RoomSettings::from_reader(message.get_settings()?)?;
                 let passcode = message.get_passcode();
 
