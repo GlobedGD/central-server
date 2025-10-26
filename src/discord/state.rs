@@ -46,11 +46,17 @@ pub enum BotError {
     #[error("Invalid channel ID given")]
     InvalidChannel,
     #[error("{0}")]
-    Serenity(#[from] serenity::Error),
+    Serenity(#[from] Box<serenity::Error>),
     #[error("Database error: {0}")]
     Database(#[from] DatabaseError),
     #[error("{0}")]
     Custom(String),
+}
+
+impl From<serenity::Error> for BotError {
+    fn from(e: serenity::Error) -> Self {
+        BotError::Serenity(Box::new(e))
+    }
 }
 
 impl From<UsersError> for BotError {
@@ -89,8 +95,11 @@ impl BotState {
         let _ = self.server.set(handle.make_weak());
     }
 
-    pub fn server(&self) -> Option<ServerHandle<ConnectionHandler>> {
-        self.server.get().and_then(|x| x.upgrade())
+    pub fn server(&self) -> Result<ServerHandle<ConnectionHandler>, BotError> {
+        self.server
+            .get()
+            .and_then(|x| x.upgrade())
+            .ok_or_else(|| BotError::custom("Server handle not initialized"))
     }
 
     pub fn create_link_attempt(&self, id: u64, gd_account: i32) -> oneshot::Receiver<bool> {

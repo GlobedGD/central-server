@@ -17,15 +17,10 @@ use crate::{
 #[poise::command(slash_command, guild_only = true)]
 /// Show server status
 pub async fn status(ctx: Context<'_>) -> Result<(), BotError> {
-    if !is_admin(ctx).await? {
-        ctx.reply(":x: You do not have permission to use this command.").await?;
-        return Ok(());
-    }
+    check_admin(ctx).await?;
 
     let state = ctx.data();
-    let Some(server) = state.server() else {
-        return Err(BotError::custom("Server handle not initialized"));
-    };
+    let server = state.server()?;
 
     let msg = ctx
         .reply_builder(CreateReply::default())

@@ -12,9 +12,7 @@ pub async fn link(
     #[description = "Geometry Dash username or ID"] user: String,
 ) -> Result<(), BotError> {
     let state = ctx.data();
-    let Some(server) = state.server() else {
-        return Err(BotError::custom("Server handle not initialized"));
-    };
+    let server = state.server()?;
 
     // check if user is already linked
     let author = ctx.author();
@@ -125,16 +123,10 @@ pub async fn adminlink(
     user: serenity::Member,
     #[description = "Geometry Dash username"] gd_user: String,
 ) -> Result<(), BotError> {
-    if !is_moderator(ctx).await? {
-        ctx.reply(":x: No permission.").await?;
-        return Ok(());
-    }
+    check_moderator(ctx).await?;
 
     let state = ctx.data();
-    let Some(server) = state.server() else {
-        return Err(BotError::custom("Server handle not initialized"));
-    };
-
+    let server = state.server()?;
     let users = server.handler().module::<UsersModule>();
 
     // unlink any existing link
@@ -162,16 +154,10 @@ pub async fn adminlink(
 #[poise::command(slash_command, guild_only = true)]
 /// Unlink a GD account, admin only command
 pub async fn unlink(ctx: Context<'_>, user: serenity::Member) -> Result<(), BotError> {
-    if !is_moderator(ctx).await? {
-        ctx.reply(":x: This command can only be used by moderators. Contact staff if you need to unlink your GD account.").await?;
-        return Ok(());
-    }
+    check_moderator(ctx).await?;
 
     let state = ctx.data();
-    let Some(server) = state.server() else {
-        return Err(BotError::custom("Server handle not initialized"));
-    };
-
+    let server = state.server()?;
     let users = server.handler().module::<UsersModule>();
 
     let linked_acc = users.get_linked_discord_inverse(user.user.id.get()).await?;
@@ -217,10 +203,10 @@ pub async fn sync(ctx: Context<'_>) -> Result<(), BotError> {
 #[poise::command(slash_command, guild_only = true)]
 /// Sync all users' roles with their GD accounts (admin only)
 pub async fn syncall(ctx: Context<'_>) -> Result<(), BotError> {
-    if !is_admin(ctx).await? {
-        ctx.reply(":x: No permission.").await?;
-        return Ok(());
-    }
+    check_admin(ctx).await?;
+
+    // let state = ctx.data();
+    // let server = state.server()?;
 
     // TODO
 

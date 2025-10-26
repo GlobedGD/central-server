@@ -33,20 +33,12 @@ pub async fn punish(
     #[description = "Punishment duration (i.e. \"1 year\", \"2 days\"); use \"permanent\" or \"perma\" for permanent punishments."]
     duration_str: String,
 ) -> Result<(), BotError> {
-    let state = ctx.data();
-    let Some(server) = state.server() else {
-        return Err(BotError::custom("Server handle not initialized"));
+    let Some(user) = check_moderator(ctx).await? else {
+        return Ok(());
     };
 
+    let server = ctx.data().server()?;
     let users = server.handler().module::<UsersModule>();
-    let Some(user) = get_linked_gd_user(ctx, &server).await? else {
-        return Ok(());
-    };
-
-    if !users.compute_from_user(&user).can_moderate() {
-        ctx.reply(":x: No permission.").await?;
-        return Ok(());
-    }
 
     let target = users.query_or_create_user(&target_user).await?;
 
@@ -100,20 +92,12 @@ pub async fn unpunish(
     punishment_type: String,
     #[description = "Geometry Dash username or ID"] target_user: String,
 ) -> Result<(), BotError> {
-    let state = ctx.data();
-    let Some(server) = state.server() else {
-        return Err(BotError::custom("Server handle not initialized"));
+    let Some(user) = check_moderator(ctx).await? else {
+        return Ok(());
     };
 
+    let server = ctx.data().server()?;
     let users = server.handler().module::<UsersModule>();
-    let Some(user) = get_linked_gd_user(ctx, &server).await? else {
-        return Ok(());
-    };
-
-    if !users.compute_from_user(&user).can_moderate() {
-        ctx.reply(":x: No permission.").await?;
-        return Ok(());
-    }
 
     let target = users.query_user(&target_user).await?;
     let Some(target) = target else {
@@ -206,20 +190,12 @@ async fn audit_log_embed(
 
 #[poise::command(slash_command, guild_only = true)]
 pub async fn audit_log(ctx: Context<'_>) -> Result<(), BotError> {
-    let state = ctx.data();
-    let Some(server) = state.server() else {
-        return Err(BotError::custom("Server handle not initialized"));
+    let Some(user) = check_moderator(ctx).await? else {
+        return Ok(());
     };
 
+    let server = ctx.data().server()?;
     let users = server.handler().module::<UsersModule>();
-    let Some(user) = get_linked_gd_user(ctx, &server).await? else {
-        return Ok(());
-    };
-
-    if !users.compute_from_user(&user).can_moderate() {
-        ctx.reply(":x: No permission.").await?;
-        return Ok(());
-    }
 
     // Define some unique identifiers for the navigation buttons
     let ctx_id = ctx.id();
@@ -269,22 +245,13 @@ pub async fn audit_log(ctx: Context<'_>) -> Result<(), BotError> {
         }
 
         // Update the message with the new page contents
+        let logs = users.admin_fetch_logs(user.account_id, 0, "", 0, 0, current_page).await?.0;
         press
             .create_response(
                 ctx.serenity_context(),
                 serenity::CreateInteractionResponse::UpdateMessage(
-                    serenity::CreateInteractionResponseMessage::new().embed(
-                        audit_log_embed(
-                            users
-                                .admin_fetch_logs(user.account_id, 0, "", 0, 0, current_page)
-                                .await?
-                                .0,
-                            users,
-                            current_page,
-                        )
-                        .await
-                        .into(),
-                    ),
+                    serenity::CreateInteractionResponseMessage::new()
+                        .embed(audit_log_embed(logs, users, current_page).await.into()),
                 ),
             )
             .await?;
@@ -298,15 +265,10 @@ pub async fn check_alts(
     ctx: Context<'_>,
     #[description = "GD username or account ID of the target user"] user: String,
 ) -> Result<(), BotError> {
-    let state = ctx.data();
-    let Some(server) = state.server() else {
-        return Err(BotError::custom("Server handle not initialized"));
-    };
+    check_moderator(ctx).await?;
 
+    let server = ctx.data().server()?;
     let users = server.handler().module::<UsersModule>();
-    if get_linked_gd_role(ctx, &server).await?.is_none_or(|r| !r.can_moderate()) {
-        return Ok(());
-    };
 
     let uident = match users.query_user(&user).await? {
         Some(u) => users.get_user_uident(u.account_id).await?,

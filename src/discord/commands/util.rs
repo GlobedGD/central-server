@@ -20,15 +20,59 @@ pub async fn edit_message(
     msg.edit(ctx, CreateReply::default().content(content)).await
 }
 
-pub async fn is_admin(ctx: Context<'_>) -> Result<bool, BotError> {
-    Ok(ctx.author_member().await.is_some_and(|x| x.permissions.is_some_and(|x| x.administrator())))
+// pub async fn is_discord_admin(ctx: Context<'_>) -> Result<bool, BotError> {
+//     Ok(ctx.author_member().await.is_some_and(|x| x.permissions.is_some_and(|x| x.administrator())))
+// }
+
+// pub async fn is_discord_moderator(ctx: Context<'_>) -> Result<bool, BotError> {
+//     Ok(ctx
+//         .author_member()
+//         .await
+//         .is_some_and(|x| x.permissions.is_some_and(|x| x.ban_members() || x.manage_roles())))
+// }
+
+pub async fn check_admin(ctx: Context<'_>) -> Result<Option<DbUser>, BotError> {
+    check_linked_and_roles(ctx, |r| r.can_set_password).await
 }
 
-pub async fn is_moderator(ctx: Context<'_>) -> Result<bool, BotError> {
-    Ok(ctx
-        .author_member()
-        .await
-        .is_some_and(|x| x.permissions.is_some_and(|x| x.ban_members() || x.manage_roles())))
+pub async fn check_moderator(ctx: Context<'_>) -> Result<Option<DbUser>, BotError> {
+    check_linked_and_roles(ctx, |r| r.can_moderate()).await
+}
+
+pub async fn check_linked_and(
+    ctx: Context<'_>,
+    f: impl FnOnce(&DbUser) -> bool,
+) -> Result<Option<DbUser>, BotError> {
+    let state = ctx.data();
+    let server = state.server()?;
+
+    match get_linked_gd_user(ctx, &server).await? {
+        Some(user) => {
+            if f(&user) {
+                Ok(Some(user))
+            } else {
+                ctx.reply(":x: No permission.").await?;
+                Ok(None)
+            }
+        }
+
+        None => {
+            ctx.reply(":x: No permission. (account not linked)").await?;
+            Ok(None)
+        }
+    }
+}
+
+pub async fn check_linked_and_roles(
+    ctx: Context<'_>,
+    f: impl FnOnce(&ComputedRole) -> bool,
+) -> Result<Option<DbUser>, BotError> {
+    let state = ctx.data();
+    let server = state.server()?;
+
+    let users = server.handler().module::<UsersModule>();
+
+    check_linked_and(ctx, |u| f(&users.compute_from_user(u))).await
 }
 
 pub async fn get_linked_gd_user(
@@ -46,15 +90,6 @@ pub async fn get_linked_gd_user(
             Ok(None)
         }
     }
-}
-
-pub async fn get_linked_gd_role(
-    ctx: Context<'_>,
-    server: &Server<ConnectionHandler>,
-) -> Result<Option<ComputedRole>, BotError> {
-    Ok(get_linked_gd_user(ctx, server)
-        .await?
-        .map(|u| server.handler().module::<UsersModule>().compute_from_user(&u)))
 }
 
 #[derive(Debug, Error)]

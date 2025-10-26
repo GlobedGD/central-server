@@ -1,6 +1,6 @@
 use super::util::*;
 use crate::{
-    core::gd_api::GDApiClient, discord::BotError, features::FeaturesModule, users::UsersModule,
+    core::gd_api::GDApiClient, discord::BotError, features::FeaturesModule, users::ComputedRole,
 };
 
 #[poise::command(
@@ -21,16 +21,9 @@ pub async fn feature(_ctx: Context<'_>) -> Result<(), BotError> {
 #[poise::command(slash_command, guild_only = true)]
 /// Update featured levels spreadsheet
 pub async fn update_spreadsheet(ctx: Context<'_>) -> Result<(), BotError> {
-    let state = ctx.data();
-    let Some(server) = state.server() else {
-        return Err(BotError::custom("Server handle not initialized"));
-    };
+    check_admin(ctx).await?;
 
-    if !is_admin(ctx).await? {
-        ctx.reply(":x: Must be administrator to use this command.").await?;
-        return Ok(());
-    }
-
+    let server = ctx.data().server()?;
     let features = server.handler().module::<FeaturesModule>();
 
     features.update_spreadsheet(true, true, true).await;
@@ -81,21 +74,12 @@ async fn send_inner(
     note: String,
     queue: bool,
 ) -> Result<(), BotError> {
-    let state = ctx.data();
-    let Some(server) = state.server() else {
-        return Err(BotError::custom("Server handle not initialized"));
-    };
-
-    let Some(user) = get_linked_gd_user(ctx, &server).await? else {
+    let has_perm = |r: &ComputedRole| if queue { r.can_rate_features } else { r.can_send_features };
+    let Some(user) = check_linked_and_roles(ctx, has_perm).await? else {
         return Ok(());
     };
-    let role = server.handler().module::<UsersModule>().compute_from_user(&user);
-    let needed_perm = if queue { role.can_rate_features } else { role.can_send_features };
 
-    if !needed_perm {
-        ctx.reply(":x: You do not have permission to use this command.").await?;
-        return Ok(());
-    }
+    let server = ctx.data().server()?;
 
     let rate_tier = match rate_tier.as_str() {
         "Normal" => 0,
@@ -153,20 +137,9 @@ pub async fn set_duration(
     #[description = "Punishment duration (i.e. \"1 year\", \"2 days\"); use \"permanent\" for permanent punishments."]
     duration_str: String,
 ) -> Result<(), BotError> {
-    let state = ctx.data();
-    let Some(server) = state.server() else {
-        return Err(BotError::custom("Server handle not initialized"));
-    };
+    check_admin(ctx).await?;
 
-    let Some(user) = get_linked_gd_user(ctx, &server).await? else {
-        return Ok(());
-    };
-    let role = server.handler().module::<UsersModule>().compute_from_user(&user);
-
-    if !role.can_rate_features {
-        ctx.reply(":x: You do not have permission to use this command.").await?;
-        return Ok(());
-    }
+    let server = ctx.data().server()?;
 
     let Ok(dur) = parse_duration_str(&duration_str) else {
         ctx.reply(":x: Invalid duration!").await?;
@@ -186,19 +159,9 @@ pub async fn set_duration(
 #[poise::command(slash_command, guild_only = true)]
 /// Set the feature priority for a level
 pub async fn set_priority(ctx: Context<'_>, level_id: i32, priority: i32) -> Result<(), BotError> {
-    let state = ctx.data();
-    let Some(server) = state.server() else {
-        return Err(BotError::custom("Server handle not initialized"));
-    };
+    check_admin(ctx).await?;
 
-    let Some(role) = get_linked_gd_role(ctx, &server).await? else {
-        return Ok(());
-    };
-
-    if !role.can_rate_features {
-        ctx.reply(":x: You do not have permission to use this command.").await?;
-        return Ok(());
-    }
+    let server = ctx.data().server()?;
 
     let features = server.handler().module::<FeaturesModule>();
     if let Err(e) = features.set_feature_priority(level_id, priority).await {
@@ -213,21 +176,11 @@ pub async fn set_priority(ctx: Context<'_>, level_id: i32, priority: i32) -> Res
 #[poise::command(slash_command, guild_only = true)]
 /// Set the feature priority for a level
 pub async fn force_cycle(ctx: Context<'_>) -> Result<(), BotError> {
-    let state = ctx.data();
-    let Some(server) = state.server() else {
-        return Err(BotError::custom("Server handle not initialized"));
-    };
+    check_admin(ctx).await?;
 
-    let Some(role) = get_linked_gd_role(ctx, &server).await? else {
-        return Ok(());
-    };
-
-    if !role.can_rate_features {
-        ctx.reply(":x: You do not have permission to use this command.").await?;
-        return Ok(());
-    }
-
+    let server = ctx.data().server()?;
     let features = server.handler().module::<FeaturesModule>();
+
     match features.cycle_level().await {
         Ok(true) => {
             ctx.reply("✅ Feature priority updated successfully!").await?;
