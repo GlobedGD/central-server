@@ -82,7 +82,7 @@ pub struct PunishReasons {
     #[serde(default = "default_ban_reasons")]
     pub ban: Vec<String>,
     #[serde(default = "default_room_ban_reasons")]
-    pub room: Vec<String>,
+    pub room_ban: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -113,7 +113,7 @@ impl Default for PunishReasons {
         Self {
             mute: default_mute_reasons(),
             ban: default_ban_reasons(),
-            room: default_room_ban_reasons(),
+            room_ban: default_room_ban_reasons(),
         }
     }
 }

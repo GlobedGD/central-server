@@ -830,6 +830,7 @@ impl ConnectionHandler {
                 room_ser.set_room_name(&room.name);
                 room_ser.set_player_count(room.player_count() as u32);
                 room_ser.set_has_password(room.has_password());
+                room_ser.set_original_owner_id(room.original_owner);
                 room.settings.lock().encode(room_ser.reborrow().init_settings());
 
                 if let Some(owner) = self.find_client(room.owner()) {

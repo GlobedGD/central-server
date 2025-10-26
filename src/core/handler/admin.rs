@@ -136,13 +136,13 @@ impl ConnectionHandler {
             let cap = 80
                 + reasons.ban.iter().map(|r| r.len() + 16).sum::<usize>()
                 + reasons.mute.iter().map(|r| r.len() + 16).sum::<usize>()
-                + reasons.room.iter().map(|r| r.len() + 16).sum::<usize>();
+                + reasons.room_ban.iter().map(|r| r.len() + 16).sum::<usize>();
 
             let buf = data::encode_message_heap!(self, cap, msg => {
                 let mut msg = msg.init_admin_punishment_reasons();
                 let _ = msg.set_ban(&reasons.ban[..]);
                 let _ = msg.set_mute(&reasons.mute[..]);
-                let _ = msg.set_room_ban(&reasons.room[..]);
+                let _ = msg.set_room_ban(&reasons.room_ban[..]);
             })?;
             client.send_data_bufkind(buf);
         }
