@@ -145,7 +145,6 @@ impl WorkerState {
             Ok(())
         };
 
-        // TODO: columns
         add_one("Featured", 10).await?;
         add_one("Queued", 10).await?;
         add_one("Sent", 10).await?;

@@ -18,12 +18,12 @@ impl DiscordBot {
             .options(poise::FrameworkOptions {
                 commands: super::commands::all(),
                 on_error: |error| Box::pin(super::event_handler::on_error(error)),
-                command_check: Some(|_ctx| {
-                    Box::pin(async move {
-                        // TODO allow from a specific guild?
-                        Ok(true)
-                    })
-                }),
+                // command_check: Some(|_ctx| {
+                //     Box::pin(async move {
+                //         // allow from a specific guild?
+                //         Ok(true)
+                //     })
+                // }),
                 event_handler: |ctx, event, framework, data| {
                     Box::pin(super::event_handler::event_handler(ctx, event, framework, data))
                 },
