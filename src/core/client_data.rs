@@ -1,6 +1,6 @@
 use std::sync::{
     Arc, OnceLock,
-    atomic::{AtomicBool, AtomicI32, AtomicU16, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicI32, AtomicU16, AtomicU32, AtomicU64, Ordering},
 };
 
 use nohash_hasher::IntSet;
@@ -22,6 +22,7 @@ pub struct ClientData {
     pub friend_list: Mutex<FxHashSet<i32>>,
 
     room: Mutex<Option<ClientRoomHandle>>,
+    room_id: AtomicU32, // also redundant
     session_id: AtomicU64,
     authorized_admin: AtomicBool,
     deauthorized: AtomicBool,
@@ -84,7 +85,7 @@ impl ClientData {
 
     /// Returns the room the client is in, or None if not in a room.
     pub fn get_room_id(&self) -> Option<u32> {
-        self.room.lock().as_ref().map(|r| r.id)
+        Some(self.room_id.load(Ordering::Relaxed))
     }
 
     pub fn lock_room(&self) -> MutexGuard<'_, Option<ClientRoomHandle>> {
@@ -98,14 +99,16 @@ impl ClientData {
 
     /// Sets the room the client is in.
     pub fn set_room(&self, room: ClientRoomHandle) {
-        let mut lock = self.room.lock();
-        *lock = Some(room);
+        self.room_id.store(room.id, Ordering::Relaxed);
+        *self.room.lock() = Some(room);
     }
 
     /// Clears the room the client is in, removing them from it and returning the room.
     /// Note: this puts a client into an invalid state, you should immediately call `set_room` with another room afterwards.
     pub async fn clear_room(&self) -> Option<Arc<Room>> {
         self.set_team_id(0);
+        self.room_id.store(0, Ordering::Relaxed);
+
         let handle = self.room.lock().take();
 
         if let Some(mut handle) = handle {

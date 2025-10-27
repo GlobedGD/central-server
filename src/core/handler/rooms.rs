@@ -317,12 +317,14 @@ impl ConnectionHandler {
 
         let mut out = Vec::with_capacity(player_count + 2); // +2 to decrease the chance of reallocation
         let mut friend_ids = Vec::new();
+        let account_id = client.account_id();
 
         // always push friends first
         {
             let friend_list = client.friend_list.lock();
             for friend in friend_list.iter() {
-                if let Some(friend) = self.find_client(*friend)
+                if *friend != account_id
+                    && let Some(friend) = self.find_client(*friend)
                     && friend.get_room_id().unwrap_or(0) == room.id
                     && filter(&friend)
                 {
@@ -338,7 +340,6 @@ impl ConnectionHandler {
 
         debug_assert!(out.len() <= player_count);
 
-        let account_id = client.account_id();
         let new_filter = |p: &ClientStateHandle| {
             let id = p.account_id();
             if id == account_id || friend_ids.contains(&id) || !filter(p) {
@@ -354,8 +355,6 @@ impl ConnectionHandler {
         };
 
         let begin = out.len();
-
-        debug!("begin {begin}, pc: {player_count}");
 
         // put a bunch of dummy values into the vec, as `choose_multiple_fill` requires a mutable slice of initialized Arcs
         out.resize(player_count, client.clone());
