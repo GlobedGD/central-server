@@ -1,5 +1,7 @@
 use server_shared::SessionId;
 
+use crate::users::UsersModule;
+
 use super::{ConnectionHandler, util::*};
 
 impl ConnectionHandler {
@@ -80,15 +82,20 @@ impl ConnectionHandler {
             let mut ent = self.player_counts.entry(new_session.as_u64()).or_insert(0);
             *ent += 1;
 
+            let users = self.module::<UsersModule>();
+            let can_use_qc = client.active_mute.lock().is_none();
+            let can_use_voice =
+                can_use_qc && (!users.vc_requires_discord || client.is_discord_linked());
+
             // notify the appropriate game server
 
-            // TODO (release): option to only allow voice when discord is linked
             if let Err(e) = self
                 .game_server_manager
                 .notify_user_data(
                     new_session.server_id(),
                     client.account_id(),
-                    client.active_mute.lock().is_none(),
+                    can_use_qc,
+                    can_use_voice,
                 )
                 .await
             {

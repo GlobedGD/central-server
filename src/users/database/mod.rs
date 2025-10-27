@@ -1,7 +1,7 @@
 use server_shared::MultiColor;
 use smallvec::SmallVec;
 use std::{
-    num::NonZeroI64,
+    num::{NonZeroI64, NonZeroU64},
     time::{SystemTime, UNIX_EPOCH},
 };
 use thiserror::Error;
@@ -204,6 +204,7 @@ impl UsersDb {
             active_mute: None,
             active_ban: None,
             active_room_ban: None,
+            discord_id: model.discord_id.and_then(|x| NonZeroU64::new(x as u64)),
         };
 
         if let Some(id) = model.active_mute {
@@ -664,6 +665,7 @@ pub struct DbUser {
     pub active_mute: Option<UserPunishment>,
     pub active_ban: Option<UserPunishment>,
     pub active_room_ban: Option<UserPunishment>,
+    pub discord_id: Option<NonZeroU64>,
 }
 
 impl DbUser {

@@ -28,6 +28,7 @@ pub struct ClientData {
     deauthorized: AtomicBool,
     team_id: AtomicU16,
     discord_pairing_on: AtomicBool,
+    discord_linked: AtomicBool,
     awaiting_notice_reply_from: Mutex<IntSet<i32>>,
 
     pub active_mute: Mutex<Option<UserPunishment>>,
@@ -210,6 +211,14 @@ impl ClientData {
 
     pub fn discord_pairing(&self) -> bool {
         self.discord_pairing_on.load(Ordering::Relaxed)
+    }
+
+    pub fn set_discord_linked(&self, linked: bool) {
+        self.discord_linked.store(linked, Ordering::Relaxed);
+    }
+
+    pub fn is_discord_linked(&self) -> bool {
+        self.discord_linked.load(Ordering::Relaxed)
     }
 
     pub fn take_awaiting_notice_reply(&self, user_id: i32) -> bool {

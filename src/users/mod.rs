@@ -128,6 +128,7 @@ pub struct UsersModule {
     #[cfg(feature = "discord")]
     log_channel: u64,
     whitelist: bool,
+    pub vc_requires_discord: bool,
 
     punish_reasons: PunishReasons,
 }
@@ -192,7 +193,11 @@ impl UsersModule {
             )
             .await?;
 
-        self.db.link_discord_account(account_id, discord_id).await
+        self.db.link_discord_account(account_id, discord_id).await?;
+
+        handle.set_discord_linked(true);
+
+        Ok(())
     }
 
     #[cfg(feature = "discord")]
@@ -1026,6 +1031,7 @@ impl ServerModule for UsersModule {
             #[cfg(feature = "discord")]
             log_channel: config.mod_log_channel,
             whitelist: config.whitelist,
+            vc_requires_discord: config.vc_requires_discord_link,
             punish_reasons: config.punishment_reasons.clone(),
         })
     }

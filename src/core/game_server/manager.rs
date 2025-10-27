@@ -197,6 +197,7 @@ impl GameServerManager {
         &self,
         server_id: u8,
         account_id: i32,
+        can_use_qc: bool,
         can_use_voice: bool,
     ) -> Result<(), GameServerError> {
         let servers = self.servers.load();
@@ -209,6 +210,7 @@ impl GameServerManager {
             let mut notif = msg.init_notify_user_data();
             notif.set_account_id(account_id);
             notif.set_can_use_voice(can_use_voice);
+            notif.set_can_use_quick_chat(can_use_qc);
             notif.set_is_banned(false);
         })?;
 

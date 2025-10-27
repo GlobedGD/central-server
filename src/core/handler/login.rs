@@ -181,6 +181,7 @@ impl ConnectionHandler {
 
             client.set_active_punishments(user.active_mute, user.active_room_ban);
             client.set_admin_password_hash(user.admin_password_hash);
+            client.set_discord_linked(user.discord_id.is_some());
         } else {
             client.set_role(users.compute_from_roles(data.account_id, std::iter::empty()));
         }

@@ -99,6 +99,8 @@ pub struct Config {
     pub script_sign_key: String,
     #[serde(default)]
     pub whitelist: bool,
+    #[serde(default)]
+    pub vc_requires_discord_link: bool,
 
     /// Where logs are sent on Discord, requires `discord` feature and module to be enabled.
     #[serde(default)]
@@ -127,6 +129,7 @@ impl Default for Config {
             super_admins: default_super_admins(),
             script_sign_key: default_script_sign_key(),
             whitelist: false,
+            vc_requires_discord_link: false,
             mod_log_channel: Default::default(),
             punishment_reasons: PunishReasons::default(),
         }
