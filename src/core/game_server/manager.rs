@@ -4,7 +4,7 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
-use qunet::{
+use server_shared::qunet::{
     message::{BufferKind, channel},
     server::{ServerHandle, WeakServerHandle, client::ClientState},
 };

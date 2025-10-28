@@ -15,7 +15,7 @@ mod manager;
 mod room;
 mod settings;
 pub use manager::{RoomCreationError, RoomManager};
-use qunet::server::ServerHandle;
+use server_shared::qunet::server::ServerHandle;
 pub use room::{ClientRoomHandle, Room};
 use serde::{Deserialize, Serialize};
 pub use server_shared::SessionId;

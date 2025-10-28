@@ -6,7 +6,7 @@ use std::{
     },
 };
 
-use qunet::{
+use server_shared::qunet::{
     message::MsgData,
     server::{
         Server as QunetServer, ServerHandle as QunetServerHandle, WeakServerHandle,

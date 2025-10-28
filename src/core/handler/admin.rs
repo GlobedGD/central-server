@@ -1,6 +1,6 @@
 use std::{fmt::Display, sync::Arc};
 
-use qunet::{buffers::ByteWriter, message::BufferKind};
+use server_shared::qunet::{buffers::ByteWriter, message::BufferKind};
 use server_shared::SessionId;
 use thiserror::Error;
 

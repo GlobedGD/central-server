@@ -4,15 +4,15 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
-use qunet::server::{ServerHandle, WeakServerHandle};
+use server_shared::qunet::server::{ServerHandle, WeakServerHandle};
 use smallvec::SmallVec;
 use tracing::{debug, error, info, warn};
 
 use crate::{
     core::{
+        gd_api::{GDApiClient, GDUser},
         handler::ConnectionHandler,
         module::{ConfigurableModule, ModuleInitResult, ServerModule},
-        gd_api::{GDApiClient, GDUser}
     },
     users::UsersModule,
 };
@@ -33,7 +33,7 @@ pub struct CreditsModule {
     config_categories: Vec<config::CreditsCategory>,
     cache: ArcSwap<Option<CategoryVec>>,
     server: OnceLock<WeakServerHandle<ConnectionHandler>>,
-    client: GDApiClient
+    client: GDApiClient,
 }
 
 impl CreditsModule {
@@ -124,7 +124,7 @@ impl ServerModule for CreditsModule {
             config_categories: config.credits_categories.clone(),
             cache: ArcSwap::new(Arc::new(None)),
             server: OnceLock::new(),
-            client: GDApiClient::default()
+            client: GDApiClient::default(),
         })
     }
 

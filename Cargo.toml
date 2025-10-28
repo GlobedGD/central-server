@@ -16,9 +16,8 @@ futures-util = "0.3.31"
 heapless = "0.8.0"
 hex = "0.4.3"
 parking_lot = { version = "0.12.4", features = ["send_guard"] }
-qunet = { git = "https://github.com/dankmeme01/qunet", rev = "2a21e24" }
 rand = "0.9.1"
-server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "5e66097", features = [
+server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "13bfbde", features = [
     "main",
     "srvc",
 ] }
@@ -66,5 +65,5 @@ tikv-jemalloc-ctl = "0.5"
 featured-levels = ["dep:google-sheets4"]
 default = []
 discord = ["dep:poise"]
-quic = ["qunet/quic"]
+quic = ["server-shared/quic"]
 all = ["discord", "quic", "featured-levels"]

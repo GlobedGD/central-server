@@ -8,7 +8,7 @@ use std::{
 
 use dashmap::DashMap;
 use parking_lot::Mutex;
-use qunet::{
+use server_shared::qunet::{
     buffers::BufPool,
     message::{BufferKind, MsgData},
     server::{

@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use poise::{CreateReply, ReplyHandle, serenity_prelude as serenity};
-use qunet::server::Server;
+use server_shared::qunet::server::Server;
 use thiserror::Error;
 
 use crate::{

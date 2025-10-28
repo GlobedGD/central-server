@@ -1,4 +1,4 @@
-use qunet::server::ServerHandle;
+use server_shared::qunet::server::ServerHandle;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::core::handler::ConnectionHandler;

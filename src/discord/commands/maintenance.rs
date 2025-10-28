@@ -5,7 +5,7 @@ use std::{
 
 use build_time::build_time_utc;
 use poise::{CreateReply, serenity_prelude::CreateEmbed};
-use qunet::server::ServerHandle;
+use server_shared::qunet::server::ServerHandle;
 
 use super::util::*;
 use crate::{

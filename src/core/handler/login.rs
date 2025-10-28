@@ -1,7 +1,7 @@
 use std::{borrow::Cow, sync::Arc};
 
 use crypto_secretbox::{KeyInit, aead::AeadMutInPlace};
-use qunet::buffers::{ByteReader, ByteReaderError, ByteWriter};
+use server_shared::qunet::buffers::{ByteReader, ByteReaderError, ByteWriter};
 use server_shared::{UserSettings, data::PlayerIconData, schema::main::LoginFailedReason};
 use thiserror::Error;
 

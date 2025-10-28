@@ -1,5 +1,5 @@
 use futures_util::{SinkExt, StreamExt};
-use qunet::{
+use server_shared::qunet::{
     buffers::{ByteReader, ByteReaderError, ByteWriter},
     message::channel,
 };

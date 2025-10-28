@@ -1,6 +1,6 @@
 use std::{num::NonZeroI64, sync::Arc};
 
-use qunet::{buffers::ByteWriter, message::BufferKind};
+use server_shared::qunet::{buffers::ByteWriter, message::BufferKind};
 use rand::seq::IteratorRandom;
 
 use crate::{

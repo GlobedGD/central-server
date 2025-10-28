@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use poise::serenity_prelude as serenity;
-use qunet::server::ServerHandle;
+use server_shared::qunet::server::ServerHandle;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use tracing::{error, warn};

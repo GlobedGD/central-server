@@ -1,7 +1,7 @@
 use std::sync::{Arc, Weak};
 
 pub use crate::core::data;
-pub use qunet::server::client::ClientState;
+pub use server_shared::qunet::server::client::ClientState;
 pub use tracing::{debug, error, info, trace, warn};
 
 use super::ConnectionHandler;

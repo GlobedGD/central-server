@@ -8,7 +8,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use qunet::server::ServerHandle;
+use server_shared::qunet::server::ServerHandle;
 use tracing::{debug, error, info};
 
 use crate::{

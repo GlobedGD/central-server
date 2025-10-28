@@ -6,7 +6,7 @@ use std::{
 use super::serenity::{self, ChannelId, Context, CreateMessage, UserId};
 use dashmap::DashMap;
 use poise::serenity_prelude::Member;
-use qunet::server::{ServerHandle, WeakServerHandle};
+use server_shared::qunet::server::{ServerHandle, WeakServerHandle};
 use thiserror::Error;
 use tokio::sync::{RwLock, oneshot};
 use tracing::{debug, info};

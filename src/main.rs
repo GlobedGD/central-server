@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use qunet::server::{
+use server_shared::qunet::server::{
     Server as QunetServer, ServerOutcome,
     builder::{BufferPoolOpts, MemoryUsageOptions, UdpDiscoveryMode},
 };
