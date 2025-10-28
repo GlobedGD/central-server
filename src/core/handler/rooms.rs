@@ -1,7 +1,7 @@
 use std::{num::NonZeroI64, sync::Arc};
 
-use server_shared::qunet::{buffers::ByteWriter, message::BufferKind};
 use rand::seq::IteratorRandom;
+use server_shared::qunet::{buffers::ByteWriter, message::BufferKind};
 
 use crate::{
     auth::ClientAccountData,
@@ -32,6 +32,20 @@ impl ConnectionHandler {
         if !self.game_server_manager.has_server(server_id) {
             return self
                 .send_room_create_failed(client, data::RoomCreateFailedReason::InvalidServer);
+        }
+
+        // check if the name is a-ok
+        #[cfg(feature = "word-filter")]
+        {
+            use crate::word_filter::WordFilterModule;
+            let bad = self.opt_module::<WordFilterModule>().is_some_and(|wf| !wf.is_allowed(name));
+
+            if bad {
+                return self.send_room_create_failed(
+                    client,
+                    data::RoomCreateFailedReason::InappropriateName,
+                );
+            }
         }
 
         let new_room = match rooms

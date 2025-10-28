@@ -5,7 +5,8 @@
     const_result_trait_fn,
     try_blocks,
     iter_array_chunks,
-    if_let_guard
+    if_let_guard,
+    string_remove_matches
 )]
 #![allow(clippy::new_without_default, clippy::collapsible_if, clippy::too_many_arguments)]
 
@@ -20,8 +21,6 @@ use server_shared::config::parse_addr;
 use server_shared::logging::WorkerGuard;
 use tracing::{debug, error};
 
-#[cfg(feature = "featured-levels")]
-use crate::features::FeaturesModule;
 use crate::{
     auth::AuthModule,
     core::{
@@ -46,12 +45,15 @@ static GLOBAL: Jemalloc = Jemalloc;
 pub mod auth;
 pub mod core;
 pub mod credits;
+pub mod rooms;
+pub mod users;
+
 #[cfg(feature = "discord")]
 pub mod discord;
 #[cfg(feature = "featured-levels")]
 pub mod features;
-pub mod rooms;
-pub mod users;
+#[cfg(feature = "word-filter")]
+pub mod word_filter;
 
 fn setup_logger(config: &CoreConfig) -> (WorkerGuard, WorkerGuard) {
     server_shared::logging::setup_logger(
@@ -111,7 +113,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Add more optional modules
     #[cfg(feature = "featured-levels")]
-    init_module::<FeaturesModule>(&handler).await;
+    init_module::<features::FeaturesModule>(&handler).await;
+
+    #[cfg(feature = "word-filter")]
+    init_module::<word_filter::WordFilterModule>(&handler).await;
 
     // Freeze handler, this disallows adding new modules and module configs,
     // but improves performance by removing the need for locks.

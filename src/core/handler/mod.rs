@@ -8,6 +8,7 @@ use std::{
 
 use dashmap::DashMap;
 use parking_lot::Mutex;
+use rustc_hash::FxHashSet;
 use server_shared::qunet::{
     buffers::BufPool,
     message::{BufferKind, MsgData},
@@ -16,7 +17,6 @@ use server_shared::qunet::{
         app_handler::{AppHandler, AppResult},
     },
 };
-use rustc_hash::FxHashSet;
 use server_shared::{
     TypeMap, UserSettings,
     data::{GameServerData, PlayerIconData},
