@@ -91,7 +91,7 @@ fn default_gs_tcp_address() -> Option<String> {
 }
 
 fn default_gs_quic_address() -> Option<String> {
-    Some("[::]:4343".into())
+    None
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

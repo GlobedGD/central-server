@@ -189,13 +189,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut builder =
         QunetServer::builder().with_memory_options(make_memory_limits(3)).with_app_handler(handler);
 
-    if let Some(addr) = &core.gs_tcp_address {
+    if let Some(addr) = &core.gs_tcp_address
+        && !addr.is_empty()
+    {
         builder = builder.with_tcp(parse_addr(addr, "gs_tcp_address"));
     }
 
     #[cfg(feature = "quic")]
     {
-        if let Some(addr) = &core.gs_quic_address {
+        if let Some(addr) = &core.gs_quic_address
+            && !addr.is_empty()
+        {
             builder = builder.with_quic(
                 parse_addr(addr, "gs_quic_address"),
                 &core.quic_tls_cert,

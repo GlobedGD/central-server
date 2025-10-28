@@ -48,6 +48,11 @@ impl ServerModule for WordFilterModule {
     fn on_launch(&self, server: &ServerHandle<ConnectionHandler>) {
         // watch the word filter file for changes
         let wpath = self.path.clone();
+        if !wpath.exists() {
+            // don't watch :)
+            return;
+        }
+
         let this = server.handler().opt_module_owned::<Self>().unwrap();
 
         tokio::spawn(async move {
