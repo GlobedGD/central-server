@@ -1,7 +1,9 @@
 use std::{fmt::Display, sync::Arc};
 
-use server_shared::qunet::{buffers::ByteWriter, message::BufferKind};
-use server_shared::SessionId;
+use server_shared::{
+    SessionId,
+    qunet::{buffers::ByteWriter, message::BufferKind},
+};
 use thiserror::Error;
 
 use crate::{
@@ -187,9 +189,12 @@ impl ConnectionHandler {
         can_reply: bool,
         show_sender: bool,
     ) -> HandlerResult<()> {
+        let multi_notice = room_id != 0 || level_id != 0;
+
+        // sending notices to multiple people in the global room requires NoticeEveryone permission
         self.must_be_able(
             client,
-            if room_id == 0 {
+            if multi_notice && room_id == 0 {
                 ActionType::NoticeEveryone
             } else {
                 ActionType::Notice
