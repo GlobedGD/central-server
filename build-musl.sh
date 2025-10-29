@@ -1,2 +1,2 @@
 #!/bin/bash
-cargo build --release --target=x86_64-unknown-linux-musl
+cargo build --release --features all --target=x86_64-unknown-linux-musl
