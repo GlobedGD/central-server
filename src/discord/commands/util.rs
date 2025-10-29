@@ -31,42 +31,31 @@ pub async fn edit_message(
 //         .is_some_and(|x| x.permissions.is_some_and(|x| x.ban_members() || x.manage_roles())))
 // }
 
-pub async fn check_admin(ctx: Context<'_>) -> Result<Option<DbUser>, BotError> {
+pub async fn check_admin(ctx: Context<'_>) -> Result<DbUser, BotError> {
     check_linked_and_roles(ctx, |r| r.can_set_password).await
 }
 
-pub async fn check_moderator(ctx: Context<'_>) -> Result<Option<DbUser>, BotError> {
+pub async fn check_moderator(ctx: Context<'_>) -> Result<DbUser, BotError> {
     check_linked_and_roles(ctx, |r| r.can_moderate()).await
 }
 
 pub async fn check_linked_and(
     ctx: Context<'_>,
     f: impl FnOnce(&DbUser) -> bool,
-) -> Result<Option<DbUser>, BotError> {
+) -> Result<DbUser, BotError> {
     let state = ctx.data();
     let server = state.server()?;
 
     match get_linked_gd_user(ctx, &server).await? {
-        Some(user) => {
-            if f(&user) {
-                Ok(Some(user))
-            } else {
-                ctx.reply(":x: No permission.").await?;
-                Ok(None)
-            }
-        }
-
-        None => {
-            ctx.reply(":x: No permission. (account not linked)").await?;
-            Ok(None)
-        }
+        Some(user) => f(&user).then_some(user).ok_or(BotError::NoPermission),
+        None => Err(BotError::NoPermission),
     }
 }
 
 pub async fn check_linked_and_roles(
     ctx: Context<'_>,
     f: impl FnOnce(&ComputedRole) -> bool,
-) -> Result<Option<DbUser>, BotError> {
+) -> Result<DbUser, BotError> {
     let state = ctx.data();
     let server = state.server()?;
 

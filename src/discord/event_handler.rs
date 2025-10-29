@@ -39,6 +39,11 @@ pub async fn on_error(error: poise::FrameworkError<'_, Arc<BotState>, BotError>)
     match error {
         poise::FrameworkError::Setup { error, .. } => warn!("Failed to start bot: {:?}", error),
         poise::FrameworkError::Command { error, ctx, .. } => {
+            if let BotError::NoPermission = error {
+                let _ = ctx.reply(":x: No permission.").await;
+                return;
+            }
+
             warn!("Command '{}' errored: {error}", ctx.command().name);
             let _ = ctx.reply(format!(":x: Command failed due to internal error. Please report this to the developer.\n\nError: {error}")).await;
         }

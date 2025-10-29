@@ -33,9 +33,7 @@ pub async fn punish(
     #[description = "Punishment duration (i.e. \"1 year\", \"2 days\"); use \"permanent\" or \"perma\" for permanent punishments."]
     duration_str: String,
 ) -> Result<(), BotError> {
-    let Some(user) = check_moderator(ctx).await? else {
-        return Ok(());
-    };
+    let user = check_moderator(ctx).await?;
 
     let server = ctx.data().server()?;
     let users = server.handler().module::<UsersModule>();
@@ -92,9 +90,7 @@ pub async fn unpunish(
     punishment_type: String,
     #[description = "Geometry Dash username or ID"] target_user: String,
 ) -> Result<(), BotError> {
-    let Some(user) = check_moderator(ctx).await? else {
-        return Ok(());
-    };
+    let user = check_moderator(ctx).await?;
 
     let server = ctx.data().server()?;
     let users = server.handler().module::<UsersModule>();
@@ -190,9 +186,7 @@ async fn audit_log_embed(
 
 #[poise::command(slash_command, guild_only = true)]
 pub async fn audit_log(ctx: Context<'_>) -> Result<(), BotError> {
-    let Some(user) = check_moderator(ctx).await? else {
-        return Ok(());
-    };
+    let user = check_moderator(ctx).await?;
 
     let server = ctx.data().server()?;
     let users = server.handler().module::<UsersModule>();

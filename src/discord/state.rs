@@ -45,6 +45,8 @@ pub enum BotError {
     NoContext,
     #[error("Invalid channel ID given")]
     InvalidChannel,
+    #[error("No permission")]
+    NoPermission,
     #[error("{0}")]
     Serenity(#[from] Box<serenity::Error>),
     #[error("Database error: {0}")]

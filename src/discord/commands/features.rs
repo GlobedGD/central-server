@@ -75,9 +75,7 @@ async fn send_inner(
     queue: bool,
 ) -> Result<(), BotError> {
     let has_perm = |r: &ComputedRole| if queue { r.can_rate_features } else { r.can_send_features };
-    let Some(user) = check_linked_and_roles(ctx, has_perm).await? else {
-        return Ok(());
-    };
+    let user = check_linked_and_roles(ctx, has_perm).await?;
 
     let server = ctx.data().server()?;
 
