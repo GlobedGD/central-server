@@ -802,7 +802,9 @@ impl UsersModule {
             {
                 match self.convert_to_discord_log(log, issuer_id).await {
                     Ok(msg) => {
-                        d.send_message(self.log_channel, msg);
+                        if msg.content.is_some() || !msg.embeds.is_empty() {
+                            d.send_message(self.log_channel, msg);
+                        }
                     }
 
                     Err(e) => {

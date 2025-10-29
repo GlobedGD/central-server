@@ -256,7 +256,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn init_module<T: ServerModule + ConfigurableModule>(handler: &ConnectionHandler) -> Arc<T> {
-    init_optional_module(handler, |_| true).await.expect("cannot happen")
+    init_optional_module(handler, |_| true).await.expect("module initialization failed")
 }
 
 async fn init_optional_module<T: ServerModule + ConfigurableModule>(
