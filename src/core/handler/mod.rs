@@ -262,10 +262,13 @@ impl AppHandler for ConnectionHandler {
                 self.handle_request_room_players(client, &name_filter).await
             },
 
-            RequestRoomList(_message) => {
+            RequestRoomList(msg) => {
+                let name_filter = heapless_str_from_reader::<32>(msg.get_name_filter()?)?;
+                let page = msg.get_page();
+
                 unpacked_data.reset(); // free up memory
 
-                self.handle_request_room_list(client)
+                self.handle_request_room_list(client, &name_filter, page)
             },
 
             AssignTeam(message) => {

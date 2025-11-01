@@ -443,16 +443,21 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    pub fn handle_request_room_list(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+    pub fn handle_request_room_list(
+        &self,
+        client: &ClientStateHandle,
+        name_filter: &str,
+        page: u32,
+    ) -> HandlerResult<()> {
         must_auth(client)?;
 
+        let filter = if name_filter.is_empty() { None } else { Some(name_filter) };
         let rooms = self.module::<RoomModule>();
 
-        // TODO: filtering
-        // TODO: pagination
-
-        let sorted = rooms.get_top_rooms(0, 100);
-        self.send_room_list(client, &sorted)?;
+        let (sorted, total) = rooms.get_top_rooms(page as usize * 100, 100, |r| {
+            filter.is_none_or(|n| username_match(&r.name, n))
+        });
+        self.send_room_list(client, &sorted, page, total as u32)?;
 
         Ok(())
     }
@@ -822,7 +827,13 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    fn send_room_list(&self, client: &ClientStateHandle, rooms: &[Arc<Room>]) -> HandlerResult<()> {
+    fn send_room_list(
+        &self,
+        client: &ClientStateHandle,
+        rooms: &[Arc<Room>],
+        page: u32,
+        total_rooms: u32,
+    ) -> HandlerResult<()> {
         let cap = 64
             + rooms
                 .iter()
@@ -839,7 +850,9 @@ impl ConnectionHandler {
         debug!("encoding {} rooms, cap: {}", rooms.len(), cap);
 
         let buf = data::encode_message_heap!(self, cap, msg => {
-            let room_list = msg.reborrow().init_room_list();
+            let mut room_list = msg.reborrow().init_room_list();
+            room_list.set_page(page as u16);
+            room_list.set_total(total_rooms);
             let mut enc_rooms = room_list.init_rooms(rooms.len() as u32);
 
             for (i, room) in rooms.iter().enumerate() {

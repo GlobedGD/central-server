@@ -15,10 +15,10 @@ mod manager;
 mod room;
 mod settings;
 pub use manager::{RoomCreationError, RoomManager};
-use server_shared::qunet::server::ServerHandle;
 pub use room::{ClientRoomHandle, Room};
 use serde::{Deserialize, Serialize};
 pub use server_shared::SessionId;
+use server_shared::qunet::server::ServerHandle;
 pub use settings::RoomSettings;
 
 pub struct RoomModule {
@@ -172,9 +172,24 @@ impl RoomModule {
         Some(out)
     }
 
-    pub fn get_top_rooms(&self, skip: usize, count: usize) -> Vec<Arc<Room>> {
+    pub fn get_top_rooms(
+        &self,
+        skip: usize,
+        count: usize,
+        filter: impl Fn(&Room) -> bool,
+    ) -> (Vec<Arc<Room>>, usize) {
         let sorted = self.manager.lock_sorted();
-        sorted.iter().rev().skip(skip).take(count).map(|x| x.1.clone()).collect()
+        (
+            sorted
+                .iter()
+                .rev()
+                .filter(|x| filter(&x.1))
+                .skip(skip)
+                .take(count)
+                .map(|x| x.1.clone())
+                .collect(),
+            sorted.len(),
+        )
     }
 
     pub async fn cleanup_player(&self, client: &ClientStateHandle, gsm: &GameServerManager) {
