@@ -652,6 +652,15 @@ impl ConnectionHandler {
         self.all_levels.len()
     }
 
+    pub fn override_level_hidden(&self, session: u64, hidden: bool) -> bool {
+        if let Some(mut ent) = self.all_levels.get_mut(&session) {
+            ent.is_hidden = hidden;
+            true
+        } else {
+            false
+        }
+    }
+
     // Handling of game servers.
 
     pub fn get_game_servers(&self) -> Arc<Vec<StoredGameServer>> {

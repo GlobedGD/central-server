@@ -12,7 +12,44 @@ use crate::{
     core::handler::ConnectionHandler,
     discord::{BotError, hex_color_to_decimal},
     rooms::RoomModule,
+    users::UsersModule,
 };
+
+#[poise::command(slash_command, guild_only = true)]
+/// Refresh internal blacklist cache
+pub async fn refresh_blacklist_cache(ctx: Context<'_>) -> Result<(), BotError> {
+    check_admin(ctx).await?;
+
+    let state = ctx.data();
+    let server = state.server()?;
+    server.handler().module::<UsersModule>().refresh_blacklist_cache().await?;
+
+    ctx.reply("✅ Cache refreshed.").await?;
+
+    Ok(())
+}
+
+#[poise::command(slash_command, guild_only = true)]
+/// Change whether a level should be blacklisted at runtime
+pub async fn set_level_blacklisted(
+    ctx: Context<'_>,
+    session: u64,
+    blacklist: bool,
+) -> Result<(), BotError> {
+    check_admin(ctx).await?;
+
+    let state = ctx.data();
+    let server = state.server()?;
+    let result = server.handler().override_level_hidden(session, blacklist);
+
+    if result {
+        ctx.reply("✅ Success").await?;
+    } else {
+        ctx.reply(":x: Session ID was not found").await?;
+    }
+
+    Ok(())
+}
 
 #[poise::command(slash_command, guild_only = true)]
 /// Show server status

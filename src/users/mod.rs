@@ -1,4 +1,4 @@
-use std::{cmp::Reverse, collections::HashSet, fmt::Write, num::NonZeroI64};
+use std::{cmp::Reverse, collections::HashSet, fmt::Write, num::NonZeroI64, time::Duration};
 
 #[cfg(feature = "discord")]
 use {
@@ -23,8 +23,9 @@ use crate::{
     },
 };
 
+use arc_swap::ArcSwap;
 use rustc_hash::FxHashSet;
-use server_shared::MultiColor;
+use server_shared::{MultiColor, qunet::server::ServerHandle};
 
 mod config;
 pub mod database;
@@ -36,7 +37,7 @@ use database::UsersDb;
 pub use database::{DatabaseError, DatabaseResult, DbUser, UserPunishment, UserPunishmentType};
 use smallvec::SmallVec;
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Error, Debug)]
 pub enum PunishUserError {
@@ -132,8 +133,8 @@ pub struct UsersModule {
     pub vc_requires_discord: bool,
 
     punish_reasons: PunishReasons,
-    blacklisted_authors: FxHashSet<i32>,
-    blacklisted_levels: FxHashSet<i32>,
+    blacklisted_authors: ArcSwap<FxHashSet<i32>>,
+    blacklisted_levels: ArcSwap<FxHashSet<i32>>,
 }
 
 impl UsersModule {
@@ -994,11 +995,21 @@ impl UsersModule {
     }
 
     pub fn is_level_blacklisted(&self, level_id: i32) -> bool {
-        self.blacklisted_levels.contains(&level_id)
+        self.blacklisted_levels.load().contains(&level_id)
     }
 
     pub fn is_author_blacklisted(&self, author_id: i32) -> bool {
-        self.blacklisted_authors.contains(&author_id)
+        self.blacklisted_authors.load().contains(&author_id)
+    }
+
+    pub async fn refresh_blacklist_cache(&self) -> DatabaseResult<()> {
+        let levels = self.db.fetch_blacklisted_levels().await?.into_iter().collect();
+        let authors = self.db.fetch_blacklisted_authors().await?.into_iter().collect();
+
+        self.blacklisted_levels.store(Arc::new(levels));
+        self.blacklisted_authors.store(Arc::new(authors));
+
+        Ok(())
     }
 }
 
@@ -1034,8 +1045,8 @@ impl ServerModule for UsersModule {
         let _ = handler;
 
         // load blacklisted levels and authors
-        let blacklisted_levels = db.fetch_blacklisted_levels().await?.into_iter().collect();
-        let blacklisted_authors = db.fetch_blacklisted_authors().await?.into_iter().collect();
+        let levels = db.fetch_blacklisted_levels().await?.into_iter().collect();
+        let authors = db.fetch_blacklisted_authors().await?.into_iter().collect();
 
         Ok(Self {
             db,
@@ -1050,9 +1061,17 @@ impl ServerModule for UsersModule {
             whitelist: config.whitelist,
             vc_requires_discord: config.vc_requires_discord_link,
             punish_reasons: config.punishment_reasons.clone(),
-            blacklisted_authors,
-            blacklisted_levels,
+            blacklisted_authors: ArcSwap::new(Arc::new(authors)),
+            blacklisted_levels: ArcSwap::new(Arc::new(levels)),
         })
+    }
+
+    fn on_launch(&self, server: &ServerHandle<ConnectionHandler>) {
+        server.schedule(Duration::from_hours(12), async move |server| {
+            if let Err(e) = server.handler().module::<Self>().refresh_blacklist_cache().await {
+                error!("Failed to refresh blacklist cache: {e}");
+            }
+        });
     }
 
     fn id() -> &'static str {
