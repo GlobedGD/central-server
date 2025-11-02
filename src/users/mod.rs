@@ -23,6 +23,7 @@ use crate::{
     },
 };
 
+use rustc_hash::FxHashSet;
 use server_shared::MultiColor;
 
 mod config;
@@ -131,6 +132,8 @@ pub struct UsersModule {
     pub vc_requires_discord: bool,
 
     punish_reasons: PunishReasons,
+    blacklisted_authors: FxHashSet<i32>,
+    blacklisted_levels: FxHashSet<i32>,
 }
 
 impl UsersModule {
@@ -989,6 +992,14 @@ impl UsersModule {
     pub fn get_role_id_by_discord_id(&self, id: u64) -> Option<u8> {
         self.discord_role_map.get(&id).copied()
     }
+
+    pub fn is_level_blacklisted(&self, level_id: i32) -> bool {
+        self.blacklisted_levels.contains(&level_id)
+    }
+
+    pub fn is_author_blacklisted(&self, author_id: i32) -> bool {
+        self.blacklisted_authors.contains(&author_id)
+    }
 }
 
 impl ServerModule for UsersModule {
@@ -1022,6 +1033,10 @@ impl ServerModule for UsersModule {
 
         let _ = handler;
 
+        // load blacklisted levels and authors
+        let blacklisted_levels = db.fetch_blacklisted_levels().await?.into_iter().collect();
+        let blacklisted_authors = db.fetch_blacklisted_authors().await?.into_iter().collect();
+
         Ok(Self {
             db,
             roles,
@@ -1035,6 +1050,8 @@ impl ServerModule for UsersModule {
             whitelist: config.whitelist,
             vc_requires_discord: config.vc_requires_discord_link,
             punish_reasons: config.punishment_reasons.clone(),
+            blacklisted_authors,
+            blacklisted_levels,
         })
     }
 

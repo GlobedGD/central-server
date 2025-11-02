@@ -636,6 +636,14 @@ impl UsersDb {
 
         Ok(())
     }
+
+    pub async fn fetch_blacklisted_levels(&self) -> DatabaseResult<Vec<i32>> {
+        Ok(BlacklistedLevel::find().all(&self.conn).await?.into_iter().map(|x| x.id).collect())
+    }
+
+    pub async fn fetch_blacklisted_authors(&self) -> DatabaseResult<Vec<i32>> {
+        Ok(BlacklistedAuthor::find().all(&self.conn).await?.into_iter().map(|x| x.id).collect())
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

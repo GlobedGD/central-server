@@ -51,7 +51,8 @@ fn collect_clients_stats(server: &ServerHandle<ConnectionHandler>) -> CreateEmbe
             ),
             false,
         )
-        .field("Rooms", rooms.get_room_count().to_string(), false)
+        .field("Rooms", rooms.get_room_count().to_string(), true)
+        .field("Levels", server.handler().level_count().to_string(), true)
 }
 
 fn collect_perf_stats(server: &ServerHandle<ConnectionHandler>) -> CreateEmbed {

@@ -46,6 +46,11 @@ mod util;
 use util::*;
 pub use util::{ClientState, ClientStateHandle, WeakClientStateHandle};
 
+struct LevelEntry {
+    player_count: u32,
+    is_hidden: bool,
+}
+
 pub struct ConnectionHandler {
     modules: TypeMap,
     module_list: Mutex<Vec<Arc<dyn ServerModule>>>,
@@ -55,7 +60,7 @@ pub struct ConnectionHandler {
     config: Config,
 
     all_clients: DashMap<i32, WeakClientStateHandle>,
-    player_counts: DashMap<u64, usize>,
+    all_levels: DashMap<u64, LevelEntry>,
 }
 
 impl AppHandler for ConnectionHandler {
@@ -77,8 +82,13 @@ impl AppHandler for ConnectionHandler {
             info!(" - Authorized clients: {}", server.handler().all_clients.len());
             info!(
                 " - Active game sessions: {} (total players: {})",
-                server.handler().player_counts.len(),
-                server.handler().player_counts.iter().map(|mref| *mref.value()).sum::<usize>()
+                server.handler().all_levels.len(),
+                server
+                    .handler()
+                    .all_levels
+                    .iter()
+                    .map(|mref| mref.value().player_count)
+                    .sum::<u32>()
             );
 
             let rooms = server.handler().module::<RoomModule>();
@@ -337,9 +347,10 @@ impl AppHandler for ConnectionHandler {
 
             JoinSession(message) => {
                 let id = message.get_session_id();
+                let author_id = message.get_author_id();
                 unpacked_data.reset(); // free up memory
 
-                self.handle_join_session(client, id).await
+                self.handle_join_session(client, id, author_id).await
             },
 
             LeaveSession(_message) => {
@@ -594,7 +605,7 @@ impl ConnectionHandler {
             game_server_manager: GameServerManager::new(),
             config,
             all_clients: DashMap::new(),
-            player_counts: DashMap::new(),
+            all_levels: DashMap::new(),
         }
     }
 
@@ -635,6 +646,10 @@ impl ConnectionHandler {
             .expect("Server not initialized yet")
             .upgrade()
             .expect("Server has shut down")
+    }
+
+    pub fn level_count(&self) -> usize {
+        self.all_levels.len()
     }
 
     // Handling of game servers.

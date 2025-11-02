@@ -53,9 +53,11 @@ impl ConnectionHandler {
         debug_assert!(sessions.len() <= out_vals.capacity());
 
         for &sess in sessions {
-            if let Some(count) = self.player_counts.get(&sess) {
-                let _ = out_vals.push((sess, *count as u16));
-                // TODO: maybe do a zero optimization?
+            if let Some(ent) = self.all_levels.get(&sess)
+                && !ent.is_hidden
+                && ent.player_count > 0
+            {
+                let _ = out_vals.push((sess, ent.player_count as u16));
             }
         }
 

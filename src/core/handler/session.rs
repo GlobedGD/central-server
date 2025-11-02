@@ -1,6 +1,6 @@
 use server_shared::SessionId;
 
-use crate::users::UsersModule;
+use crate::{core::handler::LevelEntry, users::UsersModule};
 
 use super::{ConnectionHandler, util::*};
 
@@ -9,6 +9,7 @@ impl ConnectionHandler {
         &self,
         client: &ClientStateHandle,
         session_id: u64,
+        author_id: i32,
     ) -> HandlerResult<()> {
         must_auth(client)?;
 
@@ -25,7 +26,8 @@ impl ConnectionHandler {
         }
 
         let prev_id = client.set_session_id(session_id.as_u64());
-        self.handle_session_change(client, SessionId::from(prev_id), session_id).await?;
+        self.handle_session_change(client, SessionId::from(prev_id), session_id, Some(author_id))
+            .await?;
 
         Ok(())
     }
@@ -48,7 +50,7 @@ impl ConnectionHandler {
         must_auth(client)?;
 
         let prev_id = client.set_session_id(0);
-        self.handle_session_change(client, SessionId::from(prev_id), SessionId(0)).await?;
+        self.handle_session_change(client, SessionId::from(prev_id), SessionId(0), None).await?;
 
         Ok(())
     }
@@ -60,6 +62,7 @@ impl ConnectionHandler {
         client: &ClientStateHandle,
         prev_session: SessionId,
         new_session: SessionId,
+        new_author: Option<i32>,
     ) -> HandlerResult<()> {
         #[cfg(debug_assertions)]
         trace!(
@@ -69,18 +72,26 @@ impl ConnectionHandler {
             new_session.as_u64()
         );
 
-        if !prev_session.is_zero() {
-            debug_assert!(self.player_counts.contains_key(&prev_session.as_u64()));
+        let users = self.module::<UsersModule>();
 
-            self.player_counts.remove_if_mut(&prev_session.as_u64(), |_, count| {
-                *count -= 1;
-                *count == 0
+        if !prev_session.is_zero() {
+            debug_assert!(self.all_levels.contains_key(&prev_session.as_u64()));
+
+            self.all_levels.remove_if_mut(&prev_session.as_u64(), |_, entry| {
+                entry.player_count -= 1;
+                entry.player_count == 0
             });
         }
 
         if !new_session.is_zero() {
-            let mut ent = self.player_counts.entry(new_session.as_u64()).or_insert(0);
-            *ent += 1;
+            let is_blacklisted = users.is_level_blacklisted(new_session.level_id())
+                || new_author.is_some_and(|x| users.is_author_blacklisted(x));
+
+            let mut ent = self.all_levels.entry(new_session.as_u64()).or_insert(LevelEntry {
+                player_count: 0,
+                is_hidden: is_blacklisted,
+            });
+            ent.player_count += 1;
 
             let users = self.module::<UsersModule>();
             let can_use_qc = client.active_mute.lock().is_none();

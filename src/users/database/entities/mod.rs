@@ -3,6 +3,8 @@
 pub mod prelude;
 
 pub mod audit_log;
+pub mod blacklisted_author;
+pub mod blacklisted_level;
 pub mod punishment;
 pub mod uident;
 pub mod user;
