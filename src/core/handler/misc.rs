@@ -170,6 +170,10 @@ impl ConnectionHandler {
             for (_, p) in iter {
                 let session = p.handle.session_id();
 
+                if self.all_levels.get(&session).is_some_and(|e| e.is_hidden) {
+                    continue;
+                }
+
                 *map.entry(session).or_insert(0u16) += 1;
             }
 
