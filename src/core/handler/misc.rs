@@ -281,7 +281,7 @@ impl ConnectionHandler {
 
         let Some(target) = self.find_client(target_user) else {
             warn!("notice reply target {target_user} not found");
-            self.send_warn(client, "Failed to send notice reply: target not found")?;
+            self.send_warn(client, "Failed to send notice reply: user went offline")?;
             return Ok(());
         };
 
@@ -292,6 +292,11 @@ impl ConnectionHandler {
                 .await;
 
             target.send_data_bufkind(self.make_notice_buf(client, message, false, true, true)?);
+        } else {
+            self.send_warn(
+                client,
+                "Failed to send notice reply: reply expired or user went offline",
+            )?;
         }
 
         Ok(())
