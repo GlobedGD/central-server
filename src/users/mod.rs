@@ -1,4 +1,6 @@
-use std::{cmp::Reverse, collections::HashSet, fmt::Write, num::NonZeroI64, time::Duration};
+use std::{
+    cmp::Reverse, collections::HashSet, fmt::Write, num::NonZeroI64, sync::Arc, time::Duration,
+};
 
 #[cfg(feature = "discord")]
 use {
@@ -7,7 +9,7 @@ use {
         discord::{DiscordMessage, DiscordModule, hex_color_to_decimal},
     },
     poise::serenity_prelude::{CreateEmbed, CreateEmbedAuthor},
-    std::{collections::HashMap, sync::Arc},
+    std::collections::HashMap,
 };
 
 use crate::{

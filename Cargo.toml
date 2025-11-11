@@ -17,7 +17,7 @@ heapless = "0.8.0"
 hex = "0.4.3"
 parking_lot = { version = "0.12.4", features = ["send_guard"] }
 rand = "0.9.1"
-server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "f9670e3", features = [
+server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "2789d38", features = [
     "main",
     "srvc",
 ] }
@@ -64,9 +64,10 @@ tikv-jemallocator = "0.5"
 tikv-jemalloc-ctl = "0.5"
 
 [features]
+all = ["discord", "quic", "featured-levels", "word-filter"]
+word-filter = ["dep:aho-corasick", "dep:async-watcher"]
 featured-levels = ["dep:google-sheets4"]
 default = []
 discord = ["dep:poise"]
 quic = ["server-shared/quic"]
-all = ["discord", "quic", "featured-levels", "word-filter"]
-word-filter = ["dep:aho-corasick", "dep:async-watcher"]
+stat-tracking = []

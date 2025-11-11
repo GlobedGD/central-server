@@ -10,3 +10,4 @@ Cargo.lock
 
 *.sqlite
 .google.json
+.idea

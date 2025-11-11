@@ -1,14 +1,18 @@
+#[cfg(feature = "stat-tracking")]
+use std::path::Path;
 use std::{
     borrow::Cow,
     net::SocketAddr,
     num::NonZeroI64,
     sync::{Arc, OnceLock, Weak},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use rustc_hash::FxHashSet;
+#[cfg(feature = "stat-tracking")]
+use server_shared::qunet::server::stat_tracker::FinishedConnection;
 use server_shared::qunet::{
     buffers::BufPool,
     message::{BufferKind, MsgData},
@@ -103,6 +107,13 @@ impl AppHandler for ConnectionHandler {
             let new_usage = pool.stats().total_heap_usage;
 
             info!("Shrinking buffer pool to reclaim memory: {} -> {} bytes", prev_usage, new_usage);
+        });
+
+        #[cfg(feature = "stat-tracking")]
+        server.schedule(Duration::from_hours(24), |server| async move {
+            if let Some(t) = server.stat_tracker() {
+                t.clear_past_older_than(Duration::from_hours(12));
+            }
         });
 
         for module in self.module_list.lock().iter() {
@@ -594,6 +605,34 @@ impl AppHandler for ConnectionHandler {
             }
         }
     }
+
+    #[cfg(feature = "stat-tracking")]
+    async fn on_sigusr1(&self, server: &QunetServer<Self>) {
+        let Some(st) = server.stat_tracker() else {
+            return;
+        };
+
+        let conns = st.take_all_past();
+        let base_dir = std::env::current_dir().unwrap().join("conn-dumps");
+
+        info!("Received SIGUSR1, dumping {} connections", conns.len());
+
+        for conn in conns {
+            // dump connection data
+            let time_str = format_systime(conn.creation);
+            let dir = base_dir.join(format!("{}-{}", time_str, conn.id));
+
+            match dump_connection_data(&conn, &dir).await {
+                Ok(()) => {
+                    info!("Dumped connection {} to {:?}", conn.id, dir);
+                }
+
+                Err(e) => {
+                    error!("Failed to dump connection {}: {}", conn.id, e);
+                }
+            }
+        }
+    }
 }
 
 impl ConnectionHandler {
@@ -852,4 +891,59 @@ fn decode_login_data<'a>(
     };
 
     Ok(LoginData { kind, icons, uident, settings })
+}
+
+#[cfg(feature = "stat-tracking")]
+fn format_systime(s: SystemTime) -> String {
+    time_format::strftime_utc(
+        "%Y-%m-%dT%H.%M.%S",
+        time_format::from_system_time(s).unwrap_or_default(),
+    )
+    .unwrap_or_else(|_| "unknown".to_string())
+}
+
+#[cfg(feature = "stat-tracking")]
+fn format_dur(d: Duration) -> String {
+    format!("{:.3}s", d.as_secs_f64())
+}
+
+#[cfg(feature = "stat-tracking")]
+async fn dump_connection_data(conn: &FinishedConnection, dir: &Path) -> std::io::Result<()> {
+    use tokio::{fs, io::AsyncWriteExt};
+
+    fs::create_dir_all(dir).await?;
+    let mut info_file = fs::File::create(dir.join("info.txt")).await?;
+
+    let up_p = conn.packets.iter().filter(|x| x.up).count();
+    let down_p = conn.packets.iter().filter(|x| !x.up).count();
+
+    info_file.write_all(format!(
+        "Connection ID: {}\nAddress: {}\nConnected at: {} (UTC)\nLasted: {:?}\nPackets transferred: {} ({} up, {} down)\n",
+        conn.id,
+        conn.address,
+        format_systime(conn.creation),
+        conn.whole_time,
+        up_p + down_p,
+        up_p,
+        down_p,
+    ).as_bytes()).await?;
+
+    // Dump all packets as separate files
+
+    for (i, pkt) in conn.packets.iter().enumerate() {
+        // format example:
+        // pkt-0-0.001s-up.bin
+        // pkt-1-0.002s-down.bin
+        // this way index is prioritized (e.g. in sorting) but timestamp is also known
+        let filename = format!(
+            "pkt-{}-{}-{}",
+            i,
+            format_dur(pkt.timestamp),
+            if pkt.up { "up" } else { "down" }
+        );
+
+        fs::File::create(dir.join(filename)).await?.write_all(&pkt.data).await?;
+    }
+
+    Ok(())
 }
