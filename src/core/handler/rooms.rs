@@ -6,6 +6,7 @@ use server_shared::qunet::buffers::ByteWriter;
 use crate::{
     auth::ClientAccountData,
     rooms::{Room, RoomCreationError, RoomModule, RoomSettings},
+    users::UsersModule,
 };
 
 use super::{ConnectionHandler, util::*};
@@ -14,17 +15,23 @@ impl ConnectionHandler {
     pub async fn handle_create_room(
         &self,
         client: &ClientStateHandle,
-        name: &str,
+        mut name: &str,
         passcode: u32,
         settings: RoomSettings,
     ) -> HandlerResult<()> {
         must_auth(client)?;
+
+        name = name.trim();
+        if !name.is_ascii() || name.is_empty() {
+            return self.send_room_create_failed(client, data::RoomCreateFailedReason::InvalidName);
+        }
 
         if let Some(p) = client.active_room_ban.lock().as_ref() {
             // user is room banned, don't allow creating rooms
             return self.send_room_banned(client, &p.reason, p.expires_at);
         }
 
+        let users = self.module::<UsersModule>();
         let rooms = self.module::<RoomModule>();
         let server_id = settings.server_id;
 
@@ -32,6 +39,13 @@ impl ConnectionHandler {
         if !self.game_server_manager.has_server(server_id) {
             return self
                 .send_room_create_failed(client, data::RoomCreateFailedReason::InvalidServer);
+        }
+
+        let default_name;
+        // if the user is not allowed to name rooms, override the name with a default one
+        if users.disallow_room_names && client.role().as_ref().is_none_or(|r| !r.can_name_rooms) {
+            default_name = format!("{}'s Room", client.username());
+            name = &default_name;
         }
 
         // check if the name is a-ok

@@ -24,6 +24,8 @@ fn default_script_sign_key() -> String {
     hex::encode(secret_key)
 }
 
+// TODO: reasons
+
 fn default_mute_reasons() -> Vec<String> {
     vec![]
 }
@@ -63,6 +65,8 @@ pub struct Role {
     pub can_send_features: Option<bool>,
     #[serde(default)]
     pub can_rate_features: Option<bool>,
+    #[serde(default)]
+    pub can_name_rooms: Option<bool>,
 }
 
 impl Role {
@@ -101,6 +105,9 @@ pub struct Config {
     pub whitelist: bool,
     #[serde(default)]
     pub vc_requires_discord_link: bool,
+    /// Disallows regular players from being able to name rooms, instead requires them to have the appropriate role permission.
+    #[serde(default)]
+    pub disallow_room_names: bool,
 
     /// Where logs are sent on Discord, requires `discord` feature and module to be enabled.
     #[serde(default)]
@@ -130,6 +137,7 @@ impl Default for Config {
             script_sign_key: default_script_sign_key(),
             whitelist: false,
             vc_requires_discord_link: false,
+            disallow_room_names: false,
             mod_log_channel: Default::default(),
             punishment_reasons: PunishReasons::default(),
         }

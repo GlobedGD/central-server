@@ -291,6 +291,7 @@ impl ConnectionHandler {
             login_ok.set_can_edit_roles(client_role.can_edit_roles);
             login_ok.set_can_send_features(client_role.can_send_features);
             login_ok.set_can_rate_features(client_role.can_rate_features);
+            login_ok.set_can_name_rooms(client_role.can_name_rooms || !users.disallow_room_names);
 
             if let Some(nc) = &client_role.name_color {
                 let mut role_buf = ByteWriter::new(&mut color_buf);

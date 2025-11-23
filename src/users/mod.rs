@@ -92,6 +92,7 @@ pub struct ComputedRole {
     pub can_edit_roles: bool,
     pub can_send_features: bool,
     pub can_rate_features: bool,
+    pub can_name_rooms: bool,
 }
 
 impl ComputedRole {
@@ -132,6 +133,7 @@ pub struct UsersModule {
     #[cfg(feature = "discord")]
     log_channel: u64,
     whitelist: bool,
+    pub disallow_room_names: bool,
     pub vc_requires_discord: bool,
 
     punish_reasons: PunishReasons,
@@ -346,6 +348,7 @@ impl UsersModule {
         let mut can_edit_roles = None;
         let mut can_send_features = None;
         let mut can_rate_features = None;
+        let mut can_name_rooms = None;
 
         let iter = iter.filter_map(|id| self.get_role(id).map(|role| (id, role)));
 
@@ -370,6 +373,7 @@ impl UsersModule {
             apply_permission(&mut can_edit_roles, role.can_edit_roles);
             apply_permission(&mut can_send_features, role.can_send_features);
             apply_permission(&mut can_rate_features, role.can_rate_features);
+            apply_permission(&mut can_name_rooms, role.can_name_rooms);
 
             out_role.priority = role.priority;
             let _ = out_role.roles.push(role_id);
@@ -379,32 +383,28 @@ impl UsersModule {
             }
         }
 
-        out_role.can_mute = can_mute.unwrap_or(false);
-        out_role.can_kick = can_kick.unwrap_or(false);
-        out_role.can_ban = can_ban.unwrap_or(false);
-        out_role.can_set_password = can_set_password.unwrap_or(false);
-        out_role.can_notice_everyone = can_notice_everyone.unwrap_or(false);
-        out_role.can_edit_roles = can_edit_roles.unwrap_or(false);
-        out_role.can_send_features = can_send_features.unwrap_or(false);
-        out_role.can_rate_features = can_rate_features.unwrap_or(false);
+        let mut default = false;
+
+        // super admin has the highest possible priority and perms
+        if self.super_admins.contains(&account_id) {
+            out_role.priority = i32::MAX;
+            default = true;
+        }
+
+        out_role.can_mute = can_mute.unwrap_or(default);
+        out_role.can_kick = can_kick.unwrap_or(default);
+        out_role.can_ban = can_ban.unwrap_or(default);
+        out_role.can_set_password = can_set_password.unwrap_or(default);
+        out_role.can_notice_everyone = can_notice_everyone.unwrap_or(default);
+        out_role.can_edit_roles = can_edit_roles.unwrap_or(default);
+        out_role.can_send_features = can_send_features.unwrap_or(default);
+        out_role.can_rate_features = can_rate_features.unwrap_or(default);
+        out_role.can_name_rooms = can_name_rooms.unwrap_or(default);
 
         // sort roles by priority descending
         out_role.roles.sort_unstable_by_key(|&id| {
             Reverse(self.get_role(id).map_or(i32::MIN, |r| r.priority))
         });
-
-        // super admin has the highest possible priority and perms
-        if self.super_admins.contains(&account_id) {
-            out_role.priority = i32::MAX;
-            out_role.can_kick = true;
-            out_role.can_mute = true;
-            out_role.can_ban = true;
-            out_role.can_set_password = true;
-            out_role.can_notice_everyone = true;
-            out_role.can_edit_roles = true;
-            out_role.can_send_features = true;
-            out_role.can_rate_features = true;
-        }
 
         out_role
     }
@@ -1071,6 +1071,7 @@ impl ServerModule for UsersModule {
             #[cfg(feature = "discord")]
             log_channel: config.mod_log_channel,
             whitelist: config.whitelist,
+            disallow_room_names: config.disallow_room_names,
             vc_requires_discord: config.vc_requires_discord_link,
             punish_reasons: config.punishment_reasons.clone(),
             blacklisted_authors: ArcSwap::new(Arc::new(authors)),
