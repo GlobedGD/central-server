@@ -1,8 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use poise::serenity_prelude as serenity;
-use server_shared::qunet::server::ServerHandle;
 use serde::{Deserialize, Serialize};
+use server_shared::qunet::server::ServerHandle;
 use tokio::task::JoinHandle;
 use tracing::{error, warn};
 
@@ -93,14 +93,15 @@ pub struct Config {
     pub enabled: bool,
     #[serde(default)]
     pub token: String,
-    #[cfg(feature = "discord")]
+    #[serde(default)]
+    pub main_guild_id: u64,
     #[serde(default)]
     pub alert_channel: u64,
 }
 
 impl ServerModule for DiscordModule {
     async fn new(config: &Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
-        let state = Arc::new(BotState::new());
+        let state = Arc::new(BotState::new(config.main_guild_id));
 
         let mut bot = DiscordBot::new(&config.token, state.clone()).await?;
 
@@ -130,6 +131,12 @@ impl ServerModule for DiscordModule {
 
         server.schedule(Duration::from_hours(1), async |server| {
             server.handler().module::<Self>().state.cleanup_link_attempts();
+        });
+
+        server.schedule(Duration::from_hours(24), async |server| {
+            if let Err(e) = server.handler().module::<Self>().state.slow_sync_all().await {
+                error!("Failed to run Discord sync-all: {e}");
+            }
         });
     }
 }

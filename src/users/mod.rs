@@ -179,6 +179,16 @@ impl UsersModule {
     }
 
     #[cfg(feature = "discord")]
+    pub async fn get_all_linked_users(&self) -> DatabaseResult<Vec<DbUser>> {
+        self.db.get_all_linked_users().await
+    }
+
+    #[cfg(not(feature = "discord"))]
+    pub async fn get_all_linked_users(&self) -> DatabaseResult<Vec<DbUser>> {
+        Ok(Vec::new())
+    }
+
+    #[cfg(feature = "discord")]
     pub async fn link_discord_account_online(
         &self,
         handle: &ClientStateHandle,

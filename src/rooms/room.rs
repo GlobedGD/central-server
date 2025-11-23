@@ -2,12 +2,13 @@ use std::{
     ops::Deref,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
 
 use parking_lot::{Mutex, RwLock};
+use server_shared::{SessionId, qunet::message::BufferKind};
 use slab::Slab;
 use smallvec::SmallVec;
 use thiserror::Error;
@@ -71,10 +72,11 @@ pub struct Room {
     pub owner: AtomicI32,
     pub original_owner: i32,
     pub settings: Mutex<RoomSettings>,
+    pub pinned_level: AtomicU64,
     teams: RwLock<SmallVec<[RoomTeam; 8]>>,
     banned: RwLock<SmallVec<[i32; 8]>>,
 
-    invite_tokens: Mutex<SmallVec<[StoredInviteToken; 8]>>,
+    invite_tokens: Mutex<SmallVec<[StoredInviteToken; 4]>>,
     created_at: Instant,
 
     players: RoomPlayerStore,
@@ -97,6 +99,7 @@ impl Room {
             original_owner: owner,
             name,
             settings: Mutex::new(settings),
+            pinned_level: AtomicU64::from(0),
             passcode,
             teams: RwLock::new(SmallVec::from_elem(RoomTeam::new(0xffffffff), 1)),
             banned: RwLock::new(SmallVec::new()),
@@ -176,6 +179,14 @@ impl Room {
 
     pub fn set_settings(&self, settings: RoomSettings) {
         *self.settings.lock() = settings;
+    }
+
+    pub fn set_pinned_level(&self, level: impl Into<SessionId>) {
+        self.pinned_level.store(level.into().as_u64(), Ordering::Relaxed);
+    }
+
+    pub fn pinned_level(&self) -> SessionId {
+        SessionId::from(self.pinned_level.load(Ordering::Relaxed))
     }
 
     async fn remove_player(&self, key: usize) {
@@ -437,6 +448,16 @@ impl Room {
         F: FnOnce(usize, slab::Iter<'_, RoomPlayer>) -> R,
     {
         self.run_sync_read_action(|players| f(players.len(), players.iter()))
+    }
+
+    pub fn send_to_all_sync(&self, buf: BufferKind) {
+        let buf = Arc::new(buf);
+
+        self.with_players_sync(|_, players| {
+            for (_, player) in players {
+                player.handle.send_data_bufkind(BufferKind::Reference(buf.clone()));
+            }
+        });
     }
 
     // Team management

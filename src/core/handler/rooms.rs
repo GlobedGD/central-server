@@ -1,7 +1,7 @@
 use std::{num::NonZeroI64, sync::Arc};
 
 use rand::seq::IteratorRandom;
-use server_shared::qunet::{buffers::ByteWriter, message::BufferKind};
+use server_shared::qunet::buffers::ByteWriter;
 
 use crate::{
     auth::ClientAccountData,
@@ -253,7 +253,7 @@ impl ConnectionHandler {
 
         let buf = if full_room_check {
             let team_count = room.team_count();
-            let cap = 120 + room.name.len() + players_cap + 4 * team_count;
+            let cap = 128 + room.name.len() + players_cap + 4 * team_count;
 
             data::encode_message_heap!(self, cap, msg => {
                 let mut room_state = msg.reborrow().init_room_state();
@@ -262,6 +262,7 @@ impl ConnectionHandler {
                 room_state.set_room_name(&room.name);
                 room_state.set_passcode(room.passcode);
                 room_state.set_player_count(total_player_count as u32);
+                room_state.set_pinned_level(room.pinned_level().as_u64());
 
                 room.settings.lock().encode(room_state.reborrow().init_settings());
 
@@ -787,6 +788,30 @@ impl ConnectionHandler {
         Ok(())
     }
 
+    pub async fn handle_update_pinned_level(
+        &self,
+        client: &ClientStateHandle,
+        id: u64,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let room_lock = client.lock_room();
+
+        let Some(room) = &*room_lock else {
+            return Ok(());
+        };
+
+        if room.owner() != client.account_id() {
+            return Ok(());
+        }
+
+        room.set_pinned_level(id);
+
+        self.notify_pinned_level_updated(room)?;
+
+        Ok(())
+    }
+
     fn notify_teams_updated(&self, room: &Room) -> HandlerResult<()> {
         let buf = room.with_teams(|team_count, teams| {
             let cap = 40 + 4 * team_count;
@@ -799,30 +824,25 @@ impl ConnectionHandler {
                 }
             })
         })?;
-        let buf = Arc::new(buf);
-
-        room.with_players_sync(|_, players| {
-            for (_, player) in players {
-                player.handle.send_data_bufkind(BufferKind::Reference(buf.clone()));
-            }
-        });
+        room.send_to_all_sync(buf);
 
         Ok(())
     }
 
     fn notify_settings_updated(&self, room: &Room) -> HandlerResult<()> {
-        let buf = data::encode_message!(self, 128, msg => {
+        room.send_to_all_sync(data::encode_message!(self, 128, msg => {
             let mut ser = msg.reborrow().init_room_settings_updated();
             room.settings.lock().encode(ser.reborrow().init_settings());
-        })?;
+        })?);
 
-        let buf = Arc::new(buf);
+        Ok(())
+    }
 
-        room.with_players_sync(|_, players| {
-            for (_, player) in players {
-                player.handle.send_data_bufkind(BufferKind::Reference(buf.clone()));
-            }
-        });
+    pub fn notify_pinned_level_updated(&self, room: &Room) -> HandlerResult<()> {
+        room.send_to_all_sync(data::encode_message!(self, 48, msg => {
+            let mut ser = msg.reborrow().init_pinned_level_updated();
+            ser.set_id(room.pinned_level().as_u64());
+        })?);
 
         Ok(())
     }

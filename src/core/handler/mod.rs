@@ -1,18 +1,14 @@
-#[cfg(feature = "stat-tracking")]
-use std::path::Path;
 use std::{
     borrow::Cow,
     net::SocketAddr,
     num::NonZeroI64,
     sync::{Arc, OnceLock, Weak},
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use rustc_hash::FxHashSet;
-#[cfg(feature = "stat-tracking")]
-use server_shared::qunet::server::stat_tracker::FinishedConnection;
 use server_shared::qunet::{
     buffers::BufPool,
     message::{BufferKind, MsgData},
@@ -37,6 +33,12 @@ use crate::{
         module::ServerModule,
     },
     rooms::{RoomModule, RoomSettings},
+};
+
+#[cfg(feature = "stat-tracking")]
+use {
+    server_shared::qunet::server::stat_tracker::FinishedConnection,
+    std::{path::Path, time::SystemTime},
 };
 
 mod admin;
@@ -352,6 +354,13 @@ impl AppHandler for ConnectionHandler {
                 unpacked_data.reset(); // free up memory
 
                 self.handle_invite_player(client, player).await
+            },
+
+            UpdatePinnedLevel(message) => {
+                let id = message.get_id();
+                unpacked_data.reset(); // free up memory
+
+                self.handle_update_pinned_level(client, id).await
             },
 
             //

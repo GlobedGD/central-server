@@ -115,26 +115,28 @@ impl ConnectionHandler {
         }
 
         // if this is a follower room and the owner changed the level, warp all other players
-        let room = client.lock_room(); // this is held across .await but it's fine because it's local to the user
 
-        let do_warp =
-            room.as_ref().is_some_and(|x| x.is_follower() && x.owner() == client.account_id());
+        let room = client.lock_room(); // this is held across .await but it's fine because it's local to the user
+        let Some(room) = room.as_ref() else {
+            return Ok(());
+        };
+
+        let is_owner = room.owner() == client.account_id();
+        let do_warp = is_owner && room.is_follower();
+        let do_update_pinned = is_owner && !room.settings.lock().manual_pinning;
 
         if do_warp {
-            room.as_ref()
-                .unwrap()
-                .with_players(|_, players| {
-                    let buf = data::encode_message!(self, 64, msg => {
-                        let mut warp = msg.reborrow().init_warp_player();
-                        warp.set_session(new_session.as_u64());
-                    })
-                    .expect("failed to encode warp message");
+            let buf = data::encode_message!(self, 64, msg => {
+                let mut warp = msg.reborrow().init_warp_player();
+                warp.set_session(new_session.as_u64());
+            })?;
 
-                    for (_, p) in players {
-                        p.handle.send_data_bufkind(buf.clone_into_small());
-                    }
-                })
-                .await;
+            room.send_to_all_sync(buf);
+        }
+
+        if do_update_pinned {
+            room.set_pinned_level(new_session);
+            self.notify_pinned_level_updated(room)?; 
         }
 
         Ok(())

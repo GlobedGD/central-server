@@ -40,7 +40,17 @@ impl DiscordBot {
                     state.set_ctx(ctx.clone()).await;
 
                     // register commands
-                    poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                    if state.main_guild_id != 0 {
+                        poise::builtins::register_in_guild(
+                            ctx,
+                            &framework.options().commands,
+                            state.main_guild_id.into(),
+                        )
+                        .await?;
+                    } else {
+                        poise::builtins::register_globally(ctx, &framework.options().commands)
+                            .await?;
+                    }
 
                     Ok(state)
                 })

@@ -5,16 +5,19 @@ use std::{
 
 use super::serenity::{self, ChannelId, Context, CreateMessage, UserId};
 use dashmap::DashMap;
-use poise::serenity_prelude::Member;
+use poise::serenity_prelude::{GuildId, Member, RoleId};
 use server_shared::qunet::server::{ServerHandle, WeakServerHandle};
 use thiserror::Error;
-use tokio::sync::{RwLock, oneshot};
-use tracing::{debug, info};
+use tokio::{
+    sync::{RwLock, oneshot},
+    time::MissedTickBehavior,
+};
+use tracing::{debug, info, warn};
 
 use crate::{
     core::handler::ConnectionHandler,
     discord::{DiscordMessage, DiscordUserData},
-    users::{DatabaseError, Error as UsersError, UsersModule},
+    users::{DatabaseError, DbUser, Error as UsersError, UsersModule},
 };
 
 struct LinkAttempt {
@@ -33,10 +36,28 @@ impl LinkAttempt {
     }
 }
 
+pub struct DiscordMemberData {
+    #[allow(unused)]
+    id: UserId,
+    username: String,
+    roles: Vec<RoleId>,
+}
+
+impl DiscordMemberData {
+    pub fn from_discord(m: &Member) -> Self {
+        Self {
+            id: m.user.id,
+            username: m.user.name.clone(),
+            roles: m.roles.clone(),
+        }
+    }
+}
+
 pub struct BotState {
     ctx: RwLock<Option<Context>>,
     server: OnceLock<WeakServerHandle<ConnectionHandler>>,
     link_attempts: DashMap<u64, LinkAttempt>,
+    pub main_guild_id: u64,
 }
 
 #[derive(Error, Debug)]
@@ -77,11 +98,12 @@ impl BotError {
 }
 
 impl BotState {
-    pub fn new() -> Self {
+    pub fn new(main_guild_id: u64) -> Self {
         Self {
             ctx: RwLock::new(None),
             server: OnceLock::new(),
             link_attempts: DashMap::new(),
+            main_guild_id,
         }
     }
 
@@ -139,6 +161,38 @@ impl BotState {
         self.link_attempts.retain(|_, la| la.started_at.elapsed() < Duration::from_mins(1));
     }
 
+    /// Sync all linked users' roles. This will be slow and block for a while.
+    pub async fn slow_sync_all(&self) -> anyhow::Result<()> {
+        let users = self.server()?.handler().module::<UsersModule>().get_all_linked_users().await?;
+
+        // limit to 5 requests per second
+        let mut interval = tokio::time::interval(Duration::from_millis(200));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Burst);
+
+        for user in users {
+            interval.tick().await;
+
+            let discord_id = user.discord_id.expect("returned user didn't have discord id");
+
+            let user_data = match self.get_member_data(discord_id.get()).await {
+                Ok(u) => u,
+                Err(e) => {
+                    warn!("failed to fetch discord user {discord_id}: {e}");
+                    // TODO: if the user was e.g. deleted or left the server, we should unlink this user
+                    // we should not do this upon any error, since then we will accidentally
+                    // unlink everyone during a network outage or similar
+                    continue;
+                }
+            };
+
+            if let Err(e) = self.sync_user_roles_for_dbuser(&user_data, &user).await {
+                warn!("Failed to sync roles for {} ({}): {e}", discord_id, user.account_id);
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn with_ctx<R, E: Into<BotError>>(
         &self,
         f: impl AsyncFnOnce(&Context) -> Result<R, E>,
@@ -194,6 +248,28 @@ impl BotState {
         .await
     }
 
+    /// Note: panics if self.main_guild_id == 0
+    pub async fn get_member_data(&self, id: u64) -> Result<DiscordMemberData, BotError> {
+        let id = UserId::new(id);
+        let guild_id = GuildId::new(self.main_guild_id);
+
+        self.with_ctx::<_, BotError>(async |c| {
+            // scope has to exist here to satisfy Sync of the cache ref
+            {
+                let cached_guild = c.cache.guild(guild_id);
+                let cached = cached_guild.as_ref().and_then(|r| r.members.get(&id));
+
+                if let Some(c) = cached {
+                    return Ok(DiscordMemberData::from_discord(c));
+                }
+            }
+
+            let member = c.http.get_member(guild_id, id).await?;
+            Ok(DiscordMemberData::from_discord(&member))
+        })
+        .await
+    }
+
     pub(super) async fn on_member_updated(
         &self,
         old: Option<&Member>,
@@ -213,11 +289,22 @@ impl BotState {
         let server = self.server().unwrap();
         let users = server.handler().module::<UsersModule>();
 
-        let Some(dbuser) = users.get_linked_discord_inverse(user.user.id.get()).await? else {
+        let Some(db_user) = users.get_linked_discord_inverse(user.user.id.get()).await? else {
             return Err(BotError::custom(
                 "Cannot sync roles, user is not linked to any GD account",
             ));
         };
+
+        self.sync_user_roles_for_dbuser(&DiscordMemberData::from_discord(user), &db_user).await
+    }
+
+    async fn sync_user_roles_for_dbuser(
+        &self,
+        user: &DiscordMemberData,
+        db_user: &DbUser,
+    ) -> Result<Vec<String>, BotError> {
+        let server = self.server().unwrap();
+        let users = server.handler().module::<UsersModule>();
 
         let mut new_roles = Vec::new();
         let mut new_roles_idx = Vec::new();
@@ -231,10 +318,9 @@ impl BotState {
             }
         }
 
-        info!("Syncing roles for {} ({}): {:?}", user.user.name, dbuser.account_id, new_roles);
+        info!("Syncing roles for {} ({}): {:?}", user.username, db_user.account_id, new_roles);
 
-        users.system_set_roles(dbuser.account_id, &new_roles_idx).await?;
-
+        users.system_set_roles(db_user.account_id, &new_roles_idx).await?;
         Ok(new_roles)
     }
 }

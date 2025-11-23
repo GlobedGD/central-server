@@ -15,6 +15,7 @@ pub struct RoomSettings {
     pub level_integrity: bool,
     pub teams: bool,
     pub locked_teams: bool,
+    pub manual_pinning: bool,
 
     pub collision: bool,
     pub two_player_mode: bool,
@@ -33,6 +34,7 @@ impl RoomSettings {
             level_integrity: reader.get_level_integrity(),
             teams: reader.get_teams(),
             locked_teams: reader.get_locked_teams(),
+            manual_pinning: reader.get_manual_pinning(),
 
             collision: reader.get_collision(),
             two_player_mode: reader.get_two_player_mode(),
@@ -50,6 +52,7 @@ impl RoomSettings {
         writer.set_level_integrity(self.level_integrity);
         writer.set_teams(self.teams);
         writer.set_locked_teams(self.locked_teams);
+        writer.set_manual_pinning(self.manual_pinning);
 
         writer.set_collision(self.collision);
         writer.set_two_player_mode(self.two_player_mode);

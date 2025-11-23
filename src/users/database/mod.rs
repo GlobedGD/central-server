@@ -140,6 +140,19 @@ impl UsersDb {
         Ok(())
     }
 
+    #[cfg(feature = "discord")]
+    pub async fn get_all_linked_users(&self) -> DatabaseResult<Vec<DbUser>> {
+        let users =
+            User::find().filter(user::Column::DiscordId.is_not_null()).all(&self.conn).await?;
+
+        let mut out = Vec::with_capacity(users.len());
+        for user in users {
+            out.push(self.post_user_fetch(user).await?);
+        }
+
+        Ok(out)
+    }
+
     pub async fn query_user(&self, query: &str) -> DatabaseResult<Option<DbUser>> {
         // if it's an integer, try fetch by ID
 
