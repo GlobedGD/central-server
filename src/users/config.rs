@@ -47,6 +47,8 @@ pub struct Role {
     #[serde(default)]
     pub name_color: MultiColor,
     #[serde(default)]
+    pub hide: bool,
+    #[serde(default)]
     pub discord_id: u64,
 
     #[serde(default)]

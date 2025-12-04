@@ -273,6 +273,7 @@ impl ConnectionHandler {
                 let mut role_ser = all_roles_ser.reborrow().get(i as u32);
                 role_ser.set_string_id(&role.id);
                 role_ser.set_icon(&role.icon);
+                role_ser.set_hide(role.hide);
 
                 let mut role_buf = ByteWriter::new(&mut color_buf);
                 role.name_color.encode(&mut role_buf);
