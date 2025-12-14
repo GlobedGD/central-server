@@ -60,8 +60,8 @@ aho-corasick = { version = "1.1.4", optional = true }
 async-watcher = { version = "0.3.0", optional = true }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = "0.5"
-tikv-jemalloc-ctl = "0.5"
+tikv-jemallocator = { version = "0.6.0", optional = true }
+tikv-jemalloc-ctl = { version = "0.6.0", optional = true }
 
 [features]
 all = ["discord", "quic", "featured-levels", "word-filter"]
@@ -71,3 +71,4 @@ default = []
 discord = ["dep:poise"]
 quic = ["server-shared/quic"]
 stat-tracking = []
+jemalloc = ["dep:tikv-jemallocator", "dep:tikv-jemalloc-ctl"]
