@@ -124,7 +124,7 @@ fn collect_perf_stats(server: &ServerHandle<ConnectionHandler>) -> CreateEmbed {
 
     embed = embed.field("Buffer pool", format!("{}", ByteCount(bpool.total_heap_usage)), true);
 
-    #[cfg(not(target_env = "msvc"))]
+    #[cfg(all(feature = "jemalloc", not(target_env = "msvc")))]
     {
         // jemalloc stats!
         use tikv_jemalloc_ctl::{epoch, stats};
