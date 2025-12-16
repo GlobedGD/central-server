@@ -1,6 +1,7 @@
 use server_shared::MultiColor;
 use smallvec::SmallVec;
 use std::{
+    fmt::Display,
     num::{NonZeroI64, NonZeroU64},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -700,5 +701,15 @@ impl DbUser {
 
     pub fn is_room_banned(&self) -> bool {
         self.active_room_ban.is_some()
+    }
+
+    pub fn username(&self) -> &str {
+        self.username.as_deref().unwrap_or("<unknown>")
+    }
+}
+
+impl Display for DbUser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} ({})", self.username(), self.account_id)
     }
 }

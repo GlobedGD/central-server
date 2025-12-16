@@ -68,14 +68,11 @@ pub async fn punish(
             },
         )
         .await;
-    if ban_result.is_err() {
-        ctx.reply(format!(":x: Failed to issue punishment: {}", ban_result.unwrap_err())).await?;
+
+    if let Err(reason) = ban_result {
+        ctx.reply(format!(":x: Failed to issue punishment: {reason}")).await?;
     } else {
-        ctx.reply(format!(
-            ":white_check_mark: Sucessfully punished `{}`",
-            target.username.unwrap_or("Could not find username".to_string())
-        ))
-        .await?;
+        ctx.reply(format!(":white_check_mark: Sucessfully punished {target}")).await?;
     }
 
     Ok(())
@@ -113,20 +110,17 @@ pub async fn unpunish(
             },
         )
         .await;
-    if unpunish_result.is_err() {
-        ctx.reply(format!(":x: Failed to remove punishment: `{}`", unpunish_result.unwrap_err()))
-            .await?;
+    if let Err(reason) = unpunish_result {
+        ctx.reply(format!(":x: Failed to remove punishment: `{reason}`")).await?;
     } else {
-        ctx.reply(format!(
-            ":white_check_mark: Sucessfully unpunished `{}`",
-            target.username.unwrap_or("Could not find username".to_string())
-        ))
-        .await?;
+        ctx.reply(format!(":white_check_mark: Sucessfully removed punishment for {target}"))
+            .await?;
     }
 
     Ok(())
 }
 
+#[allow(clippy::format_in_format_args)]
 async fn audit_log_embed(
     logs: Vec<AuditLogModel>,
     users: &UsersModule,
@@ -163,19 +157,19 @@ async fn audit_log_embed(
                 log.r#type
             ),
             format!(
-                "**Issued by `{}` on <t:{}>**{}\n**{}**",
+                "**Issued by `{}` on <t:{}>**{}\n{}",
                 issuer_user.username.unwrap_or("`unable to retrieve username`".to_string()),
                 log.timestamp,
-                if log.message.is_none() {
-                    "".to_string()
-                } else {
-                    format!("\n**Reason**: \"{}\"", log.message.unwrap())
-                },
-                if log.expires_at.is_none() {
-                    "Automated action".to_string()
-                } else {
-                    format!("Expires at: <t:{}>", log.expires_at.unwrap())
-                }
+                format!(
+                    "\n**Reason**: \"{}\"",
+                    log.message.as_deref().unwrap_or("No reason provided")
+                ),
+                format!(
+                    "**Expires at**: {}",
+                    log.expires_at
+                        .as_ref()
+                        .map_or_else(|| "Permanent".to_owned(), |ts| format!("<t:{}>", ts))
+                )
             ),
             false,
         ));

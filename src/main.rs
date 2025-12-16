@@ -6,7 +6,8 @@
     try_blocks,
     iter_array_chunks,
     if_let_guard,
-    string_remove_matches
+    string_remove_matches,
+    result_option_map_or_default
 )]
 #![allow(clippy::new_without_default, clippy::collapsible_if, clippy::too_many_arguments)]
 
