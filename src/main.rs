@@ -61,6 +61,7 @@ fn setup_logger(config: &CoreConfig) -> (WorkerGuard, WorkerGuard) {
         &config.log_level,
         &config.log_level,
         config.log_file_enabled,
+        config.memory_usage,
     )
 }
 
