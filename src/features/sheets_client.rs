@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error, sync::Arc};
+use std::{collections::HashMap, error::Error, sync::Arc, time::Duration};
 
 use google_sheets4::{
     Sheets,
@@ -15,7 +15,7 @@ use google_sheets4::{
 };
 use serde_json::Value;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::features::database::{FeaturedLevelModel, QueuedLevelModel, SentLevelModel};
 
@@ -42,8 +42,16 @@ impl WorkerState {
     pub async fn run_worker_loop(
         &self,
         mut rx: Receiver<WorkerRequest>,
-    ) -> Result<(), Box<dyn Error>> {
-        self.create_sheets().await?;
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        loop {
+            match self.create_sheets().await {
+                Ok(_) => break,
+                Err(e) => {
+                    warn!("Failed to create sheets: {e}. Retrying in 30 seconds..");
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                }
+            }
+        }
 
         while let Some(req) = rx.recv().await {
             debug!("Received sheets worker request: {req:?}");
@@ -66,23 +74,40 @@ impl WorkerState {
                 ..Default::default()
             };
 
-            // clear the entire sheet first
-            self.hub
-                .spreadsheets()
-                .values_clear(ClearValuesRequest::default(), &self.id, sheet)
-                .doit()
-                .await?;
+            match self.do_update(sheet, value_range, &range).await {
+                Ok(()) => {
+                    debug!("Processed sheets worker request!");
+                }
 
-            // now write the new values
-            self.hub
-                .spreadsheets()
-                .values_update(value_range, &self.id, &range)
-                .value_input_option("USER_ENTERED")
-                .doit()
-                .await?;
-
-            debug!("Processed sheets worker request!");
+                Err(e) => {
+                    warn!("Failed to process update spreadsheet: {e}");
+                }
+            }
         }
+
+        Ok(())
+    }
+
+    async fn do_update(
+        &self,
+        sheet: &str,
+        value_range: ValueRange,
+        range: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // clear the entire sheet first
+        self.hub
+            .spreadsheets()
+            .values_clear(ClearValuesRequest::default(), &self.id, sheet)
+            .doit()
+            .await?;
+
+        // now write the new values
+        self.hub
+            .spreadsheets()
+            .values_update(value_range, &self.id, range)
+            .value_input_option("USER_ENTERED")
+            .doit()
+            .await?;
 
         Ok(())
     }
@@ -97,53 +122,54 @@ impl WorkerState {
         out
     }
 
-    pub async fn create_sheets(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn create_sheets(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         info!("Ensuring all necessary sheets exist..");
 
         let (_, spsh) = self.hub.spreadsheets().get(&self.id).doit().await?;
         let sheets = spsh.sheets.ok_or("no sheets found")?;
 
-        let add_one = async |title: &str, columns: i32| -> Result<(), Box<dyn Error>> {
-            for sheet in &sheets {
-                if sheet
-                    .properties
-                    .as_ref()
-                    .is_some_and(|p| p.title.as_ref().is_some_and(|t| t == title))
-                {
-                    return Ok(());
+        let add_one =
+            async |title: &str, columns: i32| -> Result<(), Box<dyn Error + Send + Sync>> {
+                for sheet in &sheets {
+                    if sheet
+                        .properties
+                        .as_ref()
+                        .is_some_and(|p| p.title.as_ref().is_some_and(|t| t == title))
+                    {
+                        return Ok(());
+                    }
                 }
-            }
 
-            // add the sheet!
-            let req = AddSheetRequest {
-                properties: Some(SheetProperties {
-                    title: Some(title.to_owned()),
-                    grid_properties: Some(GridProperties {
-                        column_count: Some(columns),
+                // add the sheet!
+                let req = AddSheetRequest {
+                    properties: Some(SheetProperties {
+                        title: Some(title.to_owned()),
+                        grid_properties: Some(GridProperties {
+                            column_count: Some(columns),
+                            ..Default::default()
+                        }),
                         ..Default::default()
                     }),
-                    ..Default::default()
-                }),
-            };
-            info!("Creating sheet '{title}'..");
+                };
+                info!("Creating sheet '{title}'..");
 
-            self.hub
-                .spreadsheets()
-                .batch_update(
-                    BatchUpdateSpreadsheetRequest {
-                        requests: Some(vec![Request {
-                            add_sheet: Some(req),
+                self.hub
+                    .spreadsheets()
+                    .batch_update(
+                        BatchUpdateSpreadsheetRequest {
+                            requests: Some(vec![Request {
+                                add_sheet: Some(req),
+                                ..Default::default()
+                            }]),
                             ..Default::default()
-                        }]),
-                        ..Default::default()
-                    },
-                    &self.id,
-                )
-                .doit()
-                .await?;
+                        },
+                        &self.id,
+                    )
+                    .doit()
+                    .await?;
 
-            Ok(())
-        };
+                Ok(())
+            };
 
         add_one("Featured", 10).await?;
         add_one("Queued", 10).await?;
