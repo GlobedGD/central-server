@@ -7,6 +7,7 @@ use server_shared::{
 use thiserror::Error;
 
 use crate::{
+    auth::AuthModule,
     rooms::RoomModule,
     users::{DatabaseError, UserPunishment, UserPunishmentType, UsersModule},
 };
@@ -808,10 +809,22 @@ impl ConnectionHandler {
             return Ok(());
         };
 
+        let auth = self.module::<AuthModule>();
         let users = self.module::<UsersModule>();
-        let new_role = users.compute_from_role_ids(account_id, new_roles.iter().cloned());
 
-        let buf = data::encode_message!(self, 512, msg => {
+        // generate new role and token to send to the user
+        // new token is generated so the user can immediately connect to the game server with appropriate roles
+        let new_role = users.compute_from_role_ids(account_id, new_roles.iter().cloned());
+        let roles_str = users.make_role_string(new_roles);
+        let token = auth.generate_user_token(
+            account_id,
+            client.user_id(),
+            client.username(),
+            &roles_str,
+            new_role.name_color.as_ref(),
+        );
+
+        let buf = data::encode_message!(self, 1024, msg => {
             let mut changed = msg.init_user_data_changed();
             let _ = changed.set_roles(new_role.roles.as_slice());
             changed.set_is_moderator(new_role.can_moderate());
@@ -821,6 +834,7 @@ impl ConnectionHandler {
             changed.set_can_edit_roles(new_role.can_edit_roles);
             changed.set_can_send_features(new_role.can_send_features);
             changed.set_can_rate_features(new_role.can_rate_features);
+            changed.set_new_token(&token);
 
             if let Some(nc) = new_role.name_color.as_ref() {
                 let mut buf = [0u8; 512];
