@@ -20,6 +20,7 @@ pub struct RoomSettings {
     pub collision: bool,
     pub two_player_mode: bool,
     pub deathlink: bool,
+    pub switcheroo: bool,
 }
 
 impl RoomSettings {
@@ -39,6 +40,7 @@ impl RoomSettings {
             collision: reader.get_collision(),
             two_player_mode: reader.get_two_player_mode(),
             deathlink: reader.get_deathlink(),
+            switcheroo: reader.get_switcheroo(),
         })
     }
 
@@ -57,5 +59,6 @@ impl RoomSettings {
         writer.set_collision(self.collision);
         writer.set_two_player_mode(self.two_player_mode);
         writer.set_deathlink(self.deathlink);
+        writer.set_switcheroo(self.switcheroo);
     }
 }
