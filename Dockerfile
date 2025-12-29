@@ -14,13 +14,6 @@ RUN case "$TARGETARCH" in \
     *) echo "unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac
 
-
-# cache dependencies
-COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build --release --target $(cat /target.txt)
-RUN rm -rf src
-
 # copy and build the server
 COPY src ./src
 COPY Cargo.lock ./

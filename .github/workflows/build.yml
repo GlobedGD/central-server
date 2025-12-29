@@ -20,7 +20,11 @@ jobs:
       - name: Build
         run: |
           for arch in amd64 arm64; do
-            docker buildx build --platform linux/$arch --output type=local,dest=out-$arch .
+            docker buildx build \
+              --platform linux/$arch \
+              --cache-from type=gha,scope=central-server \
+              --cache-to type=gha,mode=max,scope=central-server \
+              --output type=local,dest=out-$arch .
           done
 
       - name: Prepare artifacts
