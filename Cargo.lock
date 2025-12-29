@@ -2768,6 +2768,7 @@ name = "qunet"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "cfg-if",
  "dashmap 6.1.0",
  "flume",
  "heapless 0.8.0",
