@@ -6,7 +6,6 @@ quic
 /config
 .vscode
 .cargo
-Cargo.lock
 
 *.sqlite
 .google.json
