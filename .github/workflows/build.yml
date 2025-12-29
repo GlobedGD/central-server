@@ -56,8 +56,9 @@ jobs:
 
       - name: Build
         run: |
-          set SERVER_SHARED_PREBUILT_DATA=1
           cargo build --release --features all --target x86_64-pc-windows-msvc
+        env:
+          SERVER_SHARED_PREBUILT_DATA: 1
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
