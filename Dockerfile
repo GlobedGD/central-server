@@ -49,8 +49,8 @@ RUN case "$TARGETARCH" in \
 RUN rustup target add $(cat /target.txt)
 RUN cargo zigbuild --release --features all,mimalloc --target $(cat /target.txt)
 
-## musl runtime ##
-FROM scratch AS runtime-musl
+## alpine runtime ##
+FROM alpine:latest AS runtime-alpine
 COPY --from=builder-musl /app/target/*/release/central-server /central-server
 
 EXPOSE 4340/tcp

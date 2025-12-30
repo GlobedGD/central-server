@@ -33,7 +33,7 @@ docker buildx build --target <target> --platform <platform> -t central-server:la
 docker save -o image.tar central-server:latest
 ```
 
-`<target>` must be either `runtime-musl` (static linked binary, scratch container with no utils) or `runtime-debian` (glibc linked binary, debian-slim runtime)
+`<target>` must be either `runtime-alpine` (static linked musl binary, small alpine image) or `runtime-debian` (glibc linked binary, debian-slim runtime)
 
 `<platform>` must be either `linux/amd64` (x86_64) or `linux/arm64`
 
