@@ -22,7 +22,7 @@ jobs:
         with:
           cache-from: type=gha,scope=central-server
           cache-to: type=gha,mode=max,scope=central-server
-          outputs: type=local,dest=out
+          outputs: type=local,dest=out,compression=zstd,compression-level=8
           target: runtime-debian
           platforms: linux/${{ matrix.arch }}
           push: false
