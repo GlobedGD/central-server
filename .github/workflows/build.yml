@@ -19,7 +19,7 @@ jobs:
 
       - name: Build
         run: |
-          for arch in amd64; do
+          for arch in amd64 arm64; do
             docker buildx build \
               --platform linux/$arch \
               --cache-from type=gha,scope=central-server \
