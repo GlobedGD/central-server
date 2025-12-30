@@ -124,28 +124,6 @@ fn collect_perf_stats(server: &ServerHandle<ConnectionHandler>) -> CreateEmbed {
 
     embed = embed.field("Buffer pool", format!("{}", ByteCount(bpool.total_heap_usage)), true);
 
-    #[cfg(all(feature = "jemalloc", not(target_env = "msvc")))]
-    {
-        // jemalloc stats!
-        use tikv_jemalloc_ctl::{epoch, stats};
-        let _ = epoch::advance();
-
-        let allocated = stats::allocated::read().unwrap_or(0);
-        let active = stats::active::read().unwrap_or(0);
-        let resident = stats::resident::read().unwrap_or(0);
-
-        embed = embed.field(
-            "Jemalloc stats",
-            format!(
-                "{} allocated, {} active, {} resident",
-                ByteCount(allocated),
-                ByteCount(active),
-                ByteCount(resident)
-            ),
-            true,
-        );
-    }
-
     embed
 }
 

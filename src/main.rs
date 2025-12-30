@@ -36,9 +36,9 @@ use crate::{
     users::UsersModule,
 };
 
-#[cfg(all(feature = "jemalloc", not(target_env = "msvc"), not(debug_assertions)))]
+#[cfg(feature = "mimalloc")]
 #[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 pub mod auth;
 pub mod core;
