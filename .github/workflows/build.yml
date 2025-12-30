@@ -26,6 +26,8 @@ jobs:
           target: runtime-debian
           platforms: linux/${{ matrix.arch }}
           push: false
+        env:
+          DOCKER_BUILD_SUMMARY: false
 
       - name: Prepare artifacts
         run: |
