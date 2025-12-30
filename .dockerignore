@@ -2,6 +2,7 @@
 .cargo
 .github
 .vscode
+target
 config
 logs
 quic
