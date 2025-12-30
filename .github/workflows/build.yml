@@ -6,8 +6,13 @@ on:
 
 jobs:
   linux:
-    name: Linux (Docker)
+    name: Linux (${{ matrix.arch }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+
     steps:
       - uses: actions/checkout@v4
 
@@ -16,25 +21,26 @@ jobs:
 
       - name: Build
         run: |
-          for arch in amd64 arm64; do
-            docker buildx build \
-              --target runtime-debian \
-              --platform linux/$arch \
-              --cache-from type=gha,scope=central-server \
-              --cache-to type=gha,mode=max,scope=central-server \
-              --output type=local,dest=out-$arch .
-          done
+          docker buildx build \
+            --target runtime-debian \
+            --platform linux/${{ matrix.arch }} \
+            --cache-from type=gha,scope=central-server \
+            --cache-to type=gha,mode=max,scope=central-server \
+            --output type=local,dest=out .
 
       - name: Prepare artifacts
         run: |
           mkdir -p artifacts
-          cp out-amd64/central-server artifacts/central-server-x64
-          cp out-arm64/central-server artifacts/central-server-arm64
+          if [ "${{ matrix.arch }}" = "amd64" ]; then
+            cp out/central-server artifacts/central-server-x64
+          else
+            cp out/central-server artifacts/central-server-arm64
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-builds
+          name: linux-${{ matrix.arch }}
           path: artifacts/*
 
   windows:
