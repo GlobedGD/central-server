@@ -1,23 +1,37 @@
-FROM --platform=$BUILDPLATFORM rustlang/rust:nightly AS builder-base
+FROM --platform=$BUILDPLATFORM debian:trixie-slim AS builder-tools
 
-ENV SERVER_SHARED_PREBUILT_DATA=1
+ARG RUST_NIGHTLY_VERSION=nightly-2025-12-01
+ARG ZIG_VERSION=0.16.0-dev.1859+212968c57
 
-WORKDIR /app
+ENV CARGO_HOME=/cargo \
+    RUSTUP_HOME=/rustup \
+    PATH="/cargo/bin:/rustup/toolchains/${RUST_NIGHTLY_VERSION}/bin:$PATH"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config ca-certificates curl xz-utils
-RUN rm -rf /var/lib/apt/lists/*
+    pkg-config ca-certificates curl xz-utils build-essential \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain ${RUST_NIGHTLY_VERSION}
 
 # download zig
-RUN curl -L https://ziglang.org/builds/zig-x86_64-linux-0.16.0-dev.1859+212968c57.tar.xz | tar -xJ && mv zig-x86_64-linux-0.16.0-dev.1859+212968c57 /zig
+RUN curl -L https://ziglang.org/builds/zig-x86_64-linux-${ZIG_VERSION}.tar.xz | tar -xJ && mv zig-x86_64-linux-${ZIG_VERSION} /zig
 ENV PATH="/zig:${PATH}"
 
-# install zigbuild
-RUN cargo install --locked cargo-zigbuild
+# install zigbuild and cargo chef
+RUN cargo install --locked cargo-zigbuild --version 0.20.1 \
+    && cargo install --locked cargo-chef --version 0.1.73
 
-# copy the server
-COPY src ./src
-COPY Cargo.toml Cargo.lock ./
+
+## Actual builder base ##
+FROM builder-tools AS builder-base
+
+ENV SERVER_SHARED_PREBUILT_DATA=1
+WORKDIR /app
+COPY --from=builder-tools /cargo /cargo
+COPY --from=builder-tools /rustup /rustup
+
+# prepare the build cache
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
 
 ## Musl ##
 FROM builder-base AS builder-musl
@@ -30,9 +44,14 @@ RUN case "$TARGETARCH" in \
     *) echo "unsupported architecture" >&2; exit 1 ;; \
     esac
 
-# install target and build
-RUN rustup target add $(cat /target.txt)
-RUN cargo zigbuild --release --features all,mimalloc --target $(cat /target.txt)
+# build dependencies
+RUN rustup target add $(cat /target.txt) && \
+    rm -rf src Cargo.lock Cargo.toml && \
+    cargo chef cook --release --zigbuild --target $(cat /target.txt) --features mimalloc --recipe-path recipe.json
+
+# build the project
+COPY . .
+RUN cargo zigbuild --release --features mimalloc --target $(cat /target.txt)
 
 ## glibc ##
 FROM builder-base AS builder-glibc
@@ -45,9 +64,14 @@ RUN case "$TARGETARCH" in \
     *) echo "unsupported architecture" >&2; exit 1 ;; \
     esac
 
-# install target and build
-RUN rustup target add $(cat /target.txt)
-RUN cargo zigbuild --release --features all,mimalloc --target $(cat /target.txt)
+# build dependencies
+RUN rustup target add $(cat /target.txt) && \
+    rm -rf src Cargo.lock Cargo.toml && \
+    cargo chef cook --release --zigbuild --target $(cat /target.txt) --features mimalloc --recipe-path recipe.json
+
+# build the project
+COPY . .
+RUN cargo zigbuild --release --features mimalloc --target $(cat /target.txt)
 
 ## alpine runtime ##
 FROM alpine:latest AS runtime-alpine
