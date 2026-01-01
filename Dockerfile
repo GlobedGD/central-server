@@ -46,11 +46,11 @@ RUN case "$TARGETARCH" in \
 # build dependencies
 RUN rustup target add $(cat /target.txt) && \
     rm -rf src Cargo.lock Cargo.toml && \
-    cargo chef cook --release --zigbuild --target $(cat /target.txt) --features mimalloc --recipe-path recipe.json
+    cargo chef cook --release --zigbuild --target $(cat /target.txt) --features all,mimalloc --recipe-path recipe.json
 
 # build the project
 COPY . .
-RUN cargo zigbuild --release --features mimalloc --target $(cat /target.txt)
+RUN cargo zigbuild --release --features all,mimalloc --target $(cat /target.txt)
 
 ## glibc ##
 FROM builder-base AS builder-glibc
@@ -66,11 +66,11 @@ RUN case "$TARGETARCH" in \
 # build dependencies
 RUN rustup target add $(cat /target.txt) && \
     rm -rf src Cargo.lock Cargo.toml && \
-    cargo chef cook --release --zigbuild --target $(cat /target.txt) --features mimalloc --recipe-path recipe.json
+    cargo chef cook --release --zigbuild --target $(cat /target.txt) --features all,mimalloc --recipe-path recipe.json
 
 # build the project
 COPY . .
-RUN cargo zigbuild --release --features mimalloc --target $(cat /target.txt)
+RUN cargo zigbuild --release --features all,mimalloc --target $(cat /target.txt)
 
 ## alpine runtime ##
 FROM alpine:latest AS runtime-alpine
