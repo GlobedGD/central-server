@@ -10,6 +10,11 @@ permissions:
 on:
   workflow_dispatch:
   push:
+    paths-ignore:
+      - '**.md'
+      - 'build-db-models.sh'
+      - 'rustfmt.toml'
+      - '.gitignore'
 
 jobs:
   linux:

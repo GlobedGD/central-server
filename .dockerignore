@@ -8,3 +8,6 @@ logs
 quic
 *.sh
 *.json
+*.md
+*.sqlite
+*.qdb

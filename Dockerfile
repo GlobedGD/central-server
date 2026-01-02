@@ -25,11 +25,10 @@ FROM builder-tools AS builder-base
 
 ENV SERVER_SHARED_PREBUILT_DATA=1
 WORKDIR /app
-COPY --from=builder-tools /cargo /cargo
-COPY --from=builder-tools /rustup /rustup
 
 # prepare the build cache
-COPY . .
+COPY src ./src
+COPY Cargo.toml Cargo.lock ./
 RUN cargo chef prepare --recipe-path recipe.json
 
 ## Musl ##
@@ -49,7 +48,8 @@ RUN rustup target add $(cat /target.txt) && \
     cargo chef cook --release --zigbuild --target $(cat /target.txt) --features all,mimalloc --recipe-path recipe.json
 
 # build the project
-COPY . .
+COPY src ./src
+COPY Cargo.toml Cargo.lock ./
 RUN cargo zigbuild --release --features all,mimalloc --target $(cat /target.txt)
 
 ## glibc ##
@@ -69,7 +69,8 @@ RUN rustup target add $(cat /target.txt) && \
     cargo chef cook --release --zigbuild --target $(cat /target.txt) --features all,mimalloc --recipe-path recipe.json
 
 # build the project
-COPY . .
+COPY src ./src
+COPY Cargo.toml Cargo.lock ./
 RUN cargo zigbuild --release --features all,mimalloc --target $(cat /target.txt)
 
 ## alpine runtime ##
