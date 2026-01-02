@@ -43,9 +43,7 @@ RUN case "$TARGETARCH" in \
     esac
 
 # build dependencies
-RUN rustup target add $(cat /target.txt) && \
-    rm -rf src Cargo.lock Cargo.toml && \
-    cargo chef cook --release --zigbuild --target $(cat /target.txt) --features all,mimalloc --recipe-path recipe.json
+RUN cargo chef cook --release --zigbuild --target $(cat /target.txt) --features all,mimalloc --recipe-path recipe.json
 
 # build the project
 COPY src ./src
@@ -64,9 +62,7 @@ RUN case "$TARGETARCH" in \
     esac
 
 # build dependencies
-RUN rustup target add $(cat /target.txt) && \
-    rm -rf src Cargo.lock Cargo.toml && \
-    cargo chef cook --release --zigbuild --target $(cat /target.txt) --features all,mimalloc --recipe-path recipe.json
+RUN cargo chef cook --release --zigbuild --target $(cat /target.txt) --features all,mimalloc --recipe-path recipe.json
 
 # build the project
 COPY src ./src
