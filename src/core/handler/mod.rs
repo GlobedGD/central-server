@@ -33,6 +33,7 @@ use crate::{
         module::ServerModule,
     },
     rooms::{RoomModule, RoomSettings},
+    word_filter::WordFilterModule,
 };
 
 #[cfg(feature = "stat-tracking")]
@@ -865,6 +866,21 @@ impl ConnectionHandler {
         client.send_data_bufkind(buf);
 
         Ok(())
+    }
+
+    #[cfg(feature = "word-filter")]
+    async fn is_disallowed(&self, string: &str) -> bool {
+        let module = self.opt_module::<WordFilterModule>();
+        if let Some(module) = module {
+            !module.is_allowed(string).await
+        } else {
+            false
+        }
+    }
+
+    #[cfg(not(feature = "word-filter"))]
+    async fn is_disallowed(&self, string: &str) -> bool {
+        false
     }
 }
 

@@ -49,17 +49,10 @@ impl ConnectionHandler {
         }
 
         // check if the name is a-ok
-        #[cfg(feature = "word-filter")]
-        {
-            use crate::word_filter::WordFilterModule;
-            let bad = self.opt_module::<WordFilterModule>().is_some_and(|wf| !wf.is_allowed(name));
 
-            if bad {
-                return self.send_room_create_failed(
-                    client,
-                    data::RoomCreateFailedReason::InappropriateName,
-                );
-            }
+        if self.is_disallowed(name).await {
+            return self
+                .send_room_create_failed(client, data::RoomCreateFailedReason::InappropriateName);
         }
 
         let new_room = match rooms

@@ -2,9 +2,9 @@ use std::{path::PathBuf, time::Duration};
 
 use async_watcher::{AsyncDebouncer, notify::RecursiveMode};
 use filter::WordFilter;
-use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use server_shared::qunet::server::ServerHandle;
+use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use crate::core::{
@@ -16,7 +16,7 @@ mod filter;
 
 pub struct WordFilterModule {
     path: PathBuf,
-    filter: Mutex<Option<WordFilter>>,
+    filter: RwLock<Option<WordFilter>>,
 }
 
 impl ServerModule for WordFilterModule {
@@ -24,7 +24,8 @@ impl ServerModule for WordFilterModule {
         let path = config.file_path.clone().unwrap_or_else(|| "config/word-filter.txt".into());
 
         let filter = if path.exists() {
-            let filter = WordFilter::new_from_path(&path).expect("Failed to create word filter");
+            let filter =
+                WordFilter::new_from_path(&path).await.expect("Failed to create word filter");
             info!("Loaded word filter with {} words", filter.word_count());
             Some(filter)
         } else {
@@ -33,7 +34,7 @@ impl ServerModule for WordFilterModule {
 
         Ok(Self {
             path,
-            filter: Mutex::new(filter),
+            filter: RwLock::new(filter),
         })
     }
 
@@ -69,8 +70,8 @@ impl ServerModule for WordFilterModule {
             }
 
             while let Some(_event) = file_events.recv().await {
-                if let Some(filter) = &mut *this.filter.lock() {
-                    match filter.reload_from_file(&wpath) {
+                if let Some(filter) = &mut *this.filter.write().await {
+                    match filter.reload_from_file(&wpath).await {
                         Ok(()) => {
                             info!(
                                 "Successfully reloaded the word filter! Total words: {}",
@@ -93,8 +94,8 @@ impl ConfigurableModule for WordFilterModule {
 }
 
 impl WordFilterModule {
-    pub fn is_allowed(&self, content: &str) -> bool {
-        self.filter.lock().as_ref().is_none_or(|wf| !wf.is_bad(content))
+    pub async fn is_allowed(&self, content: &str) -> bool {
+        self.filter.read().await.as_ref().is_none_or(|wf| !wf.is_bad(content))
     }
 }
 

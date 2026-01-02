@@ -38,3 +38,4 @@ pub fn must_admin_auth(client: &ClientState<ConnectionHandler>) -> HandlerResult
         Err(HandlerError::NotAdmin)
     }
 }
+
