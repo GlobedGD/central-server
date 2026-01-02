@@ -4,6 +4,11 @@
 
 The simplest way to get the server running is [GitHub actions](https://github.com/GlobedGD/central-server/actions) - click the latest workflow and download the `central-server-build` artifact, which will contain three executables for different platforms. Extract the one that matches your platform into a dedicated folder somewhere and run it.
 
+There are currently prebuilts for three platforms, for others you need to build manually or use Docker:
+* `central-server-x64` - Linux x64 build, requires glibc 2.30+ (e.g. Ubuntu 20.04 or later)
+* `central-server-arm64` - Linux ARM64 build, requires glibc 2.30+
+* `central-server.exe` - Windows x64 build
+
 Alternate ways of running the server include:
 * [Building yourself](#building)
 * [Docker](#docker-builds)
@@ -52,9 +57,10 @@ Prebuilt images are available on the GitHub Container Registry, making it very s
 # volume for storing databases
 docker volume create central-server-data
 
-docker run --rm -it ghcr.io/globedgd/central-server:latest \
+docker run --rm -it  \
+    -v central-server-data:/data \
     -p 4340:4340/tcp -p 4340:4340/udp -p 4342:4342/tcp \
-    -v central-server-data:/data
+    ghcr.io/globedgd/central-server:latest
 ```
 
 The container stores all sqlite databases under `/data`, and the `config` folder with .toml files will also be generated inside `/data`. The commands above will ensure these are stored persistently, but if you want to configure the server it may be easier to use environment variables or mount the `/data/config` folder separately.
