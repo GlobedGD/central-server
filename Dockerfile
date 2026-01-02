@@ -80,6 +80,7 @@ EXPOSE 4340/tcp
 EXPOSE 4340/udp
 EXPOSE 4341/udp
 
+ENV INSIDE_DOCKER=1
 ENTRYPOINT ["/central-server"]
 
 ## debian runtime ##
@@ -94,4 +95,5 @@ EXPOSE 4340/tcp
 EXPOSE 4340/udp
 EXPOSE 4341/udp
 
+ENV INSIDE_DOCKER=1
 ENTRYPOINT ["/central-server"]
