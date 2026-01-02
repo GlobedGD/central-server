@@ -85,7 +85,7 @@ ENV INSIDE_DOCKER=1
 ENTRYPOINT ["/central-server"]
 
 ## debian runtime ##
-FROM debian:stable-slim AS runtime-debian
+FROM debian:trixie-slim AS runtime-debian
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates && \
     rm -rf /var/lib/apt/lists/*
