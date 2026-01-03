@@ -229,6 +229,15 @@ impl ConnectionHandler {
             }
         }
 
+        // if the username has disallowed words, send a discord notification
+        #[cfg(feature = "discord")]
+        if self.is_disallowed(&data.username).await {
+            self.module::<DiscordModule>().send_alert(DiscordMessage::new().content(format!(
+                "⚠️ User logged in with disallowed terms in username: {} ({})",
+                data.username, data.account_id
+            )));
+        }
+
         client.set_account_data(data.clone());
 
         // put the user in the global room
