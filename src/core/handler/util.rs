@@ -2,7 +2,7 @@ use std::sync::{Arc, Weak};
 
 pub use crate::core::data;
 pub use server_shared::qunet::server::client::ClientState;
-pub use tracing::{debug, error, info, trace, warn};
+pub use tracing::{debug, error, info, warn};
 
 use super::ConnectionHandler;
 use server_shared::encoding::EncodeMessageError;
@@ -38,4 +38,3 @@ pub fn must_admin_auth(client: &ClientState<ConnectionHandler>) -> HandlerResult
         Err(HandlerError::NotAdmin)
     }
 }
-
