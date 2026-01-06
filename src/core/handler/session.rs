@@ -65,7 +65,7 @@ impl ConnectionHandler {
         new_author: Option<i32>,
     ) -> HandlerResult<()> {
         #[cfg(debug_assertions)]
-        trace!(
+        tracing::trace!(
             "[{}] session change: {} -> {}",
             client.account_id(),
             prev_session.as_u64(),
@@ -127,7 +127,7 @@ impl ConnectionHandler {
 
         if do_warp {
             let buf = data::encode_message!(self, 64, msg => {
-                let mut warp = msg.reborrow().init_warp_player();
+                let mut warp = msg.reborrow().init_room_warp();
                 warp.set_session(new_session.as_u64());
             })?;
 
@@ -136,7 +136,7 @@ impl ConnectionHandler {
 
         if do_update_pinned {
             room.set_pinned_level(new_session);
-            self.notify_pinned_level_updated(room)?; 
+            self.notify_pinned_level_updated(room)?;
         }
 
         Ok(())
