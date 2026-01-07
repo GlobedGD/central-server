@@ -6,6 +6,7 @@ use std::{
 use serde::{Serialize, de::DeserializeOwned};
 use server_shared::{TypeMap, config::env_replace};
 use thiserror::Error;
+use validator::{Validate, ValidationErrors};
 
 trait ConfigTrait: Send + Sync + Default + DeserializeOwned + Serialize + 'static {}
 
@@ -22,6 +23,8 @@ pub enum ConfigError {
     Io(#[from] io::Error),
     #[error("Error parsing configuration: {0}")]
     Parse(#[from] toml::de::Error),
+    #[error("Config validation failed: {0}")]
+    Validation(#[from] ValidationErrors),
 }
 
 pub struct Config {
@@ -47,6 +50,7 @@ impl Config {
     pub fn new_with_root_dir(root_dir: PathBuf) -> Result<Self, ConfigError> {
         let mut core_config = Self::_init_core(&root_dir)?;
         core_config.replace_with_env();
+        core_config.validate()?;
 
         Ok(Self {
             mod_config: TypeMap::new(),

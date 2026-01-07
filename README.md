@@ -77,4 +77,8 @@ docker save -o image.tar central-server:latest
 
 `<platform>` must be either `linux/amd64` (x86_64) or `linux/arm64`
 
-These builds include features `all` and `mimalloc`. The GHCR and Actions builds are made with buildx and are identical to the builds produced in the `runtime-debian` image.
+These builds include features `all` (plus `mimalloc` on alpine). The GHCR and Actions builds are made with buildx and are identical to the builds produced in the `runtime-debian` image.
+
+## Migrating databases
+
+If you used to host a server for an older version of Globed (pre-v2), check the `db-migrate.py` script to migrate your database.

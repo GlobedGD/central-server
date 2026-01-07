@@ -58,8 +58,8 @@ fn setup_logger(config: &CoreConfig) -> (WorkerGuard, WorkerGuard) {
         config.log_rolling,
         &config.log_directory,
         &config.log_filename,
-        &config.log_level,
-        &config.log_level,
+        &config.console_log_level,
+        &config.file_log_level,
         config.log_file_enabled,
         config.memory_usage,
     )

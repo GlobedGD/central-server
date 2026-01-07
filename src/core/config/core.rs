@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use rand::distr::SampleString;
 use serde::{Deserialize, Serialize};
 use server_shared::config::env_replace;
+use validator::{Validate, ValidationError};
 
 // Memory
 
@@ -94,7 +95,7 @@ fn default_gs_quic_address() -> Option<String> {
     None
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Validate)]
 pub struct CoreConfig {
     /// The memory usage value (1 to 11), determines how much memory the server will preallocate for operations.
     #[serde(default = "default_memory_usage")]
@@ -106,9 +107,14 @@ pub struct CoreConfig {
     /// The directory where logs will be stored.
     #[serde(default = "default_log_directory")]
     pub log_directory: PathBuf,
-    /// Minimum log level to print. Logs below this level will be ignored. Possible values: 'trace', 'debug', 'info', 'warn', 'error'.
+    /// Minimum log level to print to the console. Logs below this level will be ignored. Possible values: 'trace', 'debug', 'info', 'warn', 'error'.
     #[serde(default = "default_log_level")]
-    pub log_level: String,
+    #[validate(custom(function = "validate_log_level"))]
+    pub console_log_level: String,
+    /// Minimum log level to print to the file. Logs below this level will be ignored. Possible values: 'trace', 'debug', 'info', 'warn', 'error'.
+    #[serde(default = "default_log_level")]
+    #[validate(custom(function = "validate_log_level"))]
+    pub file_log_level: String,
     /// Prefix for the filename of the log file.
     #[serde(default = "default_log_filename")]
     pub log_filename: String,
@@ -178,7 +184,8 @@ impl Default for CoreConfig {
             memory_usage: default_memory_usage(),
             log_file_enabled: default_log_file_enabled(),
             log_directory: default_log_directory(),
-            log_level: default_log_level(),
+            console_log_level: default_log_level(),
+            file_log_level: default_log_level(),
             log_filename: default_log_filename(),
             log_rolling: default_log_rolling(),
             enable_quic: default_enable_quic(),
@@ -206,7 +213,8 @@ impl CoreConfig {
 
         env_replace("GLOBED_CORE_LOG_FILE_ENABLED", &mut self.log_file_enabled);
         env_replace("GLOBED_CORE_LOG_DIRECTORY", &mut self.log_directory);
-        env_replace("GLOBED_CORE_LOG_LEVEL", &mut self.log_level);
+        env_replace("GLOBED_CORE_CONSOLE_LOG_LEVEL", &mut self.console_log_level);
+        env_replace("GLOBED_CORE_FILE_LOG_LEVEL", &mut self.file_log_level);
         env_replace("GLOBED_CORE_LOG_FILENAME", &mut self.log_filename);
         env_replace("GLOBED_CORE_LOG_ROLLING", &mut self.log_rolling);
 
@@ -230,5 +238,12 @@ impl CoreConfig {
 
         env_replace("GLOBED_CORE_GD_API_BASE_URL", &mut self.gd_api_base_url);
         env_replace("GLOBED_CORE_GD_API_AUTH_TOKEN", &mut self.gd_api_auth_token);
+    }
+}
+
+fn validate_log_level(level: &str) -> Result<(), ValidationError> {
+    match level.to_lowercase().as_str() {
+        "trace" | "debug" | "info" | "warn" | "error" => Ok(()),
+        _ => Err(ValidationError::new("invalid log level")),
     }
 }
