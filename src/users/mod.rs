@@ -378,9 +378,10 @@ impl UsersModule {
             out_role.priority = role.priority;
             let _ = out_role.roles.push(role_id);
 
-            if !is_weaker {
-                out_role.name_color = Some(role.name_color.clone());
-            }
+            // name color can already be computer client-side from the roles
+            // if !is_weaker {
+            //     out_role.name_color = Some(role.name_color.clone());
+            // }
         }
 
         let mut default = false;
