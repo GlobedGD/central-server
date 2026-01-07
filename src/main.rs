@@ -69,7 +69,8 @@ fn setup_logger(config: &CoreConfig) -> (WorkerGuard, WorkerGuard) {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // if we are inside docker, change cwd to /data
     if std::env::var("INSIDE_DOCKER").is_ok_and(|x| x != "0") {
-        std::env::set_current_dir("/data").expect("Failed to change working directory to /data");
+        // ignore if it doesn't exist
+        let _ = std::env::set_current_dir("/data");
     }
 
     // Load config and setup logger
