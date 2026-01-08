@@ -47,6 +47,9 @@ impl DiscordBot {
                             state.main_guild_id.into(),
                         )
                         .await?;
+
+                        // unregister globals to prevent duplicated commands
+                        serenity::Command::set_global_commands(ctx, vec![]).await?;
                     } else {
                         poise::builtins::register_globally(ctx, &framework.options().commands)
                             .await?;
