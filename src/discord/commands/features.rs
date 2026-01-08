@@ -180,11 +180,15 @@ pub async fn force_cycle(ctx: Context<'_>) -> Result<(), BotError> {
     let features = server.handler().module::<FeaturesModule>();
 
     match features.cycle_level().await {
-        Ok(true) => {
-            ctx.reply("✅ Feature priority updated successfully!").await?;
+        Ok(Some(level)) => {
+            ctx.reply(format!(
+                "✅ Successfully featured next level: {} ({}) by {}!",
+                level.name, level.id, level.author_name
+            ))
+            .await?;
         }
 
-        Ok(false) => {
+        Ok(None) => {
             ctx.reply("⚠️ No queued levels to feature.").await?;
         }
 

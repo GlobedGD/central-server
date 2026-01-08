@@ -199,8 +199,8 @@ impl FeaturesModule {
             info!("Cycling featured level, current: {level:?}");
 
             match self.cycle_level().await {
-                Ok(true) => {}
-                Ok(false) => {
+                Ok(Some(_)) => {}
+                Ok(None) => {
                     debug!("No queued levels to feature");
 
                     #[cfg(feature = "discord")]
@@ -215,7 +215,7 @@ impl FeaturesModule {
         }
     }
 
-    pub async fn cycle_level(&self) -> DatabaseResult<bool> {
+    pub async fn cycle_level(&self) -> DatabaseResult<Option<FeaturedLevelModel>> {
         match self.db.cycle_next_queued_level().await {
             Ok(Some(level)) => {
                 info!(
@@ -230,10 +230,10 @@ impl FeaturesModule {
                     warn!("failed to send new featured level notification: {e}");
                 }
 
-                Ok(true)
+                Ok(Some(level))
             }
 
-            Ok(None) => Ok(false),
+            Ok(None) => Ok(None),
 
             Err(e) => Err(e),
         }
