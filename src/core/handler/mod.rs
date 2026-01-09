@@ -10,7 +10,7 @@ use dashmap::DashMap;
 use parking_lot::Mutex;
 use rustc_hash::FxHashSet;
 use server_shared::qunet::{
-    buffers::BufPool,
+    buffers::{BufPool, ByteWriter},
     message::{BufferKind, MsgData},
     server::{
         Server as QunetServer, ServerHandle as QunetServerHandle, WeakServerHandle,
@@ -33,6 +33,7 @@ use crate::{
         module::ServerModule,
     },
     rooms::{RoomModule, RoomSettings},
+    users::{ComputedRole, UsersModule},
 };
 
 #[cfg(feature = "stat-tracking")]
@@ -865,6 +866,38 @@ impl ConnectionHandler {
         client.send_data_bufkind(buf);
 
         Ok(())
+    }
+
+    fn encode_ext_user_data(
+        &self,
+        role: &ComputedRole,
+        token: &str,
+        mut builder: data::extended_user_data::Builder<'_>,
+    ) {
+        let users = self.module::<UsersModule>();
+        let can_name_rooms = role.can_name_rooms || !users.disallow_room_names;
+
+        if let Err(e) = builder.set_roles(role.roles.as_slice()) {
+            warn!("failed to encode user roles: {e}, roles: {:?}", role.roles);
+        }
+
+        builder.set_is_moderator(role.can_moderate());
+        builder.set_can_mute(role.can_mute);
+        builder.set_can_ban(role.can_ban);
+        builder.set_can_set_password(role.can_set_password);
+        builder.set_can_edit_roles(role.can_edit_roles);
+        builder.set_can_send_features(role.can_send_features);
+        builder.set_can_rate_features(role.can_rate_features);
+        builder.set_can_name_rooms(can_name_rooms);
+        builder.set_new_token(token);
+
+        if let Some(nc) = role.name_color.as_ref() {
+            let mut buf = [0u8; 512];
+            let mut writer = ByteWriter::new(&mut buf);
+            nc.encode(&mut writer);
+
+            builder.set_name_color(writer.written());
+        }
     }
 
     #[cfg(feature = "word-filter")]

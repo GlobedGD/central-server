@@ -1,9 +1,6 @@
 use std::{fmt::Display, sync::Arc};
 
-use server_shared::{
-    SessionId,
-    qunet::{buffers::ByteWriter, message::BufferKind},
-};
+use server_shared::{SessionId, qunet::message::BufferKind};
 use thiserror::Error;
 
 use crate::{
@@ -830,23 +827,11 @@ impl ConnectionHandler {
 
         let buf = data::encode_message!(self, 1024, msg => {
             let mut changed = msg.init_user_data_changed();
-            let _ = changed.set_roles(new_role.roles.as_slice());
-            changed.set_is_moderator(new_role.can_moderate());
-            changed.set_can_mute(new_role.can_mute);
-            changed.set_can_ban(new_role.can_ban);
-            changed.set_can_set_password(new_role.can_set_password);
-            changed.set_can_edit_roles(new_role.can_edit_roles);
-            changed.set_can_send_features(new_role.can_send_features);
-            changed.set_can_rate_features(new_role.can_rate_features);
-            changed.set_new_token(&token);
-
-            if let Some(nc) = new_role.name_color.as_ref() {
-                let mut buf = [0u8; 512];
-                let mut writer = ByteWriter::new(&mut buf);
-                nc.encode(&mut writer);
-
-                changed.set_name_color(writer.written());
-            }
+            self.encode_ext_user_data(
+                &new_role,
+                &token,
+                changed.reborrow().init_user_data(),
+            );
         })?;
 
         client.set_role(new_role);

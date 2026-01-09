@@ -266,7 +266,6 @@ impl ConnectionHandler {
 
         let buf = data::encode_message_heap!(self, cap, msg => {
             let mut login_ok = msg.reborrow().init_login_ok();
-            login_ok.set_new_token(&token);
 
             let mut srvs = login_ok.reborrow().init_servers(servers.len() as u32);
 
@@ -289,26 +288,6 @@ impl ConnectionHandler {
                 role_ser.set_name_color(role_buf.written());
             }
 
-            // encode user's roles
-            if let Err(e) = login_ok.reborrow().set_user_roles(client_role.roles.as_slice()) {
-                warn!("[{}] failed to encode user roles: {}", client.address, e);
-            }
-
-            login_ok.set_is_moderator(client_role.can_moderate());
-            login_ok.set_can_mute(client_role.can_mute);
-            login_ok.set_can_ban(client_role.can_ban);
-            login_ok.set_can_set_password(client_role.can_set_password);
-            login_ok.set_can_edit_roles(client_role.can_edit_roles);
-            login_ok.set_can_send_features(client_role.can_send_features);
-            login_ok.set_can_rate_features(client_role.can_rate_features);
-            login_ok.set_can_name_rooms(client_role.can_name_rooms || !users.disallow_room_names);
-
-            if let Some(nc) = &client_role.name_color {
-                let mut role_buf = ByteWriter::new(&mut color_buf);
-                nc.encode(&mut role_buf);
-                login_ok.set_name_color(role_buf.written());
-            }
-
             // encode featured level
             #[cfg(feature = "featured-levels")]
             {
@@ -317,6 +296,9 @@ impl ConnectionHandler {
                 login_ok.set_featured_level_tier(level.rate_tier);
                 login_ok.set_featured_level_edition(level.edition);
             }
+
+            // encode user data
+            self.encode_ext_user_data(client_role, &token, login_ok.reborrow().init_user_data());
         })?;
 
         client.send_data_bufkind(buf);
