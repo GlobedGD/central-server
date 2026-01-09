@@ -8,6 +8,7 @@ use thiserror::Error;
 
 use crate::{
     auth::AuthModule,
+    credits::CreditsModule,
     rooms::RoomModule,
     users::{DatabaseError, UserPunishment, UserPunishmentType, UsersModule},
 };
@@ -637,6 +638,9 @@ impl ConnectionHandler {
 
         if result.is_ok() {
             let _ = self.notify_user_data_changed(account_id, role_ids).await;
+
+            // force a reload of credits
+            self.module::<CreditsModule>().queue_reload();
         }
 
         self.send_admin_db_result(client, result)?;

@@ -26,14 +26,19 @@ pub struct CreditsCategory {
     pub sync_with_role: Option<String>,
     #[serde(default)]
     pub users: Vec<CreditsUser>,
+
+    /// Which account IDs to ignore and not send to the client (e.g. test / alt accounts)
+    /// This option applies only to users synced using roles, not to manually specified users.
+    #[serde(default)]
+    pub ignored: Vec<i32>,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct Config {
-    /// How long credits cache lasts
+    /// How long credits cache lasts in seconds
     #[serde(default = "default_credits_cache_timeout")]
     pub credits_cache_timeout: u32,
-    /// Interval of requests to gd server
+    /// Interval of requests to gd server in seconds
     #[serde(default = "default_credits_req_interval")]
     pub credits_req_interval: u32,
     /// Credits categories

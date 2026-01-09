@@ -1,9 +1,10 @@
 use std::{
     sync::{Arc, OnceLock},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use arc_swap::ArcSwap;
+use parking_lot::Mutex;
 use server_shared::qunet::server::{ServerHandle, WeakServerHandle};
 use smallvec::SmallVec;
 use tracing::{debug, error, info, warn};
@@ -29,7 +30,9 @@ pub type CategoryVec = SmallVec<[CreditsCategory; 8]>;
 
 pub struct CreditsModule {
     interval: Duration,
+    next_refresh: Mutex<Instant>,
     req_interval: Duration,
+
     config_categories: Vec<config::CreditsCategory>,
     cache: ArcSwap<Option<CategoryVec>>,
     server: OnceLock<WeakServerHandle<ConnectionHandler>>,
@@ -37,6 +40,11 @@ pub struct CreditsModule {
 }
 
 impl CreditsModule {
+    /// Queues a reload of the credits as soon as possible, may take some time to actually happen
+    pub fn queue_reload(&self) {
+        *self.next_refresh.lock() = Instant::now();
+    }
+
     async fn reload_cache(&self) {
         info!("Reloading credits cache");
 
@@ -50,11 +58,12 @@ impl CreditsModule {
 
         for cat in &self.config_categories {
             let mut ids = Vec::new();
+            let filter = |id: &i32| !cat.ignored.contains(id);
 
             if let Some(role) = &cat.sync_with_role {
                 match users.get_all_users_with_role(role).await {
                     Ok(users) => {
-                        for id in users.iter().map(|u| u.account_id) {
+                        for id in users.iter().map(|u| u.account_id).filter(filter) {
                             ids.push((id, None));
                         }
                     }
@@ -105,6 +114,15 @@ impl CreditsModule {
         );
 
         self.cache.store(Arc::new(Some(out_credits)));
+        *self.next_refresh.lock() = Instant::now() + self.interval;
+    }
+
+    async fn reload_if_needed(&self) {
+        let next = *self.next_refresh.lock();
+
+        if Instant::now() >= next {
+            self.reload_cache().await;
+        }
     }
 
     pub fn get_credits(&self) -> Arc<Option<CategoryVec>> {
@@ -116,6 +134,7 @@ impl ServerModule for CreditsModule {
     async fn new(config: &config::Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         Ok(Self {
             interval: Duration::from_secs(config.credits_cache_timeout as u64),
+            next_refresh: Mutex::new(Instant::now()),
             req_interval: Duration::from_secs(config.credits_req_interval as u64),
             config_categories: config.credits_categories.clone(),
             cache: ArcSwap::new(Arc::new(None)),
@@ -135,16 +154,16 @@ impl ServerModule for CreditsModule {
     fn on_launch(&self, server: &ServerHandle<ConnectionHandler>) {
         let _ = self.server.set(server.make_weak());
 
-        server.schedule(self.interval, async |s| {
-            s.handler().module::<CreditsModule>().reload_cache().await;
+        // re-check every 15 minutes
+        server.schedule(Duration::from_mins(15), async |s| {
+            s.handler().module::<CreditsModule>().reload_if_needed().await;
         });
 
         // run reload right now as well
 
         let server = server.clone();
-
         tokio::spawn(async move {
-            server.handler().module::<Self>().reload_cache().await;
+            server.handler().module::<CreditsModule>().reload_if_needed().await;
         });
     }
 }
