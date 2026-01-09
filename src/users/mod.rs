@@ -53,7 +53,7 @@ pub enum PunishUserError {
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("Failed to punish user: {0}")]
+    #[error("Failed to edit user: {0}")]
     Punish(#[from] PunishUserError),
     #[error("Database error: {0}")]
     Database(#[from] DatabaseError),
@@ -375,8 +375,11 @@ impl UsersModule {
             apply_permission(&mut can_rate_features, role.can_rate_features);
             apply_permission(&mut can_name_rooms, role.can_name_rooms);
 
-            out_role.priority = role.priority;
             let _ = out_role.roles.push(role_id);
+
+            if !is_weaker {
+                out_role.priority = role.priority;
+            }
 
             // name color can already be computer client-side from the roles
             // if !is_weaker {
@@ -470,7 +473,7 @@ impl UsersModule {
             "User {issuer_id} editing roles for {account_id}, new roles: {new_roles:?}, highest priority: {highest_p}"
         );
 
-        if new_roles.iter().any(|id| self.get_role(*id).is_some_and(|r| r.priority >= highest_p)) {
+        if new_roles.iter().any(|id| self.get_role(*id).is_some_and(|r| r.priority > highest_p)) {
             return Err(Error::Permissions);
         }
 
