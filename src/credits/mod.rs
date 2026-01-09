@@ -66,11 +66,7 @@ impl CreditsModule {
             }
 
             for user in &cat.users {
-                if let Some(name) = &user.display_name
-                    && !name.is_empty()
-                {
-                    ids.push((user.id, Some(name.clone())));
-                }
+                ids.push((user.id, user.display_name.clone().filter(|x| !x.is_empty())));
             }
 
             let mut users = Vec::new();
