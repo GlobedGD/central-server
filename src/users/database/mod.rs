@@ -200,7 +200,7 @@ impl UsersDb {
     pub async fn post_user_fetch(&self, model: user::Model) -> DatabaseResult<DbUser> {
         use tracing::warn;
 
-        let name_color = model.name_color.as_ref().and_then(|c| {
+        let name_color = model.name_color.as_ref().filter(|c| !c.is_empty()).and_then(|c| {
             MultiColor::decode_from_string(c)
                 .inspect_err(|e| {
                     warn!("Failed to parse user color from DB for {}: {e}", model.account_id)
