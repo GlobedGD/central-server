@@ -1,6 +1,8 @@
 # Migrates globed2 central server database to globed3 database
 import sqlite3
 import time
+import os
+import requests
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -8,14 +10,17 @@ from dataclasses import dataclass
 roles_path = "/home/dankpc/Downloads/globed-roles.sqlite" # put None if irrelevant
 old_db_path = "/home/dankpc/Downloads/globed-prod.sqlite"
 new_db_path = "./db.sqlite"
+feat_db_path = "./features.sqlite"
 
 roles_conn = sqlite3.connect(roles_path) if roles_path else None
 old_conn = sqlite3.connect(old_db_path)
 new_conn = sqlite3.connect(new_db_path)
+feat_conn = sqlite3.connect(feat_db_path)
 
 roles_cur = roles_conn.cursor() if roles_conn else None
 old_cur = old_conn.cursor()
 new_cur = new_conn.cursor()
+feat_cur = feat_conn.cursor()
 
 @dataclass
 class OldDiscordRole:
@@ -75,6 +80,77 @@ class NewPunishment:
     issued_by: int
     issued_at: int
 
+@dataclass
+class AuditLog:
+    account_id: int
+    type: str
+    timestamp: int
+    target_account_id: int | None
+    message: str | None
+    expires_at: int | None
+
+@dataclass
+class OldFeaturedLevel:
+    id: int
+    level_id: int
+    picked_at: int
+    picked_by: int
+    is_active: int
+    rate_tier: int
+
+@dataclass
+class NewFeaturedLevel:
+    level_id: int
+    name: str
+    author: int
+    author_name: str
+    featured_at: int
+    rate_tier: int
+    feature_duration: None
+
+# Fetches level data, returns level name, author id and author name
+def fetch_level_data(level_id: int) -> tuple[str, int, str]:
+    token = os.environ.get("GDPROXY_TOKEN", "")
+    if not token:
+        return ("", 0, "")
+
+    r = requests.post(
+        f"https://gdproxy.globed.dev/database/getGJLevels21.php",
+        data={
+            "secret": "Wmfd2893gb7",
+            "str": str(level_id),
+            "type": 0,
+        },
+        headers={
+            "Authorization": f"{token}",
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+    )
+    r.raise_for_status()
+
+    outer_parts = r.text.split("#")
+    data, extra = outer_parts[:2]
+
+    parts = {}
+    ckey = None
+    for part in data.split(":"):
+        if ckey is None:
+            ckey = part
+        else:
+            parts[ckey] = part
+            ckey = None
+
+    player_id = int(parts["6"])
+
+    # extra should be formatted like userid:username:accountid
+    extra_parts = extra.split(":")
+    assert len(extra_parts) >= 3
+    assert int(extra_parts[0]) == player_id
+
+    _, username, account_id = extra_parts[:3]
+
+    return (parts["2"], int(account_id), username)
+
 def migrate_users() -> dict[int, NewUser]:
     old_users: dict[int, OldUser] = {}
     new_users: dict[int, NewUser] = {}
@@ -112,8 +188,9 @@ def migrate_users() -> dict[int, NewUser]:
 
     return new_users
 
-def migrate_punishments(users: dict[int, NewUser]) -> list[NewPunishment]:
+def migrate_punishments(users: dict[int, NewUser]) -> tuple[list[NewPunishment], list[AuditLog]]:
     punishments: list[NewPunishment] = []
+    logs: list[AuditLog] = []
 
     for pid, aid, ptype, reason, expires_at, issued_by, issued_at, type2 in old_cur.execute("SELECT punishment_id, account_id, type, reason, expires_at, issued_by, issued_at, type2 FROM punishments").fetchall():
         type = type2 or ptype
@@ -153,7 +230,22 @@ def migrate_punishments(users: dict[int, NewUser]) -> list[NewPunishment]:
 
     print(f"Migrated {migrated} active punishments")
 
-    return punishments
+    # create audit logs for all past punishments
+    for p in punishments:
+        logs.append(
+            AuditLog(
+                account_id=p.issued_by or 0,
+                type=p.type,
+                timestamp=p.issued_at or 0,
+                target_account_id=p.account_id,
+                message=p.reason,
+                expires_at=p.expires_at
+            )
+        )
+
+    print(f"Migrated {len(logs)} audit logs")
+
+    return punishments, logs
 
 def migrate_discord_links(users: dict[int, NewUser]) -> None:
     if not roles_cur:
@@ -175,7 +267,46 @@ def migrate_discord_links(users: dict[int, NewUser]) -> None:
         else:
             print(f"Warning: Discord link for GD ID {link.gd_id} ({link.discord_id}) has no matching user")
 
-def push_new_users(users: dict[int, NewUser], puns: list[NewPunishment]) -> None:
+def migrate_features() -> list[NewFeaturedLevel]:
+    old_features: list[OldFeaturedLevel] = []
+    new_features: list[NewFeaturedLevel] = []
+
+    for (id, level_id, picked_at, picked_by, is_active, rate_tier) in old_cur.execute("SELECT * from featured_levels").fetchall():
+        old_features.append(OldFeaturedLevel(
+            id=id,
+            level_id=level_id,
+            picked_at=picked_at,
+            picked_by=picked_by,
+            is_active=is_active,
+            rate_tier=rate_tier
+        ))
+
+    print(f"Collected {len(old_features)} featured levels, starting to fetch data..")
+
+    for level in old_features:
+        level_name, author, author_name = fetch_level_data(level.level_id)
+        new_features.append(NewFeaturedLevel(
+            level_id=level.level_id,
+            name=level_name,
+            author=author,
+            author_name=author_name,
+            featured_at=level.picked_at,
+            rate_tier=level.rate_tier,
+            feature_duration=None
+        ))
+        print(f"\r[{len(new_features)}/{len(old_features)}] Fetched {level_name} ({level.level_id}) by {author_name} ({author})" + " " * 20, end="")
+        time.sleep(0.2)
+
+    print()
+
+    return new_features
+
+def push_new_users(users: dict[int, NewUser], puns: list[NewPunishment], logs: list[AuditLog]) -> None:
+    # remove all data in the new database
+    new_cur.execute("DELETE FROM user")
+    new_cur.execute("DELETE FROM punishment")
+    new_cur.execute("DELETE FROM audit_log")
+
     for user in users.values():
         roles_str = ",".join(user.roles)
         res = new_cur.execute(
@@ -191,9 +322,35 @@ def push_new_users(users: dict[int, NewUser], puns: list[NewPunishment]) -> None
             (pun.id, pun.account_id, pun.type, pun.reason, pun.expires_at, pun.issued_by or 0, pun.issued_at)
         )
 
+    for log in logs:
+        new_cur.execute(
+            "INSERT INTO audit_log (account_id, type, timestamp, target_account_id, message, expires_at)" \
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (log.account_id, log.type, log.timestamp, log.target_account_id, log.message, log.expires_at)
+        )
+
     new_conn.commit()
 
+def push_features(features: list[NewFeaturedLevel]) -> None:
+    if not feat_cur:
+        return
+
+    feat_cur.execute("DELETE FROM featured_level")
+
+    for feat in features:
+        print(f"Inserting {feat}")
+        feat_cur.execute(
+            "INSERT INTO featured_level (level_id, name, author, author_name, featured_at, rate_tier, feature_duration)" \
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (feat.level_id, feat.name, feat.author, feat.author_name, feat.featured_at, feat.rate_tier, feat.feature_duration)
+        )
+
+    feat_conn.commit()
+
 new_users = migrate_users()
-new_puns = migrate_punishments(new_users)
+new_puns, new_logs = migrate_punishments(new_users)
 migrate_discord_links(new_users)
-push_new_users(new_users, new_puns)
+push_new_users(new_users, new_puns, new_logs)
+
+features = migrate_features()
+push_features(features)
