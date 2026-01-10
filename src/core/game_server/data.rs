@@ -10,11 +10,11 @@ macro_rules! encode_message_unsafe {
     }
 }
 
-// macro_rules! encode_message_heap {
-//     ($this:expr, $estcap:expr, $msg:ident => $code:expr) => {
-//         server_shared::encode_message_heap!(server_shared::schema::srvc, $this.server(), $estcap, $msg => $code)
-//     }
-// }
+macro_rules! encode_message_dyn {
+    ($this:expr, $msg:ident => $code:expr) => {
+        server_shared::encode_message_dyn!(server_shared::schema::srvc, $this.server(), $msg => $code)
+    }
+}
 
 macro_rules! encode_message {
     ($this:expr, $estcap:expr, $msg:ident => $code:expr) => {
@@ -24,4 +24,5 @@ macro_rules! encode_message {
 
 pub(crate) use decode_message_match;
 pub(crate) use encode_message;
+pub(crate) use encode_message_dyn;
 pub(crate) use encode_message_unsafe;

@@ -4,11 +4,11 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
+use rustc_hash::FxHashMap;
 use server_shared::qunet::{
     message::{BufferKind, channel},
     server::{ServerHandle, WeakServerHandle, client::ClientState},
 };
-use rustc_hash::FxHashMap;
 use server_shared::{data::GameServerData, encoding::EncodeMessageError};
 use thiserror::Error;
 
@@ -138,7 +138,7 @@ impl GameServerManager {
             .find(|s| s.data.id == server_id)
             .ok_or(GameServerError::ServerNotFound)?;
 
-        let buf = data::encode_message_unsafe!(self, 48, msg => {
+        let buf = data::encode_message_unsafe!(self, 64, msg => {
             let mut room_created = msg.init_notify_room_created();
             room_created.set_room_id(room_id);
             room_created.set_passcode(passcode);
@@ -181,7 +181,7 @@ impl GameServerManager {
             .find(|s| s.data.id == server_id)
             .ok_or(GameServerError::ServerNotFound)?;
 
-        let buf = data::encode_message_unsafe!(self, 40, msg => {
+        let buf = data::encode_message_unsafe!(self, 64, msg => {
             let mut room_deleted = msg.init_notify_room_deleted();
             room_deleted.set_room_id(room_id);
         })?;
@@ -206,7 +206,7 @@ impl GameServerManager {
             .find(|s| s.data.id == server_id)
             .ok_or(GameServerError::ServerNotFound)?;
 
-        let buf = data::encode_message_unsafe!(self, 64, msg => {
+        let buf = data::encode_message_unsafe!(self, 80, msg => {
             let mut notif = msg.init_notify_user_data();
             notif.set_account_id(account_id);
             notif.set_can_use_voice(can_use_voice);
@@ -222,7 +222,7 @@ impl GameServerManager {
     pub async fn notify_user_banned(&self, account_id: i32) -> Result<(), GameServerError> {
         let servers = self.servers.load();
 
-        let buf = data::encode_message_unsafe!(self, 64, msg => {
+        let buf = data::encode_message_unsafe!(self, 80, msg => {
             let mut notif = msg.init_notify_user_data();
             notif.set_account_id(account_id);
             notif.set_can_use_voice(false);
@@ -241,7 +241,7 @@ impl GameServerManager {
     pub async fn notify_user_muted(&self, account_id: i32) -> Result<(), GameServerError> {
         let servers = self.servers.load();
 
-        let buf = data::encode_message_unsafe!(self, 64, msg => {
+        let buf = data::encode_message_unsafe!(self, 80, msg => {
             let mut notif = msg.init_notify_user_data();
             notif.set_account_id(account_id);
             notif.set_can_use_voice(false);

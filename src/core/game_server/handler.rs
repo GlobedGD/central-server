@@ -89,7 +89,7 @@ impl GameServerHandler {
         client: &ClientStateHandle,
         reason: &str,
     ) -> HandlerResult<()> {
-        let buf = data::encode_message!(self, 512, msg => {
+        let buf = data::encode_message_dyn!(self, msg => {
             let mut login_failed = msg.reborrow().init_login_failed();
             login_failed.set_reason(reason);
         })?;
@@ -130,7 +130,7 @@ impl GameServerHandler {
         let token_expiry = auth_config.token_expiry as u64;
         let script_key = &server.handler().config().module::<UsersModule>().script_sign_key;
 
-        let buf = data::encode_message!(self, 512, msg => {
+        let buf = data::encode_message_dyn!(self, msg => {
             let mut login_ok = msg.reborrow().init_login_ok();
 
             login_ok.set_token_key(secret_key);
