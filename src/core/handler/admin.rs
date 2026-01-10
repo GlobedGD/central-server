@@ -208,6 +208,14 @@ impl ConnectionHandler {
         let targets = if let Some(target) =
             target_user.parse::<i32>().ok().and_then(|id| self.find_client(id))
         {
+            if target.settings().disable_notices {
+                self.send_admin_result(
+                    client,
+                    Err("failed to send notice: target user has notices disabled"),
+                )?;
+                return Ok(());
+            }
+
             vec![target]
         } else if !target_user.is_empty() {
             self.all_clients
