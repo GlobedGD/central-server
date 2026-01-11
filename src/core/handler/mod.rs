@@ -2,21 +2,21 @@ use std::{
     borrow::Cow,
     net::SocketAddr,
     num::NonZeroI64,
+    path::Path,
     sync::{Arc, OnceLock, Weak},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use rustc_hash::FxHashSet;
-#[cfg(feature = "stat-tracking")]
-use server_shared::qunet::server::stat_tracker::OverallStats;
 use server_shared::qunet::{
     buffers::{BufPool, ByteWriter},
     message::{BufferKind, MsgData},
     server::{
         Server as QunetServer, ServerHandle as QunetServerHandle, WeakServerHandle,
         app_handler::{AppHandler, AppResult},
+        stat_tracker::{FinishedConnection, OverallStats},
     },
 };
 use server_shared::{
@@ -36,12 +36,6 @@ use crate::{
     },
     rooms::{RoomModule, RoomSettings},
     users::{ComputedRole, UsersModule},
-};
-
-#[cfg(feature = "stat-tracking")]
-use {
-    server_shared::qunet::server::stat_tracker::FinishedConnection,
-    std::{path::Path, time::SystemTime},
 };
 
 mod admin;
@@ -114,12 +108,15 @@ impl AppHandler for ConnectionHandler {
             info!("Shrinking buffer pool to reclaim memory: {} -> {} bytes", prev_usage, new_usage);
         });
 
-        #[cfg(feature = "stat-tracking")]
-        server.schedule(Duration::from_mins(30), |server| async move {
-            if let Some(t) = server.stat_tracker() {
-                t.clear_past_older_than(Duration::from_hours(12));
-            }
-        });
+        // periodically clean up stat tracker stuff if enabled
+        if server.stat_tracker().is_some() {
+            server.schedule(Duration::from_mins(30), |server| async move {
+                if let Some(t) = server.stat_tracker() {
+                    info!("Cleaning up stale stat tracker data");
+                    t.clear_past_older_than(Duration::from_hours(6));
+                }
+            });
+        }
 
         for module in self.module_list.lock().iter() {
             module.on_launch(&server);
@@ -618,7 +615,6 @@ impl AppHandler for ConnectionHandler {
         }
     }
 
-    #[cfg(feature = "stat-tracking")]
     async fn on_sigusr1(&self, _server: &QunetServer<Self>) {
         self.dump_all_connections().await;
     }
@@ -667,7 +663,6 @@ impl ConnectionHandler {
         &self.config
     }
 
-    #[cfg(feature = "stat-tracking")]
     pub async fn dump_all_connections(&self) -> Option<OverallStats> {
         let server = self.server();
         let st = server.stat_tracker()?;
@@ -971,7 +966,6 @@ fn decode_login_data<'a>(
     Ok(LoginData { kind, icons, uident, settings })
 }
 
-#[cfg(feature = "stat-tracking")]
 fn format_systime(s: SystemTime) -> String {
     time_format::strftime_utc(
         "%Y-%m-%dT%H.%M.%S",
@@ -980,12 +974,10 @@ fn format_systime(s: SystemTime) -> String {
     .unwrap_or_else(|_| "unknown".to_string())
 }
 
-#[cfg(feature = "stat-tracking")]
 fn format_dur(d: Duration) -> String {
     format!("{:.3}s", d.as_secs_f64())
 }
 
-#[cfg(feature = "stat-tracking")]
 async fn dump_connection_data(conn: &FinishedConnection, dir: &Path) -> std::io::Result<()> {
     use tokio::{fs, io::AsyncWriteExt};
 

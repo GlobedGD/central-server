@@ -167,11 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         builder = builder.with_qdb_file(path);
     }
 
-    #[cfg(feature = "stat-tracking")]
-    {
-        // stats are tracked in sigusr1 handler
-        builder = builder.with_stat_tracker(core.enable_stat_tracking);
-    }
+    builder = builder.with_stat_tracker(core.enable_stat_tracking);
 
     // Build the server
     let server = match builder.build().await {

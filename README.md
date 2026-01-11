@@ -42,12 +42,11 @@ cargo build --features featured-levels,discord,quic
 ```
 
 Possible feature flags:
-* `all` - includes all functional features, does not include `stat-tracking` and `mimalloc`
+* `all` - includes all functional features, does not include `mimalloc`
 * `word-filter` - adds a word filter module, allowing you to create a blacklist for room names and usernames
 * `featured-levels` - adds a featured levels module, letting moderators send/queue/feature levels and update information to a google spreadsheet
 * `discord` - adds the discord bot module, which can send logs and alerts, as well as allowing moderation or maintenance with discord commands
 * `quic` - enables QUIC support. requires extra setup in the form of TLS certificates
-* `stat-tracking` - **for debugging only** tracks every packet of every connection. on Linux, completed connections can be dumped by sending `SIGUSR1`
 * `mimalloc` - replaces the allocator with MiMalloc
 
 ## Docker builds

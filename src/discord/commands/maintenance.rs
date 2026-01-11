@@ -70,7 +70,6 @@ pub async fn status(ctx: Context<'_>) -> Result<(), BotError> {
     Ok(())
 }
 
-#[cfg(feature = "stat-tracking")]
 #[poise::command(slash_command, guild_only = true)]
 /// Dump and show connection stats
 pub async fn conn_stats(ctx: Context<'_>) -> Result<(), BotError> {
