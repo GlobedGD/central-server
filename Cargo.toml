@@ -21,7 +21,7 @@ heapless = "0.8.0"
 hex = "0.4.3"
 parking_lot = { version = "0.12.4", features = ["send_guard"] }
 rand = "0.9.1"
-server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "66e226d", features = [
+server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "55a636d", features = [
     "main",
     "srvc",
 ] }

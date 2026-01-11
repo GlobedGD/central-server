@@ -346,11 +346,12 @@ impl ServerModule for FeaturesModule {
         let db = Db::new(&config.database_url, config.database_pool_size).await?;
         db.run_migrations().await?;
 
-        let sheets = if config.google_credentials_path.is_some() && config.spreadsheet_id.is_some()
+        let sheets = if let Some(creds) = config.google_credentials_path.as_ref()
+            && let Some(id) = config.spreadsheet_id.as_ref()
         {
-            let creds = std::fs::read_to_string(config.google_credentials_path.as_ref().unwrap())?;
+            let creds = std::fs::read_to_string(creds)?;
 
-            Some(SheetsClient::new(&creds, config.spreadsheet_id.clone().unwrap()).await)
+            Some(SheetsClient::new(&creds, id.clone()).await)
         } else {
             None
         };

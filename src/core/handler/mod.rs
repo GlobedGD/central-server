@@ -9,6 +9,8 @@ use std::{
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use rustc_hash::FxHashSet;
+#[cfg(feature = "stat-tracking")]
+use server_shared::qunet::server::stat_tracker::OverallStats;
 use server_shared::qunet::{
     buffers::{BufPool, ByteWriter},
     message::{BufferKind, MsgData},
@@ -113,7 +115,7 @@ impl AppHandler for ConnectionHandler {
         });
 
         #[cfg(feature = "stat-tracking")]
-        server.schedule(Duration::from_hours(24), |server| async move {
+        server.schedule(Duration::from_mins(30), |server| async move {
             if let Some(t) = server.stat_tracker() {
                 t.clear_past_older_than(Duration::from_hours(12));
             }
@@ -617,31 +619,8 @@ impl AppHandler for ConnectionHandler {
     }
 
     #[cfg(feature = "stat-tracking")]
-    async fn on_sigusr1(&self, server: &QunetServer<Self>) {
-        let Some(st) = server.stat_tracker() else {
-            return;
-        };
-
-        let conns = st.take_all_past();
-        let base_dir = std::env::current_dir().unwrap().join("conn-dumps");
-
-        info!("Received SIGUSR1, dumping {} connections", conns.len());
-
-        for conn in conns {
-            // dump connection data
-            let time_str = format_systime(conn.creation);
-            let dir = base_dir.join(format!("{}-{}", time_str, conn.id));
-
-            match dump_connection_data(&conn, &dir).await {
-                Ok(()) => {
-                    info!("Dumped connection {} to {:?}", conn.id, dir);
-                }
-
-                Err(e) => {
-                    error!("Failed to dump connection {}: {}", conn.id, e);
-                }
-            }
-        }
+    async fn on_sigusr1(&self, _server: &QunetServer<Self>) {
+        self.dump_all_connections().await;
     }
 }
 
@@ -686,6 +665,46 @@ impl ConnectionHandler {
 
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    #[cfg(feature = "stat-tracking")]
+    pub async fn dump_all_connections(&self) -> Option<OverallStats> {
+        let server = self.server();
+        let st = server.stat_tracker()?;
+
+        let conns = st.take_all_past();
+        let overall = st.get_overall_stats();
+
+        info!("== Overall connection stats ==");
+        info!("Bytes sent: {}, received: {}", overall.bytes_tx, overall.bytes_rx);
+        info!("Packets sent: {}, received: {}", overall.pkt_tx, overall.pkt_rx);
+        info!("Total connections made: {}", overall.total_conns);
+        info!(
+            "Connections suspended: {}, resumed: {}",
+            overall.total_suspends, overall.total_resumes
+        );
+        info!("Total keepalives exchanged: {}", overall.total_keepalives);
+
+        let base_dir = std::env::current_dir().unwrap().join("conn-dumps");
+        info!("Dumping {} connections to {base_dir:?}", conns.len());
+
+        for conn in conns {
+            // dump connection data
+            let time_str = format_systime(conn.creation);
+            let dir = base_dir.join(format!("{}-{}", time_str, conn.id));
+
+            match dump_connection_data(&conn, &dir).await {
+                Ok(()) => {
+                    info!("Dumped connection {} to {:?}", conn.id, dir);
+                }
+
+                Err(e) => {
+                    error!("Failed to dump connection {}: {}", conn.id, e);
+                }
+            }
+        }
+
+        Some(overall)
     }
 
     /// Obtain a reference to the server. This must not be called before the server is launched and `on_launch` is called.

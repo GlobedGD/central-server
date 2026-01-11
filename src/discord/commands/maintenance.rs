@@ -5,7 +5,7 @@ use std::{
 
 use build_time::build_time_utc;
 use poise::{CreateReply, serenity_prelude::CreateEmbed};
-use server_shared::qunet::server::ServerHandle;
+use server_shared::qunet::server::{ServerHandle, stat_tracker::OverallStats};
 
 use super::util::*;
 use crate::{
@@ -65,9 +65,27 @@ pub async fn status(ctx: Context<'_>) -> Result<(), BotError> {
         .embed(collect_perf_stats(&server))
         .embed(collect_gs_stats(&server));
 
-    // TODO: qunet stat tracker :p
-
     ctx.send(msg).await?;
+
+    Ok(())
+}
+
+#[cfg(feature = "stat-tracking")]
+#[poise::command(slash_command, guild_only = true)]
+/// Dump and show connection stats
+pub async fn conn_stats(ctx: Context<'_>) -> Result<(), BotError> {
+    check_admin(ctx).await?;
+
+    let state = ctx.data();
+    let server = state.server()?;
+    ctx.defer().await?;
+
+    if let Some(data) = server.handler().dump_all_connections().await {
+        let msg = ctx.reply_builder(CreateReply::default()).embed(collect_connection_stats(&data));
+        ctx.send(msg).await?;
+    } else {
+        ctx.reply(":x: Stat tracking is not enabled on this server.").await?;
+    }
 
     Ok(())
 }
@@ -125,6 +143,22 @@ fn collect_perf_stats(server: &ServerHandle<ConnectionHandler>) -> CreateEmbed {
     embed = embed.field("Buffer pool", format!("{}", ByteCount(bpool.total_heap_usage)), true);
 
     embed
+}
+
+fn collect_connection_stats(data: &OverallStats) -> CreateEmbed {
+    CreateEmbed::default()
+        .title("Connection stats")
+        .color(hex_color_to_decimal("#ff69b4"))
+        .field("Total connections", data.total_conns.to_string(), true)
+        .field(
+            "Suspends / Resumes",
+            format!("{} / {}", data.total_suspends, data.total_resumes),
+            true,
+        )
+        .field("Packets sent", data.pkt_tx.to_string(), true)
+        .field("Packets received", data.pkt_rx.to_string(), true)
+        .field("Bytes sent", ByteCount(data.bytes_tx).to_string(), true)
+        .field("Bytes received", ByteCount(data.bytes_rx).to_string(), true)
 }
 
 fn collect_gs_stats(server: &ServerHandle<ConnectionHandler>) -> CreateEmbed {

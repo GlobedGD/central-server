@@ -75,10 +75,14 @@ fn default_udp_address() -> String {
     "[::]:4340".into()
 }
 
-// QDB stuff
+// qunet stuff
 
 fn default_qdb_path() -> Option<PathBuf> {
     None
+}
+
+fn default_enable_stat_tracking() -> bool {
+    false
 }
 
 // Game server stuff
@@ -157,6 +161,9 @@ pub struct CoreConfig {
     /// The path to the QDB file.
     #[serde(default = "default_qdb_path")]
     pub qdb_path: Option<PathBuf>,
+    /// Whether to enable connection stat tracking
+    #[serde(default = "default_enable_stat_tracking")]
+    pub enable_stat_tracking: bool,
 
     /// The password for the game server
     #[serde(default = "default_gs_password")]
@@ -198,6 +205,7 @@ impl Default for CoreConfig {
             udp_ping_only: default_udp_ping_only(),
             udp_address: default_udp_address(),
             qdb_path: default_qdb_path(),
+            enable_stat_tracking: default_enable_stat_tracking(),
             gs_password: default_gs_password(),
             gs_tcp_address: default_gs_tcp_address(),
             gs_quic_address: default_gs_quic_address(),
@@ -231,6 +239,7 @@ impl CoreConfig {
         env_replace("GLOBED_CORE_UDP_ADDRESS", &mut self.udp_address);
 
         env_replace("GLOBED_CORE_QDB_PATH", &mut self.qdb_path);
+        env_replace("GLOBED_CORE_ENABLE_STAT_TRACKING", &mut self.enable_stat_tracking);
 
         env_replace("GLOBED_CORE_GS_PASSWORD", &mut self.gs_password);
         env_replace("GLOBED_CORE_GS_TCP_ADDRESS", &mut self.gs_tcp_address);
