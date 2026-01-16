@@ -134,12 +134,8 @@ impl ConnectionHandler {
             client.set_authorized_mod();
 
             let reasons = users.get_punishment_reasons();
-            let cap = 80
-                + reasons.ban.iter().map(|r| r.len() + 16).sum::<usize>()
-                + reasons.mute.iter().map(|r| r.len() + 16).sum::<usize>()
-                + reasons.room_ban.iter().map(|r| r.len() + 16).sum::<usize>();
 
-            let buf = data::encode_message_heap!(self, cap, msg => {
+            let buf = data::encode_message_dyn!(self, msg => {
                 let mut msg = msg.init_admin_punishment_reasons();
                 let _ = msg.set_ban(&reasons.ban[..]);
                 let _ = msg.set_mute(&reasons.mute[..]);
@@ -713,14 +709,7 @@ impl ConnectionHandler {
                 }
             };
 
-        let cap = 80
-            + logs
-                .iter()
-                .map(|l| 64 + l.message.as_ref().map(|x| x.len()).unwrap_or(0))
-                .sum::<usize>()
-            + users.len() * 56;
-
-        let buf = data::encode_message_heap!(self, cap, msg => {
+        let buf = data::encode_message_dyn!(self, msg => {
             let mut msg = msg.reborrow().init_admin_logs_response();
 
             let mut accounts = msg.reborrow().init_accounts(users.len() as u32);
@@ -760,8 +749,7 @@ impl ConnectionHandler {
             }
         };
 
-        let cap = 48 + 80 * users.len();
-        let buf = data::encode_message_heap!(self, cap, msg => {
+        let buf = data::encode_message_dyn!(self, msg => {
             let mut resp = msg.init_admin_fetch_mods_response();
             let mut ser = resp.reborrow().init_users(users.len() as u32);
 
