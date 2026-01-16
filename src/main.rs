@@ -7,7 +7,8 @@
     iter_array_chunks,
     if_let_guard,
     string_remove_matches,
-    result_option_map_or_default
+    result_option_map_or_default,
+    generic_const_exprs
 )]
 #![allow(clippy::new_without_default, clippy::collapsible_if, clippy::too_many_arguments)]
 
@@ -352,14 +353,20 @@ fn should_c_3(data: &[u8]) -> Option<CompressionType> {
         Some(CompressionType::Zstd)
     }
 }
+const fn const_min(a: usize, b: usize) -> usize {
+    if a < b { a } else { b }
+}
 
-fn should_c_4<const MIN: usize, const ZSTD_BREAK: usize>(data: &[u8]) -> Option<CompressionType> {
+fn should_c_4<const MIN: usize, const ZSTD_BREAK: usize>(data: &[u8]) -> Option<CompressionType>
+where
+    [(); const_min(ZSTD_BREAK, 8192)]:,
+{
     if data.len() < MIN {
         return None;
     }
 
     // adaptive, try compressing with lz4
-    let mut temp = [0u8; 8192];
+    let mut temp = [0u8; const_min(ZSTD_BREAK, 8192)];
     let lz4_size = lz4_compress(data, &mut temp).unwrap_or(data.len() + 1);
 
     // if lz4 is not effective at all, don't compress
