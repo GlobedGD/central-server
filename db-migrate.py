@@ -7,8 +7,8 @@ from pathlib import Path
 from dataclasses import dataclass
 
 # replace paths with yours
-roles_path = "/home/dankpc/Downloads/globed-roles.sqlite" # put None if irrelevant
-old_db_path = "/home/dankpc/Downloads/globed-prod.sqlite"
+roles_path = "/home/dankpc/test/globed-roles.sqlite" # put None if irrelevant
+old_db_path = "/home/dankpc/test/globed-prod.sqlite"
 new_db_path = "./db.sqlite"
 feat_db_path = "./features.sqlite"
 

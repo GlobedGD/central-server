@@ -430,8 +430,6 @@ fn rate_tier_to_image(difficulty: GDDifficulty, tier: i32) -> String {
     };
 
     format!(
-        // TODO (release): replace this when we merge globed3
-        // "https://raw.githubusercontent.com/GlobedGD/globed2/main/resources/_raw/globed-faces/{diffname}/{diffname}-{ratename}.png"
-        "https://raw.githubusercontent.com/GlobedGD/globed2/main/assets/globed-faces/{diffname}/{diffname}-{ratename}.png"
+        "https://raw.githubusercontent.com/GlobedGD/globed2/main/resources/_raw/globed-faces/{diffname}/{diffname}-{ratename}.png"
     )
 }
