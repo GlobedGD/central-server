@@ -5,9 +5,13 @@ use serde::{Deserialize, Serialize};
 use server_shared::config::env_replace;
 use validator::{Validate, ValidationError};
 
-// Memory
+// Performance
 
 fn default_memory_usage() -> u32 {
+    3
+}
+
+fn default_compression_level() -> u32 {
     3
 }
 
@@ -103,7 +107,13 @@ fn default_gs_quic_address() -> Option<String> {
 pub struct CoreConfig {
     /// The memory usage value (1 to 11), determines how much memory the server will preallocate for operations.
     #[serde(default = "default_memory_usage")]
+    #[validate(range(min = 1, max = 11))]
     pub memory_usage: u32,
+    /// How aggressive compression of data should be.
+    /// 0 means no compression, 6 means prefer zstd almost always.
+    #[serde(default = "default_compression_level")]
+    #[validate(range(min = 0, max = 6))]
+    pub compression_level: u32,
 
     /// Whether to enable logging to a file. If disabled, logs will only be printed to stdout.
     #[serde(default = "default_log_file_enabled")]
@@ -189,6 +199,7 @@ impl Default for CoreConfig {
     fn default() -> Self {
         Self {
             memory_usage: default_memory_usage(),
+            compression_level: default_compression_level(),
             log_file_enabled: default_log_file_enabled(),
             log_directory: default_log_directory(),
             console_log_level: default_log_level(),
@@ -218,6 +229,7 @@ impl Default for CoreConfig {
 impl CoreConfig {
     pub fn replace_with_env(&mut self) {
         env_replace("GLOBED_CORE_MEMORY_USAGE", &mut self.memory_usage);
+        env_replace("GLOBED_CORE_COMPRESSION_LEVEL", &mut self.compression_level);
 
         env_replace("GLOBED_CORE_LOG_FILE_ENABLED", &mut self.log_file_enabled);
         env_replace("GLOBED_CORE_LOG_DIRECTORY", &mut self.log_directory);
