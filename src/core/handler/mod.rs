@@ -10,13 +10,16 @@ use std::{
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use rustc_hash::FxHashSet;
-use server_shared::qunet::{
-    buffers::{BufPool, ByteWriter},
-    message::{BufferKind, MsgData},
-    server::{
-        Server as QunetServer, ServerHandle as QunetServerHandle, WeakServerHandle,
-        app_handler::{AppHandler, AppResult},
-        stat_tracker::{FinishedConnection, OverallStats},
+use server_shared::{
+    SessionId,
+    qunet::{
+        buffers::{BufPool, ByteWriter},
+        message::{BufferKind, MsgData},
+        server::{
+            Server as QunetServer, ServerHandle as QunetServerHandle, WeakServerHandle,
+            app_handler::{AppHandler, AppResult},
+            stat_tracker::{FinishedConnection, OverallStats},
+        },
     },
 };
 use server_shared::{
@@ -713,6 +716,25 @@ impl ConnectionHandler {
 
     pub fn level_count(&self) -> usize {
         self.all_levels.len()
+    }
+
+    pub fn increment_level_players(&self, session: impl Into<SessionId>, is_hidden: bool) {
+        let mut ent = self
+            .all_levels
+            .entry(session.into().as_u64())
+            .or_insert(LevelEntry { player_count: 0, is_hidden });
+
+        ent.player_count += 1;
+    }
+
+    pub fn decrement_level_players(&self, session: impl Into<SessionId>) {
+        let session = session.into().as_u64();
+        debug_assert!(self.all_levels.contains_key(&session));
+
+        self.all_levels.remove_if_mut(&session, |_, entry| {
+            entry.player_count -= 1;
+            entry.player_count == 0
+        });
     }
 
     pub fn override_level_hidden(&self, session: u64, hidden: bool) -> bool {

@@ -74,23 +74,14 @@ impl ConnectionHandler {
         let users = self.module::<UsersModule>();
 
         if !prev_session.is_zero() {
-            debug_assert!(self.all_levels.contains_key(&prev_session.as_u64()));
-
-            self.all_levels.remove_if_mut(&prev_session.as_u64(), |_, entry| {
-                entry.player_count -= 1;
-                entry.player_count == 0
-            });
+            self.decrement_level_players(prev_session);
         }
 
         if !new_session.is_zero() {
             let is_blacklisted = users.is_level_blacklisted(new_session.level_id())
                 || new_author.is_some_and(|x| users.is_author_blacklisted(x));
 
-            let mut ent = self.all_levels.entry(new_session.as_u64()).or_insert(LevelEntry {
-                player_count: 0,
-                is_hidden: is_blacklisted,
-            });
-            ent.player_count += 1;
+            self.increment_level_players(new_session, is_blacklisted);
 
             let users = self.module::<UsersModule>();
             let can_use_qc = client.active_mute.lock().is_none();
