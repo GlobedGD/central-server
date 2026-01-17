@@ -203,8 +203,8 @@ impl ConnectionHandler {
                         #[cfg(feature = "discord")]
                         self.module::<DiscordModule>().send_alert(DiscordMessage::new().content(
                             format!(
-                                "⚠️ Potential alt account logged in: {} ({}), accounts: {:?}",
-                                data.username, data.account_id, accounts
+                                "⚠️ Potential alt account logged in: {} ({}), accounts: {:?}. Uident: {}",
+                                data.username, data.account_id, accounts, uident
                             ),
                         ));
                     }
