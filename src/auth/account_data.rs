@@ -1,4 +1,4 @@
-use crate::core::UsernameString;
+use server_shared::UsernameString;
 
 #[derive(Default, Debug, Clone)]
 pub struct ClientAccountData {

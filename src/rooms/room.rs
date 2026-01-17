@@ -8,14 +8,14 @@ use std::{
 };
 
 use parking_lot::{Mutex, RwLock};
-use server_shared::{SessionId, qunet::message::BufferKind};
+use server_shared::{RoomNameString, SessionId, qunet::message::BufferKind};
 use slab::Slab;
 use smallvec::SmallVec;
 use thiserror::Error;
 use tracing::{debug, error, warn};
 
 use crate::{
-    core::{RoomNameString, data::RoomJoinFailedReason, handler::ClientStateHandle},
+    core::{data::RoomJoinFailedReason, handler::ClientStateHandle},
     rooms::{RoomSettings, invite_token::InviteToken},
 };
 

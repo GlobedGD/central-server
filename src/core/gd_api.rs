@@ -3,9 +3,8 @@ use std::sync::LazyLock;
 use generic_async_http_client::{Error as RequestError, Request};
 use parking_lot::Mutex;
 use serde::Serialize;
+use server_shared::UsernameString;
 use thiserror::Error;
-
-use crate::core::UsernameString;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum GDDifficulty {

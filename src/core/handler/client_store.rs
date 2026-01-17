@@ -1,11 +1,9 @@
 use std::sync::{Arc, Weak};
 
 use dashmap::DashMap;
+use server_shared::{MAX_USERNAME_LENGTH, UsernameString};
 
-use crate::core::{
-    MAX_USERNAME_LENGTH, UsernameString,
-    handler::{ClientStateHandle, WeakClientStateHandle},
-};
+use crate::core::handler::{ClientStateHandle, WeakClientStateHandle};
 
 #[derive(Default)]
 pub struct ClientStore {

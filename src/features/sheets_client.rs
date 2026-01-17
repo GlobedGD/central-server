@@ -14,13 +14,11 @@ use google_sheets4::{
     yup_oauth2,
 };
 use serde_json::Value;
+use server_shared::UsernameString;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, error, info, warn};
 
-use crate::{
-    core::UsernameString,
-    features::database::{FeaturedLevelModel, QueuedLevelModel, SentLevelModel},
-};
+use crate::features::database::{FeaturedLevelModel, QueuedLevelModel, SentLevelModel};
 
 type UsernameMap = HashMap<i32, UsernameString>;
 
