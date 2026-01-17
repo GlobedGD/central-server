@@ -204,30 +204,13 @@ impl ConnectionHandler {
         let targets = if let Some(target) =
             target_user.parse::<i32>().ok().and_then(|id| self.find_client(id))
         {
-            if target.settings().disable_notices {
-                self.send_admin_result(
-                    client,
-                    Err("failed to send notice: target user has notices disabled"),
-                )?;
-                return Ok(());
-            }
-
             vec![target]
         } else if !target_user.is_empty() {
-            self.all_clients
-                .iter()
-                .filter_map(|x| {
-                    x.value().upgrade().and_then(|c| {
-                        c.clone().account_data().and_then(|d| {
-                            if d.username.eq_ignore_ascii_case(target_user) {
-                                Some(c)
-                            } else {
-                                None
-                            }
-                        })
-                    })
-                })
-                .collect()
+            if let Some(c) = self.clients.find_by_name(target_user) {
+                vec![c]
+            } else {
+                vec![]
+            }
         } else if room_id != 0 {
             let rooms = self.module::<RoomModule>();
             let Some(room) = rooms.get_room(room_id) else {
@@ -242,7 +225,7 @@ impl ConnectionHandler {
                     out.extend(players.map(|(_, p)| p.handle.clone()));
                 } else {
                     players.for_each(|(_, p)| {
-                        if SessionId::from(p.handle.session_id()).level_id() == level_id {
+                        if SessionId::from(p.handle.session_id_u64()).level_id() == level_id {
                             out.push(p.handle.clone());
                         }
                     });
@@ -252,11 +235,7 @@ impl ConnectionHandler {
             })
             .await
         } else if level_id != 0 {
-            self.all_clients
-                .iter()
-                .filter_map(|x| x.value().upgrade())
-                .filter(|c| SessionId::from(c.session_id()).level_id() == level_id)
-                .collect()
+            self.clients.collect_all_pred(|c| c.session_id().level_id() == level_id)
         } else {
             self.send_admin_result(client, Err("no target specified"))?;
             return Ok(());
@@ -267,11 +246,23 @@ impl ConnectionHandler {
             return Ok(());
         }
 
+        // log to the database
         if targets.len() == 1 {
             let _ = users.log_notice(client.account_id(), targets[0].account_id(), message).await;
         } else {
             let _ =
                 users.log_notice_group(client.account_id(), message, targets.len() as u32).await;
+        }
+
+        // if there's a single target, don't send if they have notices disabled
+        if let Some(target) = targets.first() {
+            if target.settings().disable_notices {
+                self.send_admin_result(
+                    client,
+                    Err("failed to send notice: target user has notices disabled"),
+                )?;
+                return Ok(());
+            }
         }
 
         for target in targets {
@@ -370,11 +361,12 @@ impl ConnectionHandler {
 
         let buf = Arc::new(self.make_notice_buf(sender, message, can_reply, false, show_sender)?);
 
-        for target in self.all_clients.iter().filter_map(|x| x.value().upgrade()) {
+        let targets = self.clients.collect_all();
+        for target in &targets {
             target.send_data_bufkind(BufferKind::Reference(buf.clone()));
         }
 
-        Ok(self.all_clients.len())
+        Ok(targets.len())
     }
 
     pub async fn handle_admin_fetch_user(

@@ -1,8 +1,10 @@
+use crate::core::UsernameString;
+
 #[derive(Default, Debug, Clone)]
 pub struct ClientAccountData {
     pub account_id: i32,
     pub user_id: i32,
-    pub username: heapless::String<16>,
+    pub username: UsernameString,
 }
 
 pub enum LoginKind<'a> {

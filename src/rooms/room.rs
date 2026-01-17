@@ -15,7 +15,7 @@ use thiserror::Error;
 use tracing::{debug, error, warn};
 
 use crate::{
-    core::{data::RoomJoinFailedReason, handler::ClientStateHandle},
+    core::{RoomNameString, data::RoomJoinFailedReason, handler::ClientStateHandle},
     rooms::{RoomSettings, invite_token::InviteToken},
 };
 
@@ -67,7 +67,7 @@ struct StoredInviteToken {
 
 pub struct Room {
     pub id: u32,
-    pub name: heapless::String<32>,
+    pub name: RoomNameString,
     pub passcode: u32,
     pub owner: AtomicI32,
     pub original_owner: i32,
@@ -89,7 +89,7 @@ impl Room {
     pub fn new(
         id: u32,
         owner: i32,
-        name: heapless::String<32>,
+        name: RoomNameString,
         passcode: u32,
         settings: RoomSettings,
     ) -> Self {

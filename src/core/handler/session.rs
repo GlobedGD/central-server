@@ -1,6 +1,6 @@
 use server_shared::SessionId;
 
-use crate::{core::handler::LevelEntry, users::UsersModule};
+use crate::users::UsersModule;
 
 use super::{ConnectionHandler, util::*};
 

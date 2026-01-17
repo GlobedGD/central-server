@@ -5,6 +5,8 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use thiserror::Error;
 
+use crate::core::UsernameString;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum GDDifficulty {
     #[default]
@@ -26,8 +28,8 @@ pub enum GDDifficulty {
 pub struct GDUser {
     pub account_id: i32,
     pub user_id: i32,
-    pub username: heapless::String<24>,
-    pub display_name: heapless::String<24>,
+    pub username: UsernameString,
+    pub display_name: UsernameString,
     pub cube: i16,
     pub color1: u16,
     pub color2: u16,
@@ -39,7 +41,7 @@ pub struct GDLevel {
     pub id: i32,
     pub name: heapless::String<32>,
     pub author_id: i32,
-    pub author_name: heapless::String<24>,
+    pub author_name: UsernameString,
     pub difficulty: GDDifficulty,
 }
 
@@ -48,8 +50,8 @@ impl Default for GDUser {
         Self {
             account_id: -1,
             user_id: -1,
-            username: heapless::String::new(),
-            display_name: heapless::String::new(),
+            username: UsernameString::new(),
+            display_name: UsernameString::new(),
             cube: 1,
             color1: 1,
             color2: 3,
@@ -64,7 +66,7 @@ impl Default for GDLevel {
             id: -1,
             name: heapless::String::new(),
             author_id: -1,
-            author_name: heapless::String::new(),
+            author_name: UsernameString::new(),
             difficulty: GDDifficulty::NA,
         }
     }

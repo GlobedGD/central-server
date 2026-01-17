@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use crate::core::UsernameString;
 use crate::core::handler::ConnectionHandler;
 use crate::core::module::{ConfigurableModule, ModuleInitResult, ServerModule};
 
@@ -84,7 +85,8 @@ impl AuthModule {
                 AuthVerdict::Success(ClientAccountData {
                     account_id: token_data.account_id,
                     user_id: token_data.user_id,
-                    username: token_data.username,
+                    // this unwrap is ok, since we are converting 16 -> 24
+                    username: UsernameString::try_from(token_data.username.as_str()).unwrap(),
                 })
             }
 

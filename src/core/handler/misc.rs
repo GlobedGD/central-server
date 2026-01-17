@@ -165,7 +165,7 @@ impl ConnectionHandler {
             let mut map = IntMap::default();
 
             for (_, p) in iter {
-                let session = p.handle.session_id();
+                let session = p.handle.session_id_u64();
 
                 if self.all_levels.get(&session).is_some_and(|e| e.is_hidden) {
                     continue;

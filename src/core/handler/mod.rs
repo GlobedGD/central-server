@@ -3,7 +3,7 @@ use std::{
     net::SocketAddr,
     num::NonZeroI64,
     path::Path,
-    sync::{Arc, OnceLock, Weak},
+    sync::{Arc, OnceLock},
     time::{Duration, SystemTime},
 };
 
@@ -35,6 +35,7 @@ use crate::{
         config::Config,
         data::{self, decode_message_match},
         game_server::{GameServerHandler, GameServerManager, StoredGameServer},
+        handler::client_store::ClientStore,
         module::ServerModule,
     },
     rooms::{RoomModule, RoomSettings},
@@ -42,6 +43,7 @@ use crate::{
 };
 
 mod admin;
+mod client_store;
 #[cfg(feature = "featured-levels")]
 mod featured;
 mod login;
@@ -65,7 +67,7 @@ pub struct ConnectionHandler {
     game_server_manager: GameServerManager,
     config: Config,
 
-    all_clients: DashMap<i32, WeakClientStateHandle>,
+    clients: ClientStore,
     all_levels: DashMap<u64, LevelEntry>,
 }
 
@@ -84,21 +86,27 @@ impl AppHandler for ConnectionHandler {
         };
 
         server.schedule(status_intv, |server| async move {
+            let h = server.handler();
+
             server.print_server_status();
-            info!(" - Authorized clients: {}", server.handler().all_clients.len());
+            info!(" - Authorized clients: {}", h.clients.count());
             info!(
                 " - Active game sessions: {} (total players: {})",
-                server.handler().all_levels.len(),
-                server
-                    .handler()
-                    .all_levels
-                    .iter()
-                    .map(|mref| mref.value().player_count)
-                    .sum::<u32>()
+                h.all_levels.len(),
+                h.all_levels.iter().map(|mref| mref.value().player_count).sum::<u32>()
             );
 
-            let rooms = server.handler().module::<RoomModule>();
+            let rooms = h.module::<RoomModule>();
             info!(" - Room count: {}", rooms.get_room_count());
+
+            // vacuum invalid clients
+            let removed_clients = h.clients.vacuum();
+            if removed_clients > 0 {
+                warn!(
+                    "Removed {} invalid clients from client store, this is likely a bug!",
+                    removed_clients
+                );
+            }
         });
 
         // TODO: determine if this is really worth it?
@@ -157,9 +165,7 @@ impl AppHandler for ConnectionHandler {
             rooms.cleanup_player(client, &self.game_server_manager).await;
 
             // remove only if the client has not been replaced by a newer login
-            self.all_clients.remove_if(&account_id, |_, current_client| {
-                Weak::ptr_eq(current_client, &Arc::downgrade(client))
-            });
+            self.clients.remove_if_same(account_id, client);
 
             let _ = self.handle_leave_session(client).await;
         }
@@ -631,7 +637,7 @@ impl ConnectionHandler {
             server: OnceLock::new(),
             game_server_manager: GameServerManager::new(),
             config,
-            all_clients: DashMap::new(),
+            clients: ClientStore::new(),
             all_levels: DashMap::new(),
         }
     }
@@ -801,8 +807,7 @@ impl ConnectionHandler {
 
         match buf {
             Ok(buf) => {
-                let targets: Vec<_> =
-                    self.all_clients.iter().filter_map(|x| x.value().upgrade()).collect();
+                let targets = self.clients.collect_all_authorized();
 
                 info!("Notifying {} clients about server change!", targets.len());
 
@@ -839,23 +844,15 @@ impl ConnectionHandler {
     // Handling of clients.
 
     pub fn client_count(&self) -> usize {
-        self.all_clients.len()
+        self.clients.count()
     }
 
     pub fn find_client(&self, account_id: i32) -> Option<ClientStateHandle> {
-        self.all_clients.get(&account_id).and_then(|x| x.upgrade())
+        self.clients.find(account_id)
     }
 
-    /// TODO: this function is not fast
     pub fn find_client_by_name(&self, username: &str) -> Option<ClientStateHandle> {
-        self.all_clients
-            .iter()
-            .filter_map(|r| match r.value().upgrade() {
-                Some(c) if c.username().eq_ignore_ascii_case(username) => Some(c),
-                Some(_) => None,
-                None => None,
-            })
-            .next()
+        self.clients.find_by_name(username)
     }
 
     fn send_banned(

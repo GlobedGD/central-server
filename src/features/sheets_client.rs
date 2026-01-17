@@ -17,15 +17,18 @@ use serde_json::Value;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, error, info, warn};
 
-use crate::features::database::{FeaturedLevelModel, QueuedLevelModel, SentLevelModel};
+use crate::{
+    core::UsernameString,
+    features::database::{FeaturedLevelModel, QueuedLevelModel, SentLevelModel},
+};
 
-type UsernameMap = HashMap<i32, heapless::String<24>>;
+type UsernameMap = HashMap<i32, UsernameString>;
 
 #[derive(Debug)]
 enum WorkerRequest {
     Featured(Vec<FeaturedLevelModel>),
     Queued(Vec<QueuedLevelModel>),
-    Sent(Vec<SentLevelModel>, HashMap<i32, heapless::String<24>>),
+    Sent(Vec<SentLevelModel>, UsernameMap),
 }
 
 struct WorkerState {
@@ -233,7 +236,7 @@ impl SheetsClient {
     pub async fn update_sent_sheet(
         &self,
         levels: Vec<SentLevelModel>,
-        username_map: HashMap<i32, heapless::String<24>>,
+        username_map: UsernameMap,
     ) -> Result<(), Box<dyn Error>> {
         self.state.tx.try_send(WorkerRequest::Sent(levels, username_map))?;
         Ok(())

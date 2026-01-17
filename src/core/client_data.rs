@@ -6,7 +6,7 @@ use std::sync::{
 use nohash_hasher::IntSet;
 use parking_lot::{Mutex, MutexGuard};
 use rustc_hash::FxHashSet;
-use server_shared::{UserSettings, data::PlayerIconData};
+use server_shared::{SessionId, UserSettings, data::PlayerIconData};
 
 use crate::{
     auth::ClientAccountData,
@@ -136,7 +136,12 @@ impl ClientData {
     }
 
     /// Returns client's current session (aka which level they are in)
-    pub fn session_id(&self) -> u64 {
+    pub fn session_id(&self) -> SessionId {
+        SessionId::from(self.session_id_u64())
+    }
+
+    /// Returns client's current session (aka which level they are in)
+    pub fn session_id_u64(&self) -> u64 {
         self.session_id.load(Ordering::Relaxed)
     }
 

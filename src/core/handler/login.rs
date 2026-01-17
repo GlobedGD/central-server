@@ -1,4 +1,4 @@
-use std::{borrow::Cow, sync::Arc};
+use std::borrow::Cow;
 
 use crypto_secretbox::{KeyInit, aead::AeadMutInPlace};
 use server_shared::qunet::buffers::{ByteReader, ByteReaderError, ByteWriter};
@@ -222,11 +222,11 @@ impl ConnectionHandler {
         info!("[{}] {} ({}) logged in", client.address, data.username, data.account_id);
         client.set_icons(icons);
 
-        if let Some(old_client) = self.all_clients.insert(data.account_id, Arc::downgrade(client)) {
+        if let Some(old_client) = self.clients.insert(data.account_id, &data.username, client) {
             // there already was a client with this account ID, disconnect them
-            if let Some(old_client) = old_client.upgrade() {
-                old_client.disconnect(Cow::Borrowed("Duplicate login detected, the same account logged in from a different location"));
-            }
+            old_client.disconnect(Cow::Borrowed(
+                "Duplicate login detected, the same account logged in from a different location",
+            ));
         }
 
         // if the username has disallowed words, send a discord notification

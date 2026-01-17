@@ -196,7 +196,7 @@ impl ConnectionHandler {
         builder.set_color1(icons.color1);
         builder.set_color2(icons.color2);
         builder.set_glow_color(icons.glow_color);
-        builder.reborrow().set_session(player.session_id());
+        builder.reborrow().set_session(player.session_id_u64());
         builder.set_team_id(player.team_id());
 
         let should_send_roles = is_mod || !player.settings().hide_roles;
