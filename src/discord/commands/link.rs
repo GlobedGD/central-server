@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use poise::serenity_prelude as serenity;
+use tracing::warn;
 
 use super::util::*;
 use crate::{discord::BotError, users::UsersModule};
@@ -205,10 +206,15 @@ pub async fn sync(ctx: Context<'_>) -> Result<(), BotError> {
 pub async fn syncall(ctx: Context<'_>) -> Result<(), BotError> {
     check_admin(ctx).await?;
 
-    // let state = ctx.data();
-    // let server = state.server()?;
+    let state = ctx.data().clone();
+    tokio::spawn(async move {
+        if let Err(e) = state.slow_sync_all().await {
+            warn!("Failed to sync all users' roles: {e}");
+        }
+    });
 
-    // TODO
+    ctx.reply("✅ Started syncing all users' roles in the background. This may take a while.")
+        .await?;
 
     Ok(())
 }

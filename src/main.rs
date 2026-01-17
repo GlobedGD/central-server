@@ -221,8 +221,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // TODO: qdb
-
     let gs_server = match builder.build().await {
         Ok(srv) => srv,
         Err(e) => {

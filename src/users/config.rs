@@ -24,8 +24,6 @@ fn default_script_sign_key() -> String {
     hex::encode(secret_key)
 }
 
-// TODO: reasons
-
 fn default_mute_reasons() -> Vec<String> {
     vec![]
 }
