@@ -93,6 +93,13 @@ impl ClientData {
         self.room.lock()
     }
 
+    /// Obtains the Arc to the room the client is in.
+    /// When modifying state, `lock_room` should be used as it has stronger semantics.
+    /// This method can be used if you just need the room itself and don't care about client's handle.
+    pub fn get_room(&self) -> Option<Arc<Room>> {
+        self.room.lock().as_ref().map(|x| x.clone_room_ptr())
+    }
+
     /// Returns whether the client is connected to the given room
     pub fn is_in_room(&self, room: &Room) -> bool {
         self.room.lock().as_ref().is_some_and(|r| r.id == room.id)

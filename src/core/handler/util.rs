@@ -19,6 +19,10 @@ pub enum HandlerError {
     Unauthorized,
     #[error("sensitive message received from a non-moderator")]
     NotAdmin,
+    #[error("expected client to be in a custom room to handle message")]
+    NotInCustomRoom,
+    #[error("expected client to be a room owner to handle message")]
+    NotRoomOwner,
 }
 
 pub type HandlerResult<T> = Result<T, HandlerError>;

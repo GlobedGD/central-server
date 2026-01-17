@@ -395,18 +395,16 @@ impl ConnectionHandler {
         out
     }
 
-    #[allow(clippy::await_holding_lock)]
     pub async fn handle_check_room_state(&self, client: &ClientStateHandle) -> HandlerResult<()> {
         must_auth(client)?;
 
-        if let Some(room) = &*client.lock_room() {
-            self.send_room_data(client, room).await?;
+        if let Some(room) = client.get_room() {
+            self.send_room_data(client, &room).await?;
         }
 
         Ok(())
     }
 
-    #[allow(clippy::await_holding_lock)]
     pub async fn handle_request_room_players(
         &self,
         client: &ClientStateHandle,
@@ -414,8 +412,8 @@ impl ConnectionHandler {
     ) -> HandlerResult<()> {
         must_auth(client)?;
 
-        if let Some(room) = &*client.lock_room() {
-            self.send_room_players(client, room, name_filter, false).await?;
+        if let Some(room) = client.get_room() {
+            self.send_room_players(client, &room, name_filter, false).await?;
         }
 
         Ok(())
@@ -478,14 +476,7 @@ impl ConnectionHandler {
     ) -> HandlerResult<()> {
         must_auth(client)?;
 
-        let room = client.lock_room();
-
-        if room.as_ref().is_none_or(|r| r.is_global()) {
-            // cannot do this in a global room
-            return Ok(());
-        }
-
-        let room = room.as_ref().unwrap();
+        let room = get_custom_room(client)?;
         let is_owner = client.account_id() == room.owner();
 
         if player_id == 0 {
@@ -526,14 +517,7 @@ impl ConnectionHandler {
     pub fn handle_create_team(&self, client: &ClientStateHandle, color: u32) -> HandlerResult<()> {
         must_auth(client)?;
 
-        let room = client.lock_room();
-
-        if room.as_ref().is_none_or(|r| r.is_global() || r.owner() != client.account_id()) {
-            // cannot do this in a global room or if not the room owner
-            return Ok(());
-        }
-
-        let room = room.as_ref().unwrap();
+        let room = get_custom_room_as_owner(client)?;
 
         let (success, team_count) = match room.create_team(color) {
             Ok(count) => (true, count),
@@ -551,7 +535,7 @@ impl ConnectionHandler {
 
         client.send_data_bufkind(buf);
 
-        self.notify_teams_updated(room)?;
+        self.notify_teams_updated(&room)?;
 
         Ok(())
     }
@@ -563,14 +547,7 @@ impl ConnectionHandler {
     ) -> HandlerResult<()> {
         must_auth(client)?;
 
-        let room = client.lock_room();
-
-        if room.as_ref().is_none_or(|r| r.is_global() || r.owner() != client.account_id()) {
-            // cannot do this in a global room or if not the room owner
-            return Ok(());
-        }
-
-        let room = room.as_ref().unwrap();
+        let room = get_custom_room_as_owner(client)?;
 
         let Ok(players) = room.delete_team(team_id) else {
             return Ok(());
@@ -584,7 +561,7 @@ impl ConnectionHandler {
             })?);
         }
 
-        self.notify_teams_updated(room)?;
+        self.notify_teams_updated(&room)?;
 
         Ok(())
     }
@@ -597,7 +574,7 @@ impl ConnectionHandler {
     ) -> HandlerResult<()> {
         must_auth(client)?;
 
-        let room = client.lock_room();
+        let room = client.get_room();
 
         if room.as_ref().is_none_or(|r| r.is_global() || r.owner() != client.account_id()) {
             // cannot do this in a global room or if not the room owner
@@ -615,33 +592,7 @@ impl ConnectionHandler {
     pub fn handle_get_team_members(&self, client: &ClientStateHandle) -> HandlerResult<()> {
         must_auth(client)?;
 
-        let room = client.lock_room();
-
-        if room.as_ref().is_none_or(|r| r.is_global()) {
-            // cannot do this in a global room
-            return Ok(());
-        }
-
-        let room = room.as_ref().unwrap();
-
-        // let team_id = room.team_id();
-
-        // let Ok(players) = room.get_players_on_team(team_id) else {
-        //     return self
-        //         .send_warn(client, format!("failed to find team {team_id} in the current room"));
-        // };
-
-        // let cap = 48 + BYTES_PER_PLAYER * players.len();
-        // let buf = data::encode_message_heap!(self, cap, msg => {
-        //     let members = msg.init_team_members();
-        //     let mut players_ser = members.init_members(players.len() as u32);
-
-        //     for (i, player) in players.iter().enumerate() {
-        //         players_ser.reborrow().set(i as u32, player.handle.account_id());
-        //         // let mut player_ser = players_ser.reborrow().get(i as u32);
-        //         // Self::encode_room_player(&player.handle, player_ser.reborrow());
-        //     }
-        // })?;
+        let room = get_custom_room(client)?;
 
         let buf = room.with_players_sync(|count, players| {
             let cap = 64 + 5 * count;
@@ -663,7 +614,6 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    #[allow(clippy::await_holding_lock)]
     pub async fn handle_room_owner_action(
         &self,
         client: &ClientStateHandle,
@@ -671,15 +621,8 @@ impl ConnectionHandler {
         target: i32,
     ) -> HandlerResult<()> {
         must_auth(client)?;
-        let room_lock = client.lock_room();
 
-        let Some(room) = &*room_lock else {
-            return Ok(());
-        };
-
-        if room.owner() != client.account_id() {
-            return Ok(());
-        }
+        let room = get_custom_room_as_owner(client)?;
 
         match r#type {
             data::RoomOwnerActionType::BanUser => {
@@ -688,15 +631,12 @@ impl ConnectionHandler {
                     && can_kick_from_room(&target_arc)
                 {
                     room.ban_player(target);
-                    drop(room_lock);
                     // just leave for them lol
                     self.handle_leave_room(&target_arc).await?;
                 }
             }
 
             data::RoomOwnerActionType::KickUser => {
-                drop(room_lock);
-
                 if let Some(target_arc) = self.find_client(target)
                     && can_kick_from_room(&target_arc)
                 {
@@ -705,9 +645,7 @@ impl ConnectionHandler {
             }
 
             data::RoomOwnerActionType::CloseRoom => {
-                let room_id = room.id;
-                drop(room_lock);
-                self.close_room_by_id(room_id).await?;
+                self.close_room_by_id(room.id).await?;
             }
         }
 
@@ -733,11 +671,7 @@ impl ConnectionHandler {
     ) -> HandlerResult<()> {
         must_auth(client)?;
 
-        let room_lock = client.lock_room();
-
-        let Some(room) = &*room_lock else {
-            return Ok(());
-        };
+        let room = get_custom_room(client)?;
 
         if room.private_invites() && room.owner() != client.account_id() {
             return Ok(());
@@ -778,19 +712,10 @@ impl ConnectionHandler {
     ) -> HandlerResult<()> {
         must_auth(client)?;
 
-        let room_lock = client.lock_room();
-
-        let Some(room) = &*room_lock else {
-            return Ok(());
-        };
-
-        if room.owner() != client.account_id() {
-            return Ok(());
-        }
-
+        let room = get_custom_room_as_owner(client)?;
         room.set_settings(settings);
 
-        self.notify_settings_updated(room)?;
+        self.notify_settings_updated(&room)?;
 
         Ok(())
     }
@@ -802,19 +727,10 @@ impl ConnectionHandler {
     ) -> HandlerResult<()> {
         must_auth(client)?;
 
-        let room_lock = client.lock_room();
-
-        let Some(room) = &*room_lock else {
-            return Ok(());
-        };
-
-        if room.owner() != client.account_id() {
-            return Ok(());
-        }
-
+        let room = get_custom_room_as_owner(client)?;
         room.set_pinned_level(id);
 
-        self.notify_pinned_level_updated(room)?;
+        self.notify_pinned_level_updated(&room)?;
 
         Ok(())
     }
@@ -923,4 +839,33 @@ fn bytes_for_room_player(client: &ClientStateHandle) -> usize {
 
 fn can_kick_from_room(client: &ClientStateHandle) -> bool {
     !client.authorized_mod()
+}
+
+#[allow(unused)]
+fn get_room(c: &ClientStateHandle) -> HandlerResult<Arc<Room>> {
+    match c.get_room() {
+        Some(r) => Ok(r),
+        _ => Err(HandlerError::Unauthorized),
+    }
+}
+
+fn get_custom_room(c: &ClientStateHandle) -> HandlerResult<Arc<Room>> {
+    match c.get_room() {
+        Some(r) if !r.is_global() => Ok(r),
+        _ => Err(HandlerError::NotInCustomRoom),
+    }
+}
+
+fn get_custom_room_as_owner(c: &ClientStateHandle) -> HandlerResult<Arc<Room>> {
+    match c.get_room() {
+        Some(r) if !r.is_global() => {
+            if r.owner() == c.account_id() {
+                Ok(r)
+            } else {
+                Err(HandlerError::NotRoomOwner)
+            }
+        }
+
+        _ => Err(HandlerError::NotInCustomRoom),
+    }
 }

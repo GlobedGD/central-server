@@ -56,7 +56,6 @@ impl ConnectionHandler {
     }
 
     // internal, called when the session ID changes to update player counts in rooms and stuff
-    #[allow(clippy::await_holding_lock)]
     async fn handle_session_change(
         &self,
         client: &ClientStateHandle,
@@ -116,8 +115,7 @@ impl ConnectionHandler {
 
         // if this is a follower room and the owner changed the level, warp all other players
 
-        let room = client.lock_room(); // this is held across .await but it's fine because it's local to the user
-        let Some(room) = room.as_ref() else {
+        let Some(room) = client.get_room() else {
             return Ok(());
         };
 
@@ -136,7 +134,7 @@ impl ConnectionHandler {
 
         if do_update_pinned {
             room.set_pinned_level(new_session);
-            self.notify_pinned_level_updated(room)?;
+            self.notify_pinned_level_updated(&room)?;
         }
 
         Ok(())

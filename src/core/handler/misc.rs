@@ -83,17 +83,14 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    #[allow(clippy::await_holding_lock)]
     pub async fn handle_request_level_list(&self, client: &ClientStateHandle) -> HandlerResult<()> {
         must_auth(client)?;
 
-        let room_lock = client.lock_room();
-
-        let Some(room) = &*room_lock else {
+        let Some(room) = client.get_room() else {
             return Ok(());
         };
 
-        let levels = self.gather_levels_in_room(room).await;
+        let levels = self.gather_levels_in_room(&room).await;
 
         let cap = 56 + levels.len() * 12;
         let buf = data::encode_message_heap!(self, cap, msg => {

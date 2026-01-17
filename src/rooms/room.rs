@@ -600,6 +600,10 @@ impl ClientRoomHandle {
     pub fn team_id(&self) -> u16 {
         self.room.team_id_for_player(self.room_key)
     }
+
+    pub fn clone_room_ptr(&self) -> Arc<Room> {
+        self.room.clone()
+    }
 }
 
 #[cfg(debug_assertions)]
