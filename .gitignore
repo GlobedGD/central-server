@@ -10,3 +10,5 @@ quic
 *.sqlite
 .google.json
 .idea
+
+qdbs
