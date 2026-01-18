@@ -207,6 +207,9 @@ impl ConnectionHandler {
                                 data.username, data.account_id, accounts, uident
                             ),
                         ));
+
+                        // put the user into the db
+                        let _ = users.query_or_create_user(&format!("{}", data.account_id)).await;
                     }
 
                     Ok(false) => {}

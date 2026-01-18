@@ -240,16 +240,25 @@ impl UsersModule {
         self.db.unlink_discord_inverse(discord_id).await
     }
 
+    /// Query a user by account ID or username
     pub async fn query_user(&self, query: &str) -> DatabaseResult<Option<DbUser>> {
         self.db.query_user(query).await
     }
 
+    /// Query a user by account ID or username, creating them if they don't exist
+    /// If the user does not exist, this will fetch the data from GD servers
     pub async fn query_or_create_user(&self, query: &str) -> Result<Option<DbUser>, Error> {
         if let Some(user) = self.db.query_user(query).await? {
             return Ok(Some(user));
         }
 
-        let Some(user) = GDApiClient::new().fetch_user_by_username(query).await? else {
+        let client = GDApiClient::new();
+        let user = match query.parse::<i32>() {
+            Ok(id) => client.fetch_user(id).await?,
+            Err(_) => client.fetch_user_by_username(query).await?,
+        };
+
+        let Some(user) = user else {
             return Ok(None);
         };
 
@@ -271,8 +280,11 @@ impl UsersModule {
     }
 
     pub async fn insert_uident(&self, account_id: i32, ident: &str) -> DatabaseResult<bool> {
-        info!("Inserting uident association: {account_id} - {ident}");
-        self.db.insert_uident(account_id, ident).await
+        let r = self.db.insert_uident(account_id, ident).await?;
+        if r {
+            info!("Inserted uident association: {account_id} - {ident}");
+        }
+        Ok(r)
     }
 
     pub async fn get_accounts_for_uident(&self, ident: &str) -> DatabaseResult<SmallVec<[i32; 8]>> {
