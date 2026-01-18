@@ -461,7 +461,7 @@ impl ConnectionHandler {
         let rooms = self.module::<RoomModule>();
 
         let (sorted, total) = rooms.get_top_rooms(page as usize * 100, 100, |r| {
-            filter.is_none_or(|n| username_match(&r.name, n))
+            !r.settings.lock().hidden && filter.is_none_or(|n| username_match(&r.name, n))
         });
         self.send_room_list(client, &sorted, page, total as u32)?;
 
