@@ -6,6 +6,7 @@ use crate::discord::{BotError, state::BotState};
 mod features;
 mod link;
 mod maintenance;
+mod misc;
 mod moderation;
 mod util;
 
@@ -26,5 +27,6 @@ pub fn all() -> Vec<poise::Command<Arc<BotState>, BotError>> {
         maintenance::set_level_blacklisted(),
         maintenance::status(),
         maintenance::conn_stats(),
+        misc::say(),
     ]
 }
