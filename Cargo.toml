@@ -17,11 +17,11 @@ capnp = { version = "0.21.2", default-features = false, features = [
 ] }
 dashmap = { version = "6.1.0", features = ["inline"] }
 futures-util = "0.3.31"
-heapless = "0.8.0"
+heapless = { version = "0.8.0", features = ["serde"] }
 hex = "0.4.3"
 parking_lot = { version = "0.12.4", features = ["send_guard"] }
 rand = "0.9.1"
-server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "066d3b0", features = [
+server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "6271aa4", features = [
     "main",
     "srvc",
 ] }
@@ -65,8 +65,18 @@ async-watcher = { version = "0.3.0", optional = true }
 mimalloc = { version = "0.1.48", optional = true }
 validator = { version = "0.20.0", features = ["derive"] }
 
+# Analytics
+clickhouse = { version = "0.14.2", features = [
+    "rustls-tls",
+    "rustls-tls-ring",
+    "rustls-tls-native-roots",
+    "chrono",
+], optional = true }
+include_dir = { version = "0.7.4", optional = true }
+chrono = { version = "0.4.44", optional = true }
+
 [features]
-all = ["discord", "quic", "featured-levels", "word-filter"]
+all = ["discord", "quic", "featured-levels", "word-filter", "analytics"]
 docker-build = ["all"]
 docker-alpine-build = ["all", "mimalloc"]
 
@@ -76,3 +86,4 @@ default = []
 discord = ["dep:poise"]
 quic = ["server-shared/quic"]
 mimalloc = ["dep:mimalloc"]
+analytics = ["dep:clickhouse", "dep:include_dir", "dep:chrono"]

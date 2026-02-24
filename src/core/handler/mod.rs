@@ -21,6 +21,7 @@ use server_shared::{
             stat_tracker::{FinishedConnection, OverallStats},
         },
     },
+    schema::main::Platform,
 };
 use server_shared::{
     TypeMap, UserSettings,
@@ -188,9 +189,9 @@ impl AppHandler for ConnectionHandler {
     ) {
         let result = decode_message_match!(self, data, unpacked_data, {
             Login(message) => {
-                let LoginData { kind, icons, uident, settings } = decode_login_data(message)?;
+                let data = decode_login_data(message)?;
 
-                self.handle_login_attempt(client, kind, icons, uident, settings).await
+                self.handle_login_attempt(client, data).await
             },
 
             UpdateOwnData(message) => {
@@ -650,7 +651,7 @@ impl ConnectionHandler {
 
     /// Get a module by type. Panics if the module is not found.
     pub fn module<T: ServerModule>(&self) -> &T {
-        self.opt_module().expect("non-existend module getter called")
+        self.opt_module().expect("non-existent module getter called")
     }
 
     /// Get a module by type, returning `None` if the module is not found.
@@ -951,11 +952,14 @@ impl ConnectionHandler {
     }
 }
 
-struct LoginData<'a> {
+pub struct LoginData<'a> {
     kind: LoginKind<'a>,
     icons: PlayerIconData,
     uident: Option<&'a [u8]>,
     settings: UserSettings,
+    globed_version: &'a str,
+    geode_version: &'a str,
+    platform: &'a str,
 }
 
 fn decode_login_data<'a>(
@@ -982,7 +986,28 @@ fn decode_login_data<'a>(
         }
     };
 
-    Ok(LoginData { kind, icons, uident, settings })
+    let globed_version = message.get_globed_version()?.to_str()?;
+    let geode_version = message.get_geode_version()?.to_str()?;
+    let platform = match message.get_platform()? {
+        Platform::Unknown => "unknown",
+        Platform::Windows => "windows",
+        Platform::Wine => "wine",
+        Platform::MacArm => "macarm",
+        Platform::MacIntel => "macintel",
+        Platform::Android32 => "android",
+        Platform::Android64 => "android",
+        Platform::Ios => "ios",
+    };
+
+    Ok(LoginData {
+        kind,
+        icons,
+        uident,
+        settings,
+        globed_version,
+        geode_version,
+        platform,
+    })
 }
 
 fn format_systime(s: SystemTime) -> String {

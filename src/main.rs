@@ -51,6 +51,8 @@ pub mod credits;
 pub mod rooms;
 pub mod users;
 
+#[cfg(feature = "analytics")]
+pub mod analytics;
 #[cfg(feature = "discord")]
 pub mod discord;
 #[cfg(feature = "featured-levels")]
@@ -127,6 +129,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "word-filter")]
     init_module::<word_filter::WordFilterModule>(&handler).await;
+
+    #[cfg(feature = "analytics")]
+    init_module::<analytics::AnalyticsModule>(&handler).await;
 
     // Freeze handler, this disallows adding new modules and module configs,
     // but improves performance by removing the need for locks.

@@ -7,6 +7,7 @@ pub struct ClientAccountData {
     pub username: UsernameString,
 }
 
+#[derive(Clone)]
 pub enum LoginKind<'a> {
     UserToken(i32, &'a str),
     Argon(i32, &'a str),

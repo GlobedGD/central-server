@@ -2,9 +2,10 @@ use std::borrow::Cow;
 
 use crypto_secretbox::{KeyInit, aead::AeadMutInPlace};
 use server_shared::qunet::buffers::{ByteReader, ByteReaderError, ByteWriter};
-use server_shared::{UserSettings, data::PlayerIconData, schema::main::LoginFailedReason};
+use server_shared::schema::main::LoginFailedReason;
 use thiserror::Error;
 
+use crate::core::handler::LoginData;
 use crate::{
     auth::{AuthModule, AuthVerdict, ClientAccountData, LoginKind},
     rooms::RoomModule,
@@ -14,6 +15,8 @@ use crate::{
 #[cfg(feature = "featured-levels")]
 use crate::features::FeaturesModule;
 
+#[cfg(feature = "analytics")]
+use crate::analytics::{AnalyticsModule, LoginEvent};
 #[cfg(feature = "discord")]
 use crate::discord::{DiscordMessage, DiscordModule};
 
@@ -37,10 +40,7 @@ impl ConnectionHandler {
     pub async fn handle_login_attempt(
         &self,
         client: &ClientStateHandle,
-        kind: LoginKind<'_>,
-        icons: PlayerIconData,
-        uident: Option<&[u8]>,
-        settings: UserSettings,
+        login_data: LoginData<'_>,
     ) -> HandlerResult<()> {
         let auth = self.module::<AuthModule>();
         let users = self.module::<UsersModule>();
@@ -56,9 +56,9 @@ impl ConnectionHandler {
         let uident = if ttkey.is_empty() {
             None
         } else {
-            match &kind {
+            match &login_data.kind {
                 &LoginKind::Argon(accid, _) | &LoginKind::UserToken(accid, _) => {
-                    match uident.and_then(|x| {
+                    match login_data.uident.and_then(|x| {
                         self.decrypt_uident(accid, x, ttkey)
                             .inspect_err(|e| warn!("Failed to decode uident from user: {e}"))
                             .ok()
@@ -78,7 +78,7 @@ impl ConnectionHandler {
             }
         };
 
-        match auth.handle_login(kind).await {
+        match auth.handle_login(login_data.kind.clone()).await {
             AuthVerdict::Success(data) => {
                 // verify that the data is absoultely valid
                 if data.account_id != 0
@@ -91,7 +91,7 @@ impl ConnectionHandler {
                         self.on_login_failed(client, LoginFailedReason::NotWhitelisted)?;
                     } else {
                         // success!
-                        self.on_login_success(client, data, icons, uident, settings).await?;
+                        self.on_login_success(client, data, uident, &login_data).await?;
                     }
                 } else {
                     self.on_login_failed(client, LoginFailedReason::InvalidAccountData)?;
@@ -121,13 +121,16 @@ impl ConnectionHandler {
         &self,
         client: &ClientStateHandle,
         data: ClientAccountData,
-        icons: PlayerIconData,
         uident: Option<[u8; 32]>,
-        settings: UserSettings,
+        login_data: &LoginData<'_>,
     ) -> HandlerResult<()> {
         let auth = self.module::<AuthModule>();
         let rooms = self.module::<RoomModule>();
         let users = self.module::<UsersModule>();
+        #[cfg(feature = "analytics")]
+        let analytics = self.module::<AnalyticsModule>();
+        #[cfg(feature = "discord")]
+        let discord = self.opt_module::<DiscordModule>();
 
         // query the database to check the user's data
         let user = match users.get_user(data.account_id).await {
@@ -142,7 +145,7 @@ impl ConnectionHandler {
             client.set_uident(uident);
         }
 
-        client.set_settings(settings);
+        client.set_settings(login_data.settings);
 
         let uident = uident.map(hex::encode);
 
@@ -201,12 +204,14 @@ impl ConnectionHandler {
                     Ok(true) => {
                         // notify on discord
                         #[cfg(feature = "discord")]
-                        self.module::<DiscordModule>().send_alert(DiscordMessage::new().content(
+                        if let Some(discord) = discord {
+                            discord.send_alert(DiscordMessage::new().content(
                             format!(
                                 "⚠️ Potential alt account logged in: {} ({}), accounts: {:?}. Uident: {}",
                                 data.username, data.account_id, accounts, uident
                             ),
                         ));
+                        }
 
                         // put the user into the db
                         let _ = users.query_or_create_user(&format!("{}", data.account_id)).await;
@@ -223,9 +228,15 @@ impl ConnectionHandler {
         }
 
         info!("[{}] {} ({}) logged in", client.address, data.username, data.account_id);
-        client.set_icons(icons);
+        client.set_icons(login_data.icons);
+        client.set_account_data(data.clone());
 
+        // insert into the clients map
         if let Some(old_client) = self.clients.insert(data.account_id, &data.username, client) {
+            debug!(
+                "[{}] duplicate login (old: {}, new: {})",
+                data.account_id, old_client.address, client.address
+            );
             // there already was a client with this account ID, disconnect them
             old_client.disconnect(Cow::Borrowed(
                 "Duplicate login detected, the same account logged in from a different location",
@@ -234,14 +245,24 @@ impl ConnectionHandler {
 
         // if the username has disallowed words, send a discord notification
         #[cfg(feature = "discord")]
-        if self.is_disallowed(&data.username).await {
-            self.module::<DiscordModule>().send_alert(DiscordMessage::new().content(format!(
+        if self.is_disallowed(&data.username).await
+            && let Some(discord) = discord
+        {
+            discord.send_alert(DiscordMessage::new().content(format!(
                 "⚠️ User logged in with disallowed terms in username: {} ({})",
                 data.username, data.account_id
             )));
         }
 
-        client.set_account_data(data.clone());
+        // if analytics is enabled, log the login
+        #[cfg(feature = "analytics")]
+        analytics.log_login_event(LoginEvent::new(
+            data.account_id,
+            client.address.ip(),
+            login_data.globed_version,
+            login_data.geode_version,
+            login_data.platform,
+        ));
 
         // put the user in the global room
         rooms.force_join_room(client, &self.game_server_manager, rooms.global_room()).await;

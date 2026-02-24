@@ -46,7 +46,8 @@ Possible feature flags:
 * `word-filter` - adds a word filter module, allowing you to create a blacklist for room names and usernames
 * `featured-levels` - adds a featured levels module, letting moderators send/queue/feature levels and update information to a google spreadsheet
 * `discord` - adds the discord bot module, which can send logs and alerts, as well as allowing moderation or maintenance with discord commands
-* `quic` - enables QUIC support. requires extra setup in the form of TLS certificates
+* `quic` - enables QUIC support. requires extra setup in the form of TLS certificates and enabling QUIC in core.toml
+* `analytics` - enables [ClickHouse](https://github.com/ClickHouse/ClickHouse) integration for storing analytics
 * `mimalloc` - replaces the allocator with MiMalloc
 
 ## Docker builds
