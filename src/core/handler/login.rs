@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use crypto_secretbox::{KeyInit, aead::AeadMutInPlace};
 use server_shared::qunet::buffers::{ByteReader, ByteReaderError, ByteWriter};
+use server_shared::qunet::transport::TransportType;
 use server_shared::schema::main::LoginFailedReason;
 use thiserror::Error;
 
@@ -259,6 +260,7 @@ impl ConnectionHandler {
         analytics.log_login_event(LoginEvent::new(
             data.account_id,
             client.address.ip(),
+            conn_type_str(client),
             login_data.globed_version,
             login_data.geode_version,
             login_data.platform,
@@ -385,5 +387,13 @@ impl ConnectionHandler {
         reader.read_bytes(&mut uident_out)?;
 
         Ok(uident_out)
+    }
+}
+
+fn conn_type_str(client: &ClientStateHandle) -> &'static str {
+    match client.transport_type() {
+        TransportType::Tcp => "TCP",
+        TransportType::Udp => "UDP",
+        TransportType::Quic => "QUIC",
     }
 }

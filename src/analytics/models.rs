@@ -10,6 +10,7 @@ pub struct LoginEvent {
     pub timestamp: DateTime<Utc>,
     pub user_id: i32,
     pub ip_address: Ipv6Addr,
+    pub connection_type: heapless::String<8>,
     pub globed_version: heapless::String<16>,
     pub geode_version: heapless::String<16>,
     pub platform: heapless::String<16>,
@@ -27,6 +28,7 @@ impl LoginEvent {
     pub fn new(
         user_id: i32,
         ip_address: IpAddr,
+        connection_type: &str,
         globed_version: &str,
         geode_version: &str,
         platform: &str,
@@ -40,6 +42,7 @@ impl LoginEvent {
             timestamp: Utc::now(),
             user_id,
             ip_address,
+            connection_type: convert_str(connection_type),
             globed_version: convert_str(globed_version),
             geode_version: convert_str(geode_version),
             platform: convert_str(platform),
