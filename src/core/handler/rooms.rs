@@ -386,7 +386,7 @@ impl ConnectionHandler {
                 players
                     .map(|x| x.1.handle.clone())
                     .filter(new_filter)
-                    .choose_multiple_fill(&mut rand::rng(), &mut out[begin..])
+                    .sample_fill(&mut rand::rng(), &mut out[begin..])
             })
             .await;
 
