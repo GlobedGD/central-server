@@ -11,7 +11,6 @@ use google_sheets4::{
         client::legacy::{Client, connect::HttpConnector},
         rt::TokioExecutor,
     },
-    yup_oauth2,
 };
 use serde_json::Value;
 use server_shared::UsernameString;

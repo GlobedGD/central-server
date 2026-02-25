@@ -51,7 +51,10 @@ generic-async-http-client = { version = "0.7.0", features = [
     "http2",
 ] }
 crypto_secretbox = { version = "0.1.1", features = ["heapless"] }
-google-sheets4 = { version = "7.0.0", optional = true }
+google-sheets4 = { version = "7.0.0", optional = true, default-features = false, features = [
+    "yup-oauth2",
+] }
+yup-oauth2 = { version = "12", features = ["hyper-rustls", "aws-lc-rs"] }
 time-format = "1.2.2"
 anyhow = "1.0.102"
 build-time = "0.1.3"

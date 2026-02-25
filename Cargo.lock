@@ -521,6 +521,7 @@ dependencies = [
  "toml",
  "tracing",
  "validator",
+ "yup-oauth2",
 ]
 
 [[package]]
