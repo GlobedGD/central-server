@@ -8,4 +8,6 @@ CREATE TABLE login_events (
     platform LowCardinality(String)
 )
 ENGINE = MergeTree
-ORDER BY (timestamp, platform, globed_version, connection_type);
+ORDER BY (timestamp, platform, globed_version, connection_type)
+PARTITION BY toYYYYMM(timestamp)
+TTL timestamp + INTERVAL 90 DAY;
