@@ -18,7 +18,7 @@ pub async fn feature(_ctx: Context<'_>) -> Result<(), BotError> {
     Ok(())
 }
 
-#[poise::command(slash_command, guild_only = true)]
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Update featured levels spreadsheet
 pub async fn update_spreadsheet(ctx: Context<'_>) -> Result<(), BotError> {
     check_admin(ctx).await?;
@@ -41,7 +41,7 @@ async fn send_autocomplete(
         .map(|&n| poise::serenity_prelude::AutocompleteChoice::new(n, n))
 }
 
-#[poise::command(slash_command, guild_only = true)]
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Send a level to be featured
 pub async fn send(
     ctx: Context<'_>,
@@ -54,7 +54,7 @@ pub async fn send(
     send_inner(ctx, level_id, rate_tier, note, false).await
 }
 
-#[poise::command(slash_command, guild_only = true)]
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Queue a level to be featured
 pub async fn queue(
     ctx: Context<'_>,
@@ -126,7 +126,7 @@ async fn send_inner(
     Ok(())
 }
 
-#[poise::command(slash_command, guild_only = true)]
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Set the feature duration for a level
 pub async fn set_duration(
     ctx: Context<'_>,
@@ -154,7 +154,7 @@ pub async fn set_duration(
     Ok(())
 }
 
-#[poise::command(slash_command, guild_only = true)]
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Set the feature priority for a level
 pub async fn set_priority(ctx: Context<'_>, level_id: i32, priority: i32) -> Result<(), BotError> {
     check_admin(ctx).await?;
@@ -171,8 +171,8 @@ pub async fn set_priority(ctx: Context<'_>, level_id: i32, priority: i32) -> Res
     Ok(())
 }
 
-#[poise::command(slash_command, guild_only = true)]
-/// Set the feature priority for a level
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
+/// Force cycle to the next featured level
 pub async fn force_cycle(ctx: Context<'_>) -> Result<(), BotError> {
     check_admin(ctx).await?;
 

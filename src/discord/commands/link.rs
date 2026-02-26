@@ -6,7 +6,7 @@ use tracing::warn;
 use super::util::*;
 use crate::{discord::BotError, users::UsersModule};
 
-#[poise::command(slash_command, guild_only = true)]
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Link your Discord account to your GD account
 pub async fn link(
     ctx: Context<'_>,
@@ -182,7 +182,7 @@ pub async fn unlink(ctx: Context<'_>, user: serenity::Member) -> Result<(), BotE
     Ok(())
 }
 
-#[poise::command(slash_command, guild_only = true)]
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Sync your roles with your GD account
 pub async fn sync(ctx: Context<'_>) -> Result<(), BotError> {
     match ctx.data().sync_user_roles(&ctx.author_member().await.unwrap()).await {

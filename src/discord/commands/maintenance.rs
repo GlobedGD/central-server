@@ -15,7 +15,7 @@ use crate::{
     users::UsersModule,
 };
 
-#[poise::command(slash_command, guild_only = true)]
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Refresh internal blacklist cache
 pub async fn refresh_blacklist_cache(ctx: Context<'_>) -> Result<(), BotError> {
     check_admin(ctx).await?;
@@ -29,7 +29,7 @@ pub async fn refresh_blacklist_cache(ctx: Context<'_>) -> Result<(), BotError> {
     Ok(())
 }
 
-#[poise::command(slash_command, guild_only = true)]
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Change whether a level should be blacklisted at runtime
 pub async fn set_level_blacklisted(
     ctx: Context<'_>,
