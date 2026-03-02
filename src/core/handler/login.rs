@@ -2,7 +2,6 @@ use std::borrow::Cow;
 
 use crypto_secretbox::{KeyInit, aead::AeadMutInPlace};
 use server_shared::qunet::buffers::{ByteReader, ByteReaderError, ByteWriter};
-use server_shared::qunet::transport::TransportType;
 use server_shared::schema::main::LoginFailedReason;
 use thiserror::Error;
 
@@ -390,7 +389,10 @@ impl ConnectionHandler {
     }
 }
 
+#[cfg(feature = "analytics")]
 fn conn_type_str(client: &ClientStateHandle) -> &'static str {
+    use server_shared::qunet::transport::TransportType;
+
     match client.transport_type() {
         TransportType::Tcp => "TCP",
         TransportType::Udp => "UDP",

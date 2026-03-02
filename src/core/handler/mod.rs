@@ -952,6 +952,7 @@ impl ConnectionHandler {
     }
 }
 
+#[allow(unused)]
 pub struct LoginData<'a> {
     kind: LoginKind<'a>,
     icons: PlayerIconData,
