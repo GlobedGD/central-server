@@ -786,7 +786,14 @@ impl ConnectionHandler {
     ) -> HandlerResult<()> {
         self.must_be_able(client, ActionType::Kick)?;
 
-        self.send_admin_db_result(client, self.close_room_by_id(room_id).await)
+        self.send_admin_result(
+            client,
+            match self.close_room_by_id(room_id).await {
+                Ok(true) => Ok(()),
+                Ok(false) => Err("room does not exist".to_owned()),
+                Err(e) => Err(e.to_string()),
+            },
+        )
     }
 
     async fn notify_user_data_changed(

@@ -652,16 +652,17 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    pub async fn close_room_by_id(&self, room_id: u32) -> HandlerResult<()> {
+    pub async fn close_room_by_id(&self, room_id: u32) -> HandlerResult<bool> {
         let rooms = self.module::<RoomModule>();
 
         if let Some(users) = rooms.close_room(room_id, &self.game_server_manager).await {
             for user in users {
                 self.send_room_data(&user, &rooms.global_room()).await?;
             }
+            return Ok(true);
         }
 
-        Ok(())
+        Ok(false)
     }
 
     pub async fn handle_invite_player(
