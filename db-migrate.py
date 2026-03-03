@@ -40,10 +40,13 @@ class OldUser:
     whitelisted: bool
     roles: list[str]
     admin_password_hash: str
-    # dont migrate punishments at this stage
+    active_mute: int
+    active_ban: int
+    active_room_ban: int
 
 @dataclass
 class NewUser:
+    old: OldUser
     id: int
     cube: int
     color1: int
@@ -156,7 +159,7 @@ def migrate_users() -> dict[int, NewUser]:
     new_users: dict[int, NewUser] = {}
 
     # fetch old users
-    for uid, uname, ncolor, whitelisted, roles_str, admin_phash in old_cur.execute("SELECT account_id, user_name, name_color, is_whitelisted, user_roles, admin_password_hash FROM users").fetchall():
+    for uid, uname, ncolor, whitelisted, roles_str, admin_phash, active_mute, active_ban, active_room_ban in old_cur.execute("SELECT account_id, user_name, name_color, is_whitelisted, user_roles, admin_password_hash, active_mute, active_ban, active_room_ban FROM users").fetchall():
         roles = roles_str.split(",") if roles_str else []
         old_users[uid] = OldUser(
             id=uid,
@@ -164,12 +167,16 @@ def migrate_users() -> dict[int, NewUser]:
             name_color=ncolor,
             whitelisted=bool(whitelisted),
             roles=roles,
-            admin_password_hash=admin_phash
+            admin_password_hash=admin_phash,
+            active_mute=active_mute,
+            active_ban=active_ban,
+            active_room_ban=active_room_ban
         )
 
     # convert to new users
     for user in old_users.values():
         new_users[user.id] = NewUser(
+            old=user,
             id=user.id,
             cube=0,
             color1=0,
@@ -210,23 +217,24 @@ def migrate_punishments(users: dict[int, NewUser]) -> tuple[list[NewPunishment],
     migrated = 0
 
     for p in punishments:
-        # check if it's expired
+        user = users[p.account_id]
+        old_user = user.old
+
+        # check if it's active and didn't expire
+        if p.id not in (old_user.active_ban, old_user.active_mute, old_user.active_room_ban):
+            continue
         if p.expires_at != 0 and p.expires_at < now:
             continue
 
-        if p.account_id in users:
-            migrated += 1
-            user = users[p.account_id]
-            if p.type == "mute":
-                user.active_mute = p.id
-            elif p.type == "ban":
-                user.active_ban = p.id
-            elif p.type == "roomban":
-                user.active_room_ban = p.id
-            else:
-                raise ValueError(f"Unknown punishment type: {p.type}")
+        migrated += 1
+        if p.type == "mute":
+            user.active_mute = p.id
+        elif p.type == "ban":
+            user.active_ban = p.id
+        elif p.type == "roomban":
+            user.active_room_ban = p.id
         else:
-            print(f"Warning: Punishment ID {p.id} for non-existent user ID {p.account_id}")
+            raise ValueError(f"Unknown punishment type: {p.type}")
 
     print(f"Migrated {migrated} active punishments")
 
@@ -295,7 +303,8 @@ def migrate_features() -> list[NewFeaturedLevel]:
             feature_duration=None
         ))
         print(f"\r[{len(new_features)}/{len(old_features)}] Fetched {level_name} ({level.level_id}) by {author_name} ({author})" + " " * 20, end="")
-        time.sleep(0.2)
+        if level_name:
+            time.sleep(0.2)
 
     print()
 
