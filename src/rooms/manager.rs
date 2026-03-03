@@ -8,7 +8,7 @@ use dashmap::DashMap;
 use nohash_hasher::BuildNoHashHasher;
 use parking_lot::{RawRwLock, RwLock, lock_api::RwLockReadGuard};
 use thiserror::Error;
-use tracing::error;
+use tracing::{debug, error, warn};
 
 use crate::rooms::{RoomSettings, room::Room};
 
@@ -77,6 +77,8 @@ impl RoomManager {
 
             match self.rooms.entry(id) {
                 dashmap::Entry::Vacant(entry) => {
+                    debug!("[{owner}] creating room '{name}' ({id})");
+
                     let room = Arc::new(Room::new(id, owner, name, passcode, settings));
 
                     entry.insert(room.clone());
@@ -93,10 +95,12 @@ impl RoomManager {
     }
 
     pub(super) fn remove_room(&self, id: u32) -> Option<Arc<Room>> {
+        debug!("deleting room {id}");
         if let Some(room) = self.rooms.remove(&id).map(|entry| entry.1) {
             self.do_remove_from_sorted(&room, &mut self.rooms_sorted.write());
             Some(room)
         } else {
+            warn!("failed to delete non-existent room {id}");
             None
         }
     }
@@ -124,8 +128,19 @@ impl RoomManager {
     }
 
     pub(super) fn routine_cleanup(&self) {
+        let mut to_remove = Vec::new();
+
         for room in self.rooms.iter() {
             room.cleanup_invites();
+
+            if room.player_count() == 0 && !room.is_global() {
+                to_remove.push(*room.key());
+            }
+        }
+
+        for id in to_remove {
+            warn!("found ghost room {id}, no players but still exists?");
+            self.remove_room(id);
         }
     }
 
