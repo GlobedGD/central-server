@@ -5,7 +5,7 @@ use filter::WordFilter;
 use serde::{Deserialize, Serialize};
 use server_shared::qunet::server::ServerHandle;
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::core::{
     handler::ConnectionHandler,
@@ -16,6 +16,7 @@ mod filter;
 
 pub struct WordFilterModule {
     path: PathBuf,
+    watch: bool,
     filter: RwLock<Option<WordFilter>>,
 }
 
@@ -34,6 +35,7 @@ impl ServerModule for WordFilterModule {
 
         Ok(Self {
             path,
+            watch: config.watch,
             filter: RwLock::new(filter),
         })
     }
@@ -49,7 +51,7 @@ impl ServerModule for WordFilterModule {
     fn on_launch(&self, server: &ServerHandle<ConnectionHandler>) {
         // watch the word filter file for changes
         let wpath = self.path.clone();
-        if !wpath.exists() {
+        if !wpath.exists() || !self.watch {
             // don't watch :)
             return;
         }
@@ -69,7 +71,8 @@ impl ServerModule for WordFilterModule {
                 return;
             }
 
-            while let Some(_event) = file_events.recv().await {
+            while let Some(event) = file_events.recv().await {
+                debug!("received file event: {event:?}");
                 if let Some(filter) = &mut *this.filter.write().await {
                     match filter.reload_from_file(&wpath).await {
                         Ok(()) => {
@@ -103,4 +106,6 @@ impl WordFilterModule {
 pub struct Config {
     #[serde(default)]
     file_path: Option<PathBuf>,
+    #[serde(default)]
+    watch: bool,
 }
