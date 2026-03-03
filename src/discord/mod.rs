@@ -1,5 +1,6 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
+use parking_lot::Mutex;
 use poise::serenity_prelude as serenity;
 use serde::{Deserialize, Serialize};
 use server_shared::qunet::server::ServerHandle;
@@ -43,6 +44,7 @@ pub struct DiscordModule {
     handle: JoinHandle<()>,
     state: Arc<BotState>,
     alert_channel: u64,
+    sent_alerts: Mutex<HashSet<i32>>,
 }
 
 impl DiscordModule {
@@ -64,6 +66,18 @@ impl DiscordModule {
         }
 
         self.send_message(self.alert_channel, msg)
+    }
+
+    pub fn send_username_alert(&self, username: &str, id: i32) {
+        // don't repeat alerts
+        let new_alert = self.sent_alerts.lock().insert(id);
+
+        if new_alert {
+            self.send_alert(
+                DiscordMessage::new()
+                    .content(format!("⚠️ Potentially bad username: {username} ({id})")),
+            );
+        }
     }
 
     pub async fn get_user_data(&self, account_id: u64) -> Result<DiscordUserData, BotError> {
@@ -115,6 +129,7 @@ impl ServerModule for DiscordModule {
             handle,
             state,
             alert_channel: config.alert_channel,
+            sent_alerts: Mutex::new(HashSet::new()),
         })
     }
 

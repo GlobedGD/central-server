@@ -248,10 +248,7 @@ impl ConnectionHandler {
         if self.is_disallowed(&data.username).await
             && let Some(discord) = discord
         {
-            discord.send_alert(DiscordMessage::new().content(format!(
-                "⚠️ User logged in with disallowed terms in username: {} ({})",
-                data.username, data.account_id
-            )));
+            discord.send_username_alert(&data.username, data.account_id);
         }
 
         // if analytics is enabled, log the login
