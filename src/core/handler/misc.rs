@@ -276,10 +276,29 @@ impl ConnectionHandler {
     ) -> HandlerResult<()> {
         must_auth(client)?;
 
+        let res = self.notice_reply_inner(client, target_user, message).await;
+
+        let buf = data::encode_message!(self, 512, msg => {
+            let mut m = msg.init_notice_reply_result();
+            m.set_success(res.is_ok());
+            if let Err(e) = res {
+                m.set_error(e);
+            }
+        });
+        client.send_data_bufkind(buf?);
+
+        Ok(())
+    }
+
+    async fn notice_reply_inner(
+        &self,
+        client: &ClientStateHandle,
+        target_user: i32,
+        message: &str,
+    ) -> Result<(), &'static str> {
         let Some(target) = self.find_client(target_user) else {
-            warn!("notice reply target {target_user} not found");
-            self.send_warn(client, "Failed to send notice reply: user went offline")?;
-            return Ok(());
+            debug!("{} could not reply to {target_user}, target not found", client.account_id());
+            return Err("Failed to send notice reply: user went offline");
         };
 
         if target.take_awaiting_notice_reply(client.account_id()) {
@@ -288,14 +307,15 @@ impl ConnectionHandler {
                 .log_notice_reply(client.account_id(), client.username(), target_user, message)
                 .await;
 
-            target.send_data_bufkind(self.make_notice_buf(client, message, false, true, true)?);
-        } else {
-            self.send_warn(
-                client,
-                "Failed to send notice reply: reply expired or user went offline",
-            )?;
+            target.send_data_bufkind(
+                self.make_notice_buf(client, message, false, true, true)
+                    .map_err(|_| "Failed to encode notice reply")?,
+            );
+
+            return Ok(());
         }
 
-        Ok(())
+        debug!("{} could not reply to {target_user}, reply likely expired", client.account_id());
+        Err("Failed to send notice reply: reply expired or user went offline")
     }
 }
