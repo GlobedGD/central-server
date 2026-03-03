@@ -102,6 +102,10 @@ impl ConnectionHandler {
         Ok(())
     }
 
+    pub fn send_admin_ok(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+        self.send_admin_result(client, Ok::<(), &str>(()))
+    }
+
     pub fn send_admin_db_result<E: Display>(
         &self,
         client: &ClientStateHandle,
@@ -269,6 +273,8 @@ impl ConnectionHandler {
             self.send_notice(client, &target, message, can_reply, show_sender)?;
         }
 
+        self.send_admin_ok(client)?;
+
         Ok(())
     }
 
@@ -282,6 +288,8 @@ impl ConnectionHandler {
         let users = self.module::<UsersModule>();
         let count = self.send_notice_all(client, message, false, false).unwrap_or(0);
         users.log_notice_everyone(client.account_id(), message, count as u32).await;
+
+        self.send_admin_ok(client)?;
 
         Ok(())
     }
