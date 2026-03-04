@@ -324,6 +324,10 @@ impl UsersModule {
     }
 
     pub async fn is_whitelisted(&self, account_id: i32) -> bool {
+        if self.super_admins.contains(&account_id) {
+            return true;
+        }
+
         self.get_user(account_id).await.ok().flatten().is_some_and(|x| x.is_whitelisted)
     }
 
