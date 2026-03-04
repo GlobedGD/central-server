@@ -130,6 +130,8 @@ def fetch_level_data(level_id: int) -> tuple[str, int, str]:
         }
     )
     r.raise_for_status()
+    if r.text == "-1":
+        return ("", 0, "")
 
     outer_parts = r.text.split("#")
     data, extra = outer_parts[:2]
@@ -302,7 +304,7 @@ def migrate_features() -> list[NewFeaturedLevel]:
             rate_tier=level.rate_tier,
             feature_duration=None
         ))
-        print(f"\r[{len(new_features)}/{len(old_features)}] Fetched {level_name} ({level.level_id}) by {author_name} ({author})" + " " * 20, end="")
+        print(f"[{len(new_features)}/{len(old_features)}] Fetched {level_name} ({level.level_id}) by {author_name} ({author})" + " " * 20,)
         if level_name:
             time.sleep(0.2)
 
