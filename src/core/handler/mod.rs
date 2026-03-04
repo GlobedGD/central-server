@@ -996,8 +996,8 @@ fn decode_login_data<'a>(
         Platform::Wine => "wine",
         Platform::MacArm => "macarm",
         Platform::MacIntel => "macintel",
-        Platform::Android32 => "android",
-        Platform::Android64 => "android",
+        Platform::Android32 => "android32",
+        Platform::Android64 => "android64",
         Platform::Ios => "ios",
     };
 
