@@ -449,8 +449,9 @@ impl AppHandler for ConnectionHandler {
 
             AdminFetchUser(message) => {
                 let query = message.get_query()?.to_str()?;
+                let query_num = message.get_query_num();
 
-                self.handle_admin_fetch_user(client, query).await
+                self.handle_admin_fetch_user(client, query, query_num).await
             },
 
             AdminFetchLogs(message) => {

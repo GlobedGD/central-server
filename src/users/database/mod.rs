@@ -6,6 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use thiserror::Error;
+use tracing::warn;
 
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ActiveValue::Set, ColumnTrait, ConnectOptions, Database,
@@ -198,8 +199,6 @@ impl UsersDb {
     }
 
     pub async fn post_user_fetch(&self, model: user::Model) -> DatabaseResult<DbUser> {
-        use tracing::warn;
-
         let name_color = model.name_color.as_ref().filter(|c| !c.is_empty()).and_then(|c| {
             MultiColor::decode_from_string(c)
                 .inspect_err(|e| {

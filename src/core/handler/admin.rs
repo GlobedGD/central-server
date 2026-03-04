@@ -381,12 +381,19 @@ impl ConnectionHandler {
         &self,
         client: &ClientStateHandle,
         query: &str,
+        query_num: i32,
     ) -> HandlerResult<()> {
         must_admin_auth(client)?;
 
         let users = self.module::<UsersModule>();
 
-        match users.query_user(query).await {
+        let result = if query_num != 0 {
+            users.get_user(query_num).await
+        } else {
+            users.query_user(query).await
+        };
+
+        match result {
             Ok(Some(user)) => {
                 self.send_fetch_response(
                     client,
