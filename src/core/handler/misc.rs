@@ -298,7 +298,7 @@ impl ConnectionHandler {
     ) -> Result<(), &'static str> {
         let Some(target) = self.find_client(target_user) else {
             debug!("{} could not reply to {target_user}, target not found", client.account_id());
-            return Err("Failed to send notice reply: user went offline");
+            return Err("user went offline");
         };
 
         if target.take_awaiting_notice_reply(client.account_id()) {
@@ -316,6 +316,6 @@ impl ConnectionHandler {
         }
 
         debug!("{} could not reply to {target_user}, reply likely expired", client.account_id());
-        Err("Failed to send notice reply: reply expired or user went offline")
+        Err("reply expired or user went offline")
     }
 }
