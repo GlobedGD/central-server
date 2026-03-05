@@ -166,7 +166,7 @@ impl ConnectionHandler {
         let result = if let Some(target) = self.find_client(account_id) {
             // kick the person from central & game servers
             target.disconnect(format!("Kicked by moderator: {reason}"));
-            let _ = self.game_server_manager.notify_user_kicked(client.account_id()).await;
+            let _ = self.game_server_manager.notify_user_kicked(account_id).await;
 
             users.log_kick(client.account_id(), account_id, target.username(), reason).await;
 
