@@ -256,4 +256,21 @@ impl GameServerManager {
 
         Ok(())
     }
+
+    pub async fn notify_user_kicked(&self, account_id: i32) -> Result<(), GameServerError> {
+        let servers = self.servers.load();
+
+        let buf = data::encode_message_unsafe!(self, 80, msg => {
+            let mut notif = msg.init_notify_kick_user();
+            notif.set_account_id(account_id);
+        })?;
+
+        let buf = Arc::new(buf);
+
+        for server in &**servers {
+            server.qclient.send_data_bufkind(BufferKind::Reference(buf.clone()));
+        }
+
+        Ok(())
+    }
 }

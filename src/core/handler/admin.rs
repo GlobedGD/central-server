@@ -164,8 +164,10 @@ impl ConnectionHandler {
         let users = self.module::<UsersModule>();
 
         let result = if let Some(target) = self.find_client(account_id) {
-            // kick the person
+            // kick the person from central & game servers
             target.disconnect(format!("Kicked by moderator: {reason}"));
+            let _ = self.game_server_manager.notify_user_kicked(client.account_id()).await;
+
             users.log_kick(client.account_id(), account_id, target.username(), reason).await;
 
             Ok(())
@@ -592,7 +594,9 @@ impl ConnectionHandler {
             .admin_punish_user(client.account_id(), account_id, reason, expires_at, r#type)
             .await;
 
-        if let Some(user) = self.find_client(account_id) {
+        if result.is_ok()
+            && let Some(user) = self.find_client(account_id)
+        {
             self.try_save_uident(&user).await;
 
             if let Err(e) = self.refresh_live_punishments(&user, r#type).await {
@@ -622,10 +626,11 @@ impl ConnectionHandler {
 
         let users = self.module::<UsersModule>();
         let result = users.admin_unpunish_user(client.account_id(), account_id, r#type).await;
+        let was_ok = result.is_ok();
 
         self.send_admin_db_result(client, result)?;
 
-        if let Some(user) = self.find_client(account_id) {
+        if was_ok && let Some(user) = self.find_client(account_id) {
             // tell the user they are unbanned
             let _ = self.refresh_live_punishments(&user, None).await;
         }
