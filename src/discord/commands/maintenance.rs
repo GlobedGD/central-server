@@ -117,6 +117,24 @@ pub async fn shutdown_server(ctx: Context<'_>, message: Option<String>) -> Resul
     Ok(())
 }
 
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
+/// Disables or enables global maintenance mode, disallowing connections from non mods
+pub async fn disallow_joins(ctx: Context<'_>, enable: bool) -> Result<(), BotError> {
+    check_admin(ctx).await?;
+
+    let state = ctx.data();
+    let server = state.server()?;
+    server.handler().set_refuse_connections(enable);
+
+    if enable {
+        ctx.reply("✅ Maintenance mode enabled: new connections will be refused.").await?;
+    } else {
+        ctx.reply("✅ Maintenance mode disabled.").await?;
+    }
+
+    Ok(())
+}
+
 #[poise::command(slash_command, guild_only = true)]
 /// Show server status
 pub async fn status(ctx: Context<'_>) -> Result<(), BotError> {

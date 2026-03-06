@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::sync::atomic::Ordering;
 
 use crypto_secretbox::{KeyInit, aead::AeadMutInPlace};
 use server_shared::qunet::buffers::{ByteReader, ByteReaderError, ByteWriter};
@@ -140,6 +141,21 @@ impl ConnectionHandler {
                 return self.on_login_failed(client, data::LoginFailedReason::InternalDbError);
             }
         };
+
+        // if connections are disallowed right now, disconnect the user if they are not a moderator
+        if self.refuse_connections.load(Ordering::Relaxed) {
+            let allow = user
+                .as_ref()
+                .is_some_and(|u| u.is_whitelisted || users.compute_from_user(u).can_moderate());
+
+            if !allow {
+                debug!(
+                    "[{} ({}) @ {}] refusing connection due to global flag",
+                    data.username, data.account_id, client.address
+                );
+                return self.on_login_failed(client, data::LoginFailedReason::Maintenance);
+            }
+        }
 
         if let Some(uident) = uident {
             client.set_uident(uident);

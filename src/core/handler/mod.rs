@@ -3,7 +3,10 @@ use std::{
     net::SocketAddr,
     num::NonZeroI64,
     path::Path,
-    sync::{Arc, OnceLock},
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime},
 };
 
@@ -70,6 +73,7 @@ pub struct ConnectionHandler {
 
     clients: ClientStore,
     all_levels: DashMap<u64, LevelEntry>,
+    refuse_connections: AtomicBool,
 }
 
 impl AppHandler for ConnectionHandler {
@@ -641,6 +645,7 @@ impl ConnectionHandler {
             config,
             clients: ClientStore::new(),
             all_levels: DashMap::new(),
+            refuse_connections: AtomicBool::new(false),
         }
     }
 
@@ -827,6 +832,10 @@ impl ConnectionHandler {
     #[inline]
     pub async fn handle_game_server_room_created(&self, room_id: u32) {
         self.game_server_manager.ack_room_created(room_id).await;
+    }
+
+    pub fn set_refuse_connections(&self, refuse: bool) {
+        self.refuse_connections.store(refuse, Ordering::Relaxed);
     }
 
     // Misc encoding stuff
