@@ -308,7 +308,7 @@ impl ConnectionHandler {
                 .await;
 
             target.send_data_bufkind(
-                self.make_notice_buf(client, message, false, true, true)
+                self.make_notice_buf(Some(client), message, false, true)
                     .map_err(|_| "Failed to encode notice reply")?,
             );
 

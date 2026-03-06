@@ -25,6 +25,7 @@ pub fn all() -> Vec<poise::Command<Arc<BotState>, BotError>> {
         features::feature(),
         maintenance::refresh_blacklist_cache(),
         maintenance::set_level_blacklisted(),
+        maintenance::shutdown_server(),
         maintenance::status(),
         maintenance::conn_stats(),
         misc::say(),

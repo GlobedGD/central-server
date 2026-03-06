@@ -4,8 +4,14 @@ use std::{
 };
 
 use build_time::build_time_utc;
-use poise::{CreateReply, serenity_prelude::CreateEmbed};
+use poise::{
+    CreateReply,
+    serenity_prelude::{
+        ButtonStyle, CreateActionRow, CreateButton, CreateEmbed, CreateInteractionResponse,
+    },
+};
 use server_shared::qunet::server::{ServerHandle, stat_tracker::OverallStats};
+use tracing::info;
 
 use super::util::*;
 use crate::{
@@ -46,6 +52,66 @@ pub async fn set_level_blacklisted(
         ctx.reply("✅ Success").await?;
     } else {
         ctx.reply(":x: Session ID was not found").await?;
+    }
+
+    Ok(())
+}
+
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
+/// Cleanly shutdown the server, with optional message
+pub async fn shutdown_server(ctx: Context<'_>, message: Option<String>) -> Result<(), BotError> {
+    check_admin(ctx).await?;
+
+    // prompt for confirmation
+    let msg = ctx
+        .reply_builder(
+            CreateReply::default()
+                .content(":warning: Are you sure you want to shutdown the server?"),
+        )
+        .components(vec![CreateActionRow::Buttons(vec![
+            CreateButton::new("confirm_shutdown")
+                .style(ButtonStyle::Success)
+                .label("Yes, shutdown"),
+            CreateButton::new("cancel_shutdown").style(ButtonStyle::Danger).label("No, cancel"),
+        ])]);
+    let msg = ctx.send(msg).await?;
+
+    // wait for response
+    let interaction = msg
+        .message()
+        .await?
+        .await_component_interaction(ctx)
+        .author_id(ctx.author().id)
+        .timeout(Duration::from_secs(30))
+        .await;
+
+    msg.delete(ctx).await?;
+
+    match interaction {
+        Some(interaction) if interaction.data.custom_id == "confirm_shutdown" => {
+            info!("Shutdown initiated by {} ({})", ctx.author().name, ctx.author().id);
+
+            interaction.create_response(&ctx, CreateInteractionResponse::Acknowledge).await?;
+
+            let state = ctx.data();
+            let server = state.server()?;
+
+            // send a message to all users on the server, if requested
+            if let Some(msg) = message {
+                let _ = server.handler().send_notice_all(None, &msg, false, false);
+
+                // wait a bit, it might take some time for the message to send successfully
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+
+            ctx.say("Goodbye!").await?;
+
+            server.shutdown();
+        }
+
+        _ => {
+            ctx.say("Action cancelled.").await?;
+        }
     }
 
     Ok(())

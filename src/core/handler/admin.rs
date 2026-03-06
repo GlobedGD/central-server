@@ -288,7 +288,7 @@ impl ConnectionHandler {
         self.must_be_able(client, ActionType::NoticeEveryone)?;
 
         let users = self.module::<UsersModule>();
-        let count = self.send_notice_all(client, message, false, false).unwrap_or(0);
+        let count = self.send_notice_all(Some(client), message, false, false).unwrap_or(0);
         users.log_notice_everyone(client.account_id(), message, count as u32).await;
 
         self.send_admin_ok(client)?;
@@ -298,11 +298,10 @@ impl ConnectionHandler {
 
     pub fn make_notice_buf(
         &self,
-        sender: &ClientStateHandle,
+        sender: Option<&ClientStateHandle>,
         message: &str,
         can_reply: bool,
         is_reply: bool,
-        show_sender: bool,
     ) -> HandlerResult<BufferKind> {
         let buf = data::encode_message_heap!(self, 80 + message.len(), msg => {
             let mut notice = msg.init_notice();
@@ -310,7 +309,7 @@ impl ConnectionHandler {
             notice.set_can_reply(can_reply);
             notice.set_is_reply(is_reply);
 
-            if show_sender {
+            if let Some(sender) = sender {
                 let account_data = sender.account_data().expect("must have account data");
 
                 notice.set_sender_id(account_data.account_id);
@@ -345,31 +344,33 @@ impl ConnectionHandler {
         }
 
         target.send_data_bufkind(self.make_notice_buf(
-            sender,
+            show_sender.then_some(sender),
             message,
             can_reply,
             false,
-            show_sender,
         )?);
 
         Ok(())
     }
 
-    fn send_notice_all(
+    pub fn send_notice_all(
         &self,
-        sender: &ClientStateHandle,
+        sender: Option<&ClientStateHandle>,
         message: &str,
         can_reply: bool,
         show_sender: bool,
     ) -> HandlerResult<usize> {
-        info!(
-            "[{} ({})] sent notice to EVERYONE!!: \"{}\"",
-            sender.username(),
-            sender.account_id(),
-            message
-        );
+        let username = sender.map_or("System", |s| s.username());
+        let account_id = sender.map_or(0, |s| s.account_id());
 
-        let buf = Arc::new(self.make_notice_buf(sender, message, can_reply, false, show_sender)?);
+        info!("[{} ({})] sent notice to EVERYONE!!: \"{}\"", username, account_id, message);
+
+        let buf = Arc::new(self.make_notice_buf(
+            sender.filter(|_| show_sender),
+            message,
+            can_reply,
+            false,
+        )?);
 
         let targets = self.clients.collect_all();
         for target in &targets {
