@@ -838,6 +838,14 @@ impl ConnectionHandler {
         self.refuse_connections.store(refuse, Ordering::Relaxed);
     }
 
+    pub fn get_all_clients(&self) -> Vec<ClientStateHandle> {
+        self.clients.collect_all()
+    }
+
+    pub fn get_all_authorized_clients(&self) -> Vec<ClientStateHandle> {
+        self.clients.collect_all_authorized()
+    }
+
     // Misc encoding stuff
 
     fn encode_game_server(
@@ -864,6 +872,14 @@ impl ConnectionHandler {
 
     pub fn find_client_by_name(&self, username: &str) -> Option<ClientStateHandle> {
         self.clients.find_by_name(username)
+    }
+
+    pub fn find_client_by_id_or_name(&self, query: &str) -> Option<ClientStateHandle> {
+        if let Ok(account_id) = query.parse::<i32>() {
+            self.find_client(account_id).or_else(|| self.find_client_by_name(query))
+        } else {
+            self.find_client_by_name(query)
+        }
     }
 
     fn send_banned(

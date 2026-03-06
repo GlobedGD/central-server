@@ -37,12 +37,7 @@ pub async fn link(
         return Ok(());
     }
 
-    let target = if let Ok(id) = user.parse::<i32>() {
-        server.handler().find_client(id).or_else(|| server.handler().find_client_by_name(&user))
-    } else {
-        server.handler().find_client_by_name(&user)
-    };
-
+    let target = server.handler().find_client_by_id_or_name(&user);
     let Some(target) = target else {
         ctx.reply(
             ":x: Failed to find the user by the given name. Make sure you are currently online on Globed and try again.",

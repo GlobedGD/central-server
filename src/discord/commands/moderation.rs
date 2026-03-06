@@ -285,3 +285,46 @@ pub async fn check_alts(
 
     Ok(())
 }
+
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
+pub async fn kick(
+    ctx: Context<'_>,
+    #[description = "GD username or account ID of the target user"] target: String,
+    #[description = "Kick reason"] reason: String,
+) -> Result<(), BotError> {
+    let user = check_linked_and_roles(ctx, |p| p.can_kick).await?;
+
+    let server = ctx.data().server()?;
+    let users = server.handler().module::<UsersModule>();
+
+    let target = server.handler().find_client_by_id_or_name(&target);
+    let Some(target) = target else {
+        ctx.reply(":x: Failed to find the target user.").await?;
+        return Ok(());
+    };
+
+    server.handler().do_kick_user(user.account_id, &target, &reason, true).await;
+    ctx.reply(format!(":white_check_mark: Sucessfully kicked {}", target.username())).await?;
+
+    Ok(())
+}
+
+#[poise::command(slash_command, guild_only = true)]
+pub async fn kick_all(
+    ctx: Context<'_>,
+    #[description = "Kick reason"] reason: String,
+) -> Result<(), BotError> {
+    check_admin(ctx).await?;
+
+    let server = ctx.data().server()?;
+
+    let clients = server.handler().get_all_clients();
+    for client in &clients {
+        server.handler().do_kick_user(0, client, &reason, false).await;
+    }
+
+    ctx.reply(format!(":white_check_mark: Successfully kicked all {} users.", clients.len()))
+        .await?;
+
+    Ok(())
+}

@@ -29,17 +29,6 @@ impl ClientStore {
         self.username_map.get(&norm_name).and_then(|x| x.upgrade())
     }
 
-    // this is now obsolete
-    // pub fn find_by_name_slow(&self, username: &str) -> Option<ClientStateHandle> {
-    //     self.map
-    //         .iter()
-    //         .filter_map(|r| match r.value().upgrade() {
-    //             Some(c) if c.username().eq_ignore_ascii_case(username) => Some(c),
-    //             _ => None,
-    //         })
-    //         .next()
-    // }
-
     /// Inserts a new client into the map, returning any previous client with the same account ID
     pub fn insert(
         &self,

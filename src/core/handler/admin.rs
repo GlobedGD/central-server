@@ -161,15 +161,8 @@ impl ConnectionHandler {
     ) -> HandlerResult<()> {
         self.must_be_able(client, ActionType::Kick)?;
 
-        let users = self.module::<UsersModule>();
-
         let result = if let Some(target) = self.find_client(account_id) {
-            // kick the person from central & game servers
-            target.disconnect(format!("Kicked by moderator: {reason}"));
-            let _ = self.game_server_manager.notify_user_kicked(account_id).await;
-
-            users.log_kick(client.account_id(), account_id, target.username(), reason).await;
-
+            self.do_kick_user(client.account_id(), &target, reason, true).await;
             Ok(())
         } else {
             Err("failed to find the target person")
@@ -178,6 +171,25 @@ impl ConnectionHandler {
         self.send_admin_result(client, result)?;
 
         Ok(())
+    }
+
+    /// kicks the person from central & game servers
+    pub async fn do_kick_user(
+        &self,
+        issuer: i32,
+        target: &ClientStateHandle,
+        reason: &str,
+        do_log: bool,
+    ) {
+        let users = self.module::<UsersModule>();
+        let account_id = target.account_id();
+
+        target.disconnect(format!("Kicked by moderator: {reason}"));
+        let _ = self.game_server_manager.notify_user_kicked(account_id).await;
+
+        if do_log {
+            users.log_kick(issuer, account_id, target.username(), reason).await;
+        }
     }
 
     pub async fn handle_admin_notice(
