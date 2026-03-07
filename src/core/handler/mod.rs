@@ -39,7 +39,7 @@ use crate::{
         config::Config,
         data::{self, decode_message_match},
         game_server::{GameServerHandler, GameServerManager, StoredGameServer},
-        handler::client_store::ClientStore,
+        handler::client_store::{ClientStore, normalize_username},
         module::ServerModule,
     },
     rooms::{RoomModule, RoomSettings},
@@ -837,6 +837,11 @@ impl ConnectionHandler {
 
     pub fn get_all_clients(&self) -> Vec<ClientStateHandle> {
         self.clients.collect_all()
+    }
+
+    pub fn get_n_clients_matching(&self, query: &str, limit: usize) -> Vec<ClientStateHandle> {
+        let query = normalize_username(query);
+        self.clients.collect_name_pred(|name| name.contains(query.as_str()), limit)
     }
 
     pub fn get_all_authorized_clients(&self) -> Vec<ClientStateHandle> {

@@ -1,6 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
-use poise::{CreateReply, ReplyHandle, serenity_prelude as serenity};
+use poise::{
+    CreateReply, ReplyHandle,
+    serenity_prelude::{self as serenity, AutocompleteChoice},
+};
 use server_shared::qunet::server::Server;
 use thiserror::Error;
 
@@ -127,3 +130,25 @@ pub fn parse_duration_str(s: &str) -> Result<Duration, ParseDurationError> {
 
     Ok(Duration::from_secs(number * modifier))
 }
+
+pub async fn online_user_autocomplete(ctx: Context<'_>, partial: &str) -> Vec<AutocompleteChoice> {
+    let server = ctx.data().server().unwrap();
+    let clients = server.handler().get_n_clients_matching(partial, 5);
+
+    clients
+        .into_iter()
+        .map(|c| AutocompleteChoice::new(c.username().to_string(), c.account_id().to_string()))
+        .collect()
+}
+
+// async fn db_user_autocomplete(ctx: Context<'_>, partial: &str) -> Vec<AutocompleteChoice> {
+//     let server = ctx.data().server().unwrap();
+//     let users = server.handler().module::<UsersModule>();
+
+//     users.query_user();
+
+//     clients
+//         .into_iter()
+//         .map(|c| AutocompleteChoice::new(c.username().to_string(), c.account_id().to_string()))
+//         .collect()
+// }

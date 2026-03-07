@@ -9,15 +9,14 @@ use crate::{
     users::{UserPunishmentType, UsersModule, database::AuditLogModel},
 };
 
-use poise::serenity_prelude::{self as serenity, EmbedField};
+use poise::serenity_prelude::{self as serenity, AutocompleteChoice, EmbedField};
+use tracing::debug;
 
 async fn punish_autocomplete(
     _ctx: Context<'_>,
     _partial: &str,
-) -> impl Iterator<Item = poise::serenity_prelude::AutocompleteChoice> {
-    ["Ban", "Mute", "Room Ban"]
-        .iter()
-        .map(|&n| poise::serenity_prelude::AutocompleteChoice::new(n, n))
+) -> impl Iterator<Item = AutocompleteChoice> {
+    ["Ban", "Mute", "Room Ban"].iter().map(|&n| AutocompleteChoice::new(n, n))
 }
 
 fn parse_punish_type(s: &str) -> Option<UserPunishmentType> {
@@ -36,7 +35,11 @@ pub async fn punish(
     #[autocomplete = "punish_autocomplete"]
     #[description = "Punishment type"]
     punishment_type: String,
-    #[description = "Geometry Dash username or ID"] target_user: String,
+
+    #[autocomplete = "online_user_autocomplete"]
+    #[description = "Geometry Dash username or ID"]
+    target_user: String,
+
     #[description = "Ban reason"] reason: String,
     #[rename = "duration"]
     #[description = "Punishment duration (i.e. \"1 year\", \"2 days\"); use \"permanent\" or \"perma\" for permanent punishments."]
@@ -85,7 +88,9 @@ pub async fn unpunish(
     #[autocomplete = "punish_autocomplete"]
     #[description = "Punishment type"]
     punishment_type: String,
-    #[description = "Geometry Dash username or ID"] target_user: String,
+    #[autocomplete = "online_user_autocomplete"]
+    #[description = "Geometry Dash username or ID"]
+    target_user: String,
 ) -> Result<(), BotError> {
     let pun_type = parse_punish_type(&punishment_type).unwrap_or(UserPunishmentType::Mute);
     let user = check_linked_and_can_punish(ctx, pun_type).await?;
@@ -281,10 +286,14 @@ pub async fn check_alts(
 #[poise::command(slash_command, ephemeral = true, guild_only = true)]
 pub async fn kick(
     ctx: Context<'_>,
-    #[description = "GD username or account ID of the target user"] target: String,
+    #[autocomplete = "online_user_autocomplete"]
+    #[description = "GD username or account ID of the target user"]
+    target: String,
     #[description = "Kick reason"] reason: String,
 ) -> Result<(), BotError> {
     let user = check_linked_and_roles(ctx, |p| p.can_kick).await?;
+
+    debug!("{} ran /kick {} \"{}\"", user.username(), target, reason);
 
     let server = ctx.data().server()?;
     let users = server.handler().module::<UsersModule>();
@@ -306,7 +315,9 @@ pub async fn kick_all(
     ctx: Context<'_>,
     #[description = "Kick reason"] reason: String,
 ) -> Result<(), BotError> {
-    check_admin(ctx).await?;
+    let user = check_admin(ctx).await?;
+
+    debug!("{} ran /kick_all \"{}\"", user.username(), reason);
 
     let server = ctx.data().server()?;
 

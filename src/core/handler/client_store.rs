@@ -79,26 +79,48 @@ impl ClientStore {
     }
 
     pub fn collect_all(&self) -> Vec<ClientStateHandle> {
-        self.collect_all_pred(|_| true)
+        self.collect_pred(|_| true, None)
     }
 
     pub fn collect_all_authorized(&self) -> Vec<ClientStateHandle> {
-        self.collect_all_pred(|client| client.authorized())
+        self.collect_pred(|client| client.authorized(), None)
     }
 
     pub fn collect_all_pred<F: Fn(&ClientStateHandle) -> bool>(
         &self,
         predicate: F,
     ) -> Vec<ClientStateHandle> {
+        self.collect_pred(predicate, None)
+    }
+
+    pub fn collect_pred<F: Fn(&ClientStateHandle) -> bool>(
+        &self,
+        predicate: F,
+        limit: impl Into<Option<usize>>,
+    ) -> Vec<ClientStateHandle> {
         self.map
             .iter()
             .filter_map(|entry| entry.value().upgrade())
             .filter(|client| predicate(client))
+            .take(limit.into().unwrap_or(usize::MAX))
+            .collect()
+    }
+
+    /// Collects all authorized clients using the predicate, passes a normalized (lowercase) username
+    pub fn collect_name_pred<F: Fn(&str) -> bool>(
+        &self,
+        predicate: F,
+        limit: impl Into<Option<usize>>,
+    ) -> Vec<ClientStateHandle> {
+        self.username_map
+            .iter()
+            .filter_map(|r| r.value().upgrade().filter(|c| c.authorized() && predicate(r.key())))
+            .take(limit.into().unwrap_or(usize::MAX))
             .collect()
     }
 }
 
-fn normalize_username(username: &str) -> UsernameString {
+pub fn normalize_username(username: &str) -> UsernameString {
     debug_assert!(username.len() <= MAX_USERNAME_LENGTH);
 
     let mut name = UsernameString::new();
