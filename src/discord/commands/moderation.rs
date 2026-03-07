@@ -6,7 +6,7 @@ use std::{
 use super::util::*;
 use crate::{
     discord::BotError,
-    users::{UsersModule, database::AuditLogModel},
+    users::{UserPunishmentType, UsersModule, database::AuditLogModel},
 };
 
 use poise::serenity_prelude::{self as serenity, EmbedField};
@@ -20,8 +20,17 @@ async fn punish_autocomplete(
         .map(|&n| poise::serenity_prelude::AutocompleteChoice::new(n, n))
 }
 
+fn parse_punish_type(s: &str) -> Option<UserPunishmentType> {
+    match s {
+        "Ban" => Some(UserPunishmentType::Ban),
+        "Mute" => Some(UserPunishmentType::Mute),
+        "Room Ban" => Some(UserPunishmentType::RoomBan),
+        _ => None,
+    }
+}
+
 #[poise::command(slash_command, guild_only = true)]
-/// punishes the provided target
+/// Punishes the provided user
 pub async fn punish(
     ctx: Context<'_>,
     #[autocomplete = "punish_autocomplete"]
@@ -33,13 +42,13 @@ pub async fn punish(
     #[description = "Punishment duration (i.e. \"1 year\", \"2 days\"); use \"permanent\" or \"perma\" for permanent punishments."]
     duration_str: String,
 ) -> Result<(), BotError> {
-    let user = check_moderator(ctx).await?;
+    let pun_type = parse_punish_type(&punishment_type).unwrap_or(UserPunishmentType::Mute);
+    let user = check_linked_and_can_punish(ctx, pun_type).await?;
 
     let server = ctx.data().server()?;
     let users = server.handler().module::<UsersModule>();
 
     let target = users.query_or_create_user(&target_user).await?;
-
     let Some(target) = target else {
         ctx.reply(":x: Failed to find the user by the given name").await?;
         return Ok(());
@@ -49,24 +58,15 @@ pub async fn punish(
         ctx.reply(":x: Invalid duration!").await?;
         return Ok(());
     };
+    let expires_at = if duration.is_zero() {
+        0
+    } else {
+        (SystemTime::now().duration_since(UNIX_EPOCH).unwrap() + duration).as_secs() as i64
+    };
 
-    let ban_result = users
-        .admin_punish_user(
-            user.account_id,
-            target.account_id,
-            &reason,
-            if duration.is_zero() {
-                0
-            } else {
-                (SystemTime::now().duration_since(UNIX_EPOCH).unwrap() + duration).as_secs() as i64
-            },
-            match punishment_type.as_str() {
-                "Ban" => crate::users::UserPunishmentType::Ban,
-                "Mute" => crate::users::UserPunishmentType::Mute,
-                "Room Ban" => crate::users::UserPunishmentType::RoomBan,
-                _ => crate::users::UserPunishmentType::Mute, // just assume they wanna mute (although this shouldn't be reached anyways)
-            },
-        )
+    let ban_result = server
+        .handler()
+        .do_punish_user(user.account_id, target.account_id, &reason, expires_at, pun_type)
         .await;
 
     if let Err(reason) = ban_result {
@@ -87,7 +87,8 @@ pub async fn unpunish(
     punishment_type: String,
     #[description = "Geometry Dash username or ID"] target_user: String,
 ) -> Result<(), BotError> {
-    let user = check_moderator(ctx).await?;
+    let pun_type = parse_punish_type(&punishment_type).unwrap_or(UserPunishmentType::Mute);
+    let user = check_linked_and_can_punish(ctx, pun_type).await?;
 
     let server = ctx.data().server()?;
     let users = server.handler().module::<UsersModule>();
@@ -98,18 +99,9 @@ pub async fn unpunish(
         return Ok(());
     };
 
-    let unpunish_result = users
-        .admin_unpunish_user(
-            user.account_id,
-            target.account_id,
-            match punishment_type.as_str() {
-                "Ban" => crate::users::UserPunishmentType::Ban,
-                "Mute" => crate::users::UserPunishmentType::Mute,
-                "Room Ban" => crate::users::UserPunishmentType::RoomBan,
-                _ => crate::users::UserPunishmentType::Mute, // just assume they wanna mute (although this shouldn't be reached anyways)
-            },
-        )
-        .await;
+    let unpunish_result =
+        server.handler().do_unpunish_user(user.account_id, target.account_id, pun_type).await;
+
     if let Err(reason) = unpunish_result {
         ctx.reply(format!(":x: Failed to remove punishment: `{reason}`")).await?;
     } else {

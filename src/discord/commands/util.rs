@@ -7,7 +7,7 @@ use thiserror::Error;
 use crate::{
     core::handler::ConnectionHandler,
     discord::{BotError, state::BotState},
-    users::{ComputedRole, DbUser, UsersModule},
+    users::{ComputedRole, DbUser, UserPunishmentType, UsersModule},
 };
 
 pub type Context<'a> = poise::Context<'a, Arc<BotState>, BotError>;
@@ -62,6 +62,18 @@ pub async fn check_linked_and_roles(
     let users = server.handler().module::<UsersModule>();
 
     check_linked_and(ctx, |u| f(&users.compute_from_user(u))).await
+}
+
+pub async fn check_linked_and_can_punish(
+    ctx: Context<'_>,
+    pun_type: UserPunishmentType,
+) -> Result<DbUser, BotError> {
+    check_linked_and_roles(ctx, |u| match pun_type {
+        UserPunishmentType::Ban => u.can_ban,
+        UserPunishmentType::Mute => u.can_mute,
+        UserPunishmentType::RoomBan => u.can_ban,
+    })
+    .await
 }
 
 pub async fn get_linked_gd_user(

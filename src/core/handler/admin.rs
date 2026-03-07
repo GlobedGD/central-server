@@ -7,7 +7,10 @@ use crate::{
     auth::AuthModule,
     credits::CreditsModule,
     rooms::RoomModule,
-    users::{DatabaseError, UserPunishment, UserPunishmentType, UsersModule},
+    users::{
+        DatabaseError, DatabaseResult, PunishUserError, UserPunishment, UserPunishmentType,
+        UsersModule,
+    },
 };
 
 use super::{ConnectionHandler, util::*};
@@ -601,14 +604,29 @@ impl ConnectionHandler {
             },
         )?;
 
+        let result =
+            self.do_punish_user(client.account_id(), account_id, reason, expires_at, r#type).await;
+        self.send_admin_db_result(client, result)?;
+
+        Ok(())
+    }
+
+    /// Punishes the given user, inserting uident and audit log into the database, and applying the punishment live if applicable.
+    /// Does not check if the user has permission to ban - only checks if the user has a stronger role than the person being punished.
+    pub async fn do_punish_user(
+        &self,
+        issuer: i32,
+        target: i32,
+        reason: &str,
+        expires_at: i64,
+        r#type: UserPunishmentType,
+    ) -> DatabaseResult<()> {
         let users = self.module::<UsersModule>();
 
-        let result = users
-            .admin_punish_user(client.account_id(), account_id, reason, expires_at, r#type)
-            .await;
+        let result = users.admin_punish_user(issuer, target, reason, expires_at, r#type).await;
 
         if result.is_ok()
-            && let Some(user) = self.find_client(account_id)
+            && let Some(user) = self.find_client(target)
         {
             self.try_save_uident(&user).await;
 
@@ -616,8 +634,6 @@ impl ConnectionHandler {
                 warn!("failed to apply punishments live to {}: {e}", user.account_id());
             }
         }
-
-        self.send_admin_db_result(client, result)?;
 
         Ok(())
     }
@@ -637,18 +653,31 @@ impl ConnectionHandler {
             },
         )?;
 
-        let users = self.module::<UsersModule>();
-        let result = users.admin_unpunish_user(client.account_id(), account_id, r#type).await;
-        let was_ok = result.is_ok();
-
+        let result = self.do_unpunish_user(client.account_id(), account_id, r#type).await;
         self.send_admin_db_result(client, result)?;
 
-        if was_ok && let Some(user) = self.find_client(account_id) {
+        Ok(())
+    }
+
+    /// Removes punishment from the given user, updating the audit logs and unapplying the punishment live if applicable.
+    /// Does not check if the user has permission to perform this action.
+    pub async fn do_unpunish_user(
+        &self,
+        issuer: i32,
+        target: i32,
+        r#type: UserPunishmentType,
+    ) -> Result<(), PunishUserError> {
+        let users = self.module::<UsersModule>();
+        let result = users.admin_unpunish_user(issuer, target, r#type).await;
+
+        if result.is_ok()
+            && let Some(user) = self.find_client(target)
+        {
             // tell the user they are unbanned
             let _ = self.refresh_live_punishments(&user, None).await;
         }
 
-        Ok(())
+        result
     }
 
     pub async fn handle_admin_edit_roles(
