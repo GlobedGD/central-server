@@ -120,7 +120,7 @@ impl ConnectionHandler {
                 warp.set_session(new_session.as_u64());
             })?;
 
-            room.send_to_all_sync(buf);
+            room.send_to_all(buf);
         }
 
         if do_update_pinned {

@@ -381,14 +381,12 @@ impl ConnectionHandler {
         // put a bunch of dummy values into the vec, as `choose_multiple_fill` requires a mutable slice of initialized Arcs
         out.resize(player_count, client.clone());
 
-        let written = room
-            .with_players(|_, players| {
-                players
-                    .map(|x| x.1.handle.clone())
-                    .filter(new_filter)
-                    .sample_fill(&mut rand::rng(), &mut out[begin..])
-            })
-            .await;
+        let written = room.with_players(|_, players| {
+            players
+                .map(|x| x.1.handle.clone())
+                .filter(new_filter)
+                .sample_fill(&mut rand::rng(), &mut out[begin..])
+        });
 
         out.truncate(begin + written);
 
@@ -594,7 +592,7 @@ impl ConnectionHandler {
 
         let room = get_custom_room(client)?;
 
-        let buf = room.with_players_sync(|count, players| {
+        let buf = room.with_players(|count, players| {
             let cap = 64 + 5 * count;
 
             data::encode_message_heap!(self, cap, msg => {
@@ -748,13 +746,13 @@ impl ConnectionHandler {
                 }
             })
         })?;
-        room.send_to_all_sync(buf);
+        room.send_to_all(buf);
 
         Ok(())
     }
 
     fn notify_settings_updated(&self, room: &Room) -> HandlerResult<()> {
-        room.send_to_all_sync(data::encode_message!(self, 128, msg => {
+        room.send_to_all(data::encode_message!(self, 128, msg => {
             let mut ser = msg.reborrow().init_room_settings_updated();
             room.settings.lock().encode(ser.reborrow().init_settings());
         })?);
@@ -763,7 +761,7 @@ impl ConnectionHandler {
     }
 
     pub fn notify_pinned_level_updated(&self, room: &Room) -> HandlerResult<()> {
-        room.send_to_all_sync(data::encode_message!(self, 48, msg => {
+        room.send_to_all(data::encode_message!(self, 48, msg => {
             let mut ser = msg.reborrow().init_pinned_level_updated();
             ser.set_id(room.pinned_level().as_u64());
         })?);
@@ -778,22 +776,9 @@ impl ConnectionHandler {
         page: u32,
         total_rooms: u32,
     ) -> HandlerResult<()> {
-        let cap = 64
-            + rooms
-                .iter()
-                .map(|x| {
-                    72 + x.name.len()
-                        + self
-                            .find_client(x.owner())
-                            .map_or(64, |owner| bytes_for_room_player(&owner))
-                })
-                .sum::<usize>();
-
         let is_mod = client.can_moderate();
 
-        debug!("encoding {} rooms, cap: {}", rooms.len(), cap);
-
-        let buf = data::encode_message_heap!(self, cap, msg => {
+        let buf = data::encode_message_dyn!(self, msg => {
             let mut room_list = msg.reborrow().init_room_list();
             room_list.set_page(page as u16);
             room_list.set_total(total_rooms);

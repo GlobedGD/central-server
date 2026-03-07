@@ -34,11 +34,6 @@ impl RoomPlayer {
     }
 }
 
-enum RoomPlayerStore {
-    Sync(RwLock<Slab<RoomPlayer>>),
-    Async(tokio::sync::RwLock<Slab<RoomPlayer>>),
-}
-
 #[derive(Default, Clone)]
 pub struct RoomTeam {
     pub color: u32,
@@ -79,7 +74,7 @@ pub struct Room {
     invite_tokens: Mutex<SmallVec<[StoredInviteToken; 4]>>,
     created_at: Instant,
 
-    players: RoomPlayerStore,
+    players: RwLock<Slab<RoomPlayer>>,
     player_count: AtomicUsize,
     pub(super) key_player_count: AtomicUsize,
     joinable: AtomicBool,
@@ -105,14 +100,7 @@ impl Room {
             banned: RwLock::new(SmallVec::new()),
             invite_tokens: Mutex::new(SmallVec::new()),
             created_at: Instant::now(),
-
-            // global room use async locks because there is way more contention
-            players: if id == 0 {
-                RoomPlayerStore::Async(tokio::sync::RwLock::new(Slab::new()))
-            } else {
-                RoomPlayerStore::Sync(RwLock::new(Slab::new()))
-            },
-
+            players: RwLock::new(Slab::new()),
             player_count: AtomicUsize::new(0),
             key_player_count: AtomicUsize::new(0),
             joinable: AtomicBool::new(true),
@@ -120,61 +108,15 @@ impl Room {
     }
 
     #[inline]
-    async fn run_write_action<R>(&self, action: impl FnOnce(&mut Slab<RoomPlayer>) -> R) -> R {
-        match &self.players {
-            RoomPlayerStore::Sync(lock) => {
-                let mut players = lock.write();
-                action(&mut players)
-            }
-
-            RoomPlayerStore::Async(lock) => {
-                let mut players = lock.write().await;
-                action(&mut players)
-            }
-        }
+    fn run_write_action<R>(&self, action: impl FnOnce(&mut Slab<RoomPlayer>) -> R) -> R {
+        let mut players = self.players.write();
+        action(&mut players)
     }
 
     #[inline]
-    fn run_sync_write_action<R>(&self, action: impl FnOnce(&mut Slab<RoomPlayer>) -> R) -> R {
-        match &self.players {
-            RoomPlayerStore::Sync(lock) => {
-                let mut players = lock.write();
-                action(&mut players)
-            }
-
-            RoomPlayerStore::Async(_) => {
-                panic!("run_sync_write_action called on global room");
-            }
-        }
-    }
-
-    #[inline]
-    async fn run_read_action<R>(&self, action: impl FnOnce(&Slab<RoomPlayer>) -> R) -> R {
-        match &self.players {
-            RoomPlayerStore::Sync(lock) => {
-                let players = lock.read();
-                action(&players)
-            }
-
-            RoomPlayerStore::Async(lock) => {
-                let players = lock.read().await;
-                action(&players)
-            }
-        }
-    }
-
-    #[inline]
-    fn run_sync_read_action<R>(&self, action: impl FnOnce(&Slab<RoomPlayer>) -> R) -> R {
-        match &self.players {
-            RoomPlayerStore::Sync(lock) => {
-                let mut players = lock.read();
-                action(&mut players)
-            }
-
-            RoomPlayerStore::Async(_) => {
-                panic!("run_sync_read_action called on global room");
-            }
-        }
+    fn run_read_action<R>(&self, action: impl FnOnce(&Slab<RoomPlayer>) -> R) -> R {
+        let players = self.players.read();
+        action(&players)
     }
 
     pub fn set_settings(&self, settings: RoomSettings) {
@@ -189,7 +131,7 @@ impl Room {
         SessionId::from(self.pinned_level.load(Ordering::Relaxed))
     }
 
-    async fn remove_player(&self, key: usize) {
+    fn remove_player(&self, key: usize) {
         self.run_write_action(|players| {
             if players.contains(key) {
                 self.player_count.store(players.len() - 1, Ordering::Relaxed);
@@ -199,8 +141,7 @@ impl Room {
                     self.rotate_owner(players);
                 }
             }
-        })
-        .await;
+        });
     }
 
     fn rotate_owner(&self, players: &mut Slab<RoomPlayer>) {
@@ -216,8 +157,6 @@ impl Room {
         ClientRoomHandle {
             room: self.clone(),
             room_key: key,
-            #[cfg(debug_assertions)]
-            disposed: false,
         }
     }
 
@@ -227,23 +166,18 @@ impl Room {
         }
     }
 
-    pub(super) async fn force_add_player(
-        self: Arc<Room>,
-        player: ClientStateHandle,
-    ) -> ClientRoomHandle {
+    pub(super) fn force_add_player(self: Arc<Room>, player: ClientStateHandle) -> ClientRoomHandle {
         self.maybe_restore_owner(&player);
 
-        let key = self
-            .run_write_action(|players| {
-                self.player_count.store(players.len() + 1, Ordering::Relaxed);
-                players.insert(RoomPlayer::new(player))
-            })
-            .await;
+        let key = self.run_write_action(|players| {
+            self.player_count.store(players.len() + 1, Ordering::Relaxed);
+            players.insert(RoomPlayer::new(player))
+        });
 
         self.make_handle(key)
     }
 
-    pub(super) async fn add_player(
+    pub(super) fn add_player(
         self: Arc<Room>,
         player: ClientStateHandle,
         passcode: u32,
@@ -289,14 +223,12 @@ impl Room {
 
         self.maybe_restore_owner(&player);
 
-        let key = self
-            .run_write_action(|players| {
-                // re-update the player count, as it may have changed after the check (and the check is only done if there is a limit anyway)
-                self.player_count.store(players.len() + 1, Ordering::Relaxed);
+        let key = self.run_write_action(|players| {
+            // re-update the player count, as it may have changed after the check (and the check is only done if there is a limit anyway)
+            self.player_count.store(players.len() + 1, Ordering::Relaxed);
 
-                players.insert(RoomPlayer::new(player))
-            })
-            .await;
+            players.insert(RoomPlayer::new(player))
+        });
 
         Ok(self.make_handle(key))
     }
@@ -322,7 +254,7 @@ impl Room {
             return 0;
         }
 
-        self.run_sync_read_action(|players| match players.get(key) {
+        self.run_read_action(|players| match players.get(key) {
             Some(p) => p.team_id,
             None => {
                 error!("team_id_for_player called on non-existent player!");
@@ -333,11 +265,10 @@ impl Room {
         })
     }
 
-    pub async fn clear(&self) {
+    pub fn clear(&self) {
         self.run_write_action(|players| {
             *players = Slab::new();
-        })
-        .await;
+        });
 
         self.player_count.store(0, Ordering::Relaxed);
     }
@@ -436,24 +367,17 @@ impl Room {
         self.banned.read().binary_search(&id).is_ok()
     }
 
-    pub async fn with_players<F, R>(&self, f: F) -> R
+    pub fn with_players<F, R>(&self, f: F) -> R
     where
         F: FnOnce(usize, slab::Iter<'_, RoomPlayer>) -> R,
     {
-        self.run_read_action(|players| f(players.len(), players.iter())).await
+        self.run_read_action(|players| f(players.len(), players.iter()))
     }
 
-    pub fn with_players_sync<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(usize, slab::Iter<'_, RoomPlayer>) -> R,
-    {
-        self.run_sync_read_action(|players| f(players.len(), players.iter()))
-    }
-
-    pub fn send_to_all_sync(&self, buf: BufferKind) {
+    pub fn send_to_all(&self, buf: BufferKind) {
         let buf = Arc::new(buf);
 
-        self.with_players_sync(|_, players| {
+        self.with_players(|_, players| {
             for (_, player) in players {
                 player.handle.send_data_bufkind(BufferKind::Reference(buf.clone()));
             }
@@ -502,7 +426,7 @@ impl Room {
             return Err(TeamNotFound);
         };
 
-        self.run_sync_write_action(|players| {
+        self.run_write_action(|players| {
             // remove all players that were in this team
             for (_, player) in players.iter_mut() {
                 if player.team_id == team_id {
@@ -532,7 +456,7 @@ impl Room {
             return false;
         }
 
-        self.run_sync_write_action(|players| {
+        self.run_write_action(|players| {
             if let Some((_, player)) =
                 players.iter_mut().find(|p| p.1.handle.account_id() == player_id)
             {
@@ -548,7 +472,7 @@ impl Room {
         let teams = self.teams.read();
 
         if (team_id as usize) < teams.len() {
-            Ok(self.run_sync_read_action(|players| {
+            Ok(self.run_read_action(|players| {
                 let mut out = Vec::new();
 
                 for (_, player) in players.iter() {
@@ -574,24 +498,13 @@ impl Room {
 pub struct ClientRoomHandle {
     pub(super) room: Arc<Room>,
     room_key: usize,
-    #[cfg(debug_assertions)]
-    disposed: bool,
 }
 
 impl ClientRoomHandle {
-    pub async fn dispose(&mut self) -> Arc<Room> {
-        self.room.remove_player(self.room_key).await;
-
-        #[cfg(debug_assertions)]
-        {
-            if self.disposed {
-                tracing::error!(
-                    "ClientRoomHandle::dispose() called multiple times for the same handle (room = {}, key = {})",
-                    self.room.id,
-                    self.room_key
-                );
-            }
-            self.disposed = true;
+    pub fn dispose(&mut self) -> Arc<Room> {
+        if self.room_key != usize::MAX {
+            self.room.remove_player(self.room_key);
+            self.room_key = usize::MAX;
         }
 
         self.room.clone()
@@ -606,16 +519,9 @@ impl ClientRoomHandle {
     }
 }
 
-#[cfg(debug_assertions)]
 impl Drop for ClientRoomHandle {
     fn drop(&mut self) {
-        if !self.disposed {
-            tracing::error!(
-                "ClientRoomHandle dropped without calling dispose() (room = {}, key = {})",
-                self.room.id,
-                self.room_key
-            );
-        }
+        self.dispose();
     }
 }
 

@@ -180,7 +180,7 @@ impl AppHandler for ConnectionHandler {
         // by this point all connections have been dropped, we should clean up any resources
         info!("Cleaning up resources");
         let rooms = self.module::<RoomModule>();
-        rooms.cleanup_everything().await;
+        rooms.cleanup_everything();
 
         Ok(())
     }

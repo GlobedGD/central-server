@@ -21,6 +21,9 @@ pub use server_shared::SessionId;
 use server_shared::qunet::server::ServerHandle;
 pub use settings::RoomSettings;
 
+// TODO: maybe refactor this to use actor pattern,
+// have a background task that handles incoming messages and processes various queries
+
 pub struct RoomModule {
     manager: RoomManager,
 }
@@ -38,8 +41,8 @@ impl RoomModule {
         self.manager.global()
     }
 
-    pub async fn cleanup_everything(&self) {
-        self.manager.clear().await;
+    pub fn cleanup_everything(&self) {
+        self.manager.clear();
     }
 
     pub fn get_room_count(&self) -> usize {
@@ -127,7 +130,7 @@ impl RoomModule {
             return Ok(());
         }
 
-        let handle = room.add_player(client.clone(), passcode).await?;
+        let handle = room.add_player(client.clone(), passcode)?;
         self.clear_client_room(client, gsm).await; // leave after adding to the new room, since it can fail
         self.set_client_room(client, handle).await;
 
@@ -143,7 +146,7 @@ impl RoomModule {
         room: Arc<Room>,
     ) {
         // add the player to the room, even if they are already in it, this is ok.
-        let handle = room.force_add_player(client.clone()).await;
+        let handle = room.force_add_player(client.clone());
         // destroy the current room handle, which will remove the player from their previous room
         // if we are joining the same room, this rebalances the room to have this plauer once instead of twice
         self.clear_client_room(client, gsm).await;
@@ -162,7 +165,7 @@ impl RoomModule {
         let mut out = Vec::new();
 
         // room is guaranteed not a global room, so sync variant is ok here
-        room.with_players_sync(|count, iter| {
+        room.with_players(|count, iter| {
             out.reserve_exact(count);
 
             for (_, player) in iter {
@@ -205,7 +208,7 @@ impl RoomModule {
     async fn clear_client_room(&self, client: &ClientStateHandle, gsm: &GameServerManager) {
         debug_assert!(client.authorized());
 
-        if let Some(room) = client.clear_room().await {
+        if let Some(room) = client.clear_room() {
             // if the room has no more players, remove it
             if !room.is_global() {
                 let player_count = room.player_count();

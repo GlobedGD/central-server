@@ -254,7 +254,6 @@ impl ConnectionHandler {
 
                 out
             })
-            .await
         } else if level_id != 0 {
             self.clients.collect_all_pred(|c| c.session_id().level_id() == level_id)
         } else {

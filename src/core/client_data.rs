@@ -79,9 +79,9 @@ impl ClientData {
     }
 
     /// Deauthorizes the client, clearing the room
-    pub async fn deauthorize(&self) {
+    pub fn deauthorize(&self) {
         self.deauthorized.store(true, Ordering::Relaxed);
-        self.clear_room().await;
+        self.clear_room();
     }
 
     /// Returns the room the client is in, or None if not in a room.
@@ -113,17 +113,11 @@ impl ClientData {
 
     /// Clears the room the client is in, removing them from it and returning the room.
     /// Note: this puts a client into an invalid state, you should immediately call `set_room` with another room afterwards.
-    pub async fn clear_room(&self) -> Option<Arc<Room>> {
+    pub fn clear_room(&self) -> Option<Arc<Room>> {
         self.set_team_id(0);
         self.room_id.store(0, Ordering::Relaxed);
 
-        let handle = self.room.lock().take();
-
-        if let Some(mut handle) = handle {
-            Some(handle.dispose().await)
-        } else {
-            None
-        }
+        self.room.lock().take().map(|mut x| x.dispose())
     }
 
     /// Returns team ID

@@ -116,15 +116,15 @@ impl RoomManager {
     }
 
     /// Deletes all rooms from the manager. The global room remains intact, but all players are removed from it.
-    pub(super) async fn clear(&self) {
+    pub(super) fn clear(&self) {
         for room in self.rooms.iter() {
-            room.clear().await;
+            room.clear();
         }
 
         self.rooms.clear();
         self.rooms_sorted.write().clear();
 
-        self.global_room.clear().await;
+        self.global_room.clear();
     }
 
     pub(super) fn routine_cleanup(&self) {

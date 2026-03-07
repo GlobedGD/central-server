@@ -90,7 +90,7 @@ impl ConnectionHandler {
             return Ok(());
         };
 
-        let levels = self.gather_levels_in_room(&room).await;
+        let levels = self.gather_levels_in_room(&room);
 
         let cap = 56 + levels.len() * 12;
         let buf = data::encode_message_heap!(self, cap, msg => {
@@ -160,7 +160,7 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    async fn gather_levels_in_room(&self, room: &Room) -> IntMap<u64, u16> {
+    fn gather_levels_in_room(&self, room: &Room) -> IntMap<u64, u16> {
         room.with_players(|_, iter| {
             let mut map = IntMap::default();
 
@@ -176,7 +176,6 @@ impl ConnectionHandler {
 
             map
         })
-        .await
     }
 
     pub async fn handle_get_discord_link_state(
