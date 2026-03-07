@@ -142,8 +142,13 @@ impl RoomModule {
         gsm: &GameServerManager,
         room: Arc<Room>,
     ) {
-        self.clear_client_room(client, gsm).await; // leave before adding to the new room, since it cannot fail
+        // add the player to the room, even if they are already in it, this is ok.
         let handle = room.force_add_player(client.clone()).await;
+        // destroy the current room handle, which will remove the player from their previous room
+        // if we are joining the same room, this rebalances the room to have this plauer once instead of twice
+        self.clear_client_room(client, gsm).await;
+
+        // set the client's room to the new room
         self.set_client_room(client, handle).await;
     }
 
