@@ -87,9 +87,7 @@ impl ConnectionHandler {
         client: &ClientStateHandle,
         result: Result<(), Fr>,
     ) -> HandlerResult<()> {
-        let cap = 56 + result.as_ref().err().map_or(0, |e| e.as_ref().len());
-
-        let buf = data::encode_message_heap!(self, cap, msg => {
+        let buf = data::encode_message_dyn!(self, msg => {
             let mut admin_result = msg.reborrow().init_admin_result();
 
             match result {
@@ -445,13 +443,7 @@ impl ConnectionHandler {
         client: &ClientStateHandle,
         resp: FetchResponse<'_>,
     ) -> HandlerResult<()> {
-        let cap = 108
-            + resp.roles.len()
-            + resp.active_ban.map_or(0, |p| 32 + p.reason.len())
-            + resp.active_room_ban.map_or(0, |p| 32 + p.reason.len())
-            + resp.active_mute.map_or(0, |p| 32 + p.reason.len());
-
-        let buf = data::encode_message_heap!(self, cap, msg => {
+        let buf = data::encode_message_dyn!(self, msg => {
             let mut fetch = msg.init_admin_fetch_response();
             fetch.set_account_id(resp.account_id);
             fetch.set_found(resp.found);

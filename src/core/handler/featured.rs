@@ -51,8 +51,7 @@ impl ConnectionHandler {
             }
         };
 
-        let cap = 80 + resp.levels.len() * 12;
-        let buf = data::encode_message_heap!(self, cap, msg => {
+        let buf = data::encode_message_dyn!(self, msg => {
             let mut msg = msg.init_featured_list();
             msg.set_page(page);
             msg.set_total_pages(resp.total_pages);

@@ -798,10 +798,7 @@ impl ConnectionHandler {
     pub async fn notify_servers_changed(&self) {
         let servers = self.game_server_manager.servers();
 
-        // roughly estimate how many bytes will it take to encode the response
-        let cap = 48 + servers.len() * 256;
-
-        let buf = data::encode_message_heap!(self, cap, msg => {
+        let buf = data::encode_message_dyn!(self, msg => {
             let changed = msg.init_servers_changed();
             let mut srvs = changed.init_servers(servers.len() as u32);
 

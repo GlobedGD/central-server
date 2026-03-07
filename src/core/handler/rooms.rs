@@ -112,8 +112,7 @@ impl ConnectionHandler {
         reason: &str,
         expires_at: Option<NonZeroI64>,
     ) -> HandlerResult<()> {
-        let cap = 56 + reason.len();
-        let buf = data::encode_message_heap!(self, cap, msg => {
+        let buf = data::encode_message_dyn!(self, msg => {
             let mut room_banned = msg.reborrow().init_room_banned();
             room_banned.set_reason(reason);
             room_banned.set_expires_at(expires_at.map_or(0, |x| x.get()));
@@ -736,9 +735,7 @@ impl ConnectionHandler {
 
     fn notify_teams_updated(&self, room: &Room) -> HandlerResult<()> {
         let buf = room.with_teams(|team_count, teams| {
-            let cap = 40 + 4 * team_count;
-
-            data::encode_message_heap!(self, cap, msg => {
+            data::encode_message_dyn!(self, msg => {
                 let mut teams_ser = msg.reborrow().init_teams_updated().init_teams(team_count as u32);
 
                 for (i, team) in teams.enumerate() {

@@ -118,7 +118,7 @@ impl ConnectionHandler {
         let credits_arc = self.module::<CreditsModule>().get_credits();
 
         let Some(credits) = credits_arc.as_ref() else {
-            let buf = data::encode_message_heap!(self, 56, msg => {
+            let buf = data::encode_message!(self, 64, msg => {
                 let mut cred = msg.init_credits();
                 cred.set_unavailable(true);
             })?;
@@ -128,10 +128,7 @@ impl ConnectionHandler {
             return Ok(());
         };
 
-        let cap =
-            56 + credits.iter().map(|c| c.name.len() + 24 + c.users.len() * 96).sum::<usize>();
-
-        let buf = data::encode_message_heap!(self, cap, msg => {
+        let buf = data::encode_message_dyn!(self, msg => {
             let cred = msg.init_credits();
 
             let mut cats = cred.init_categories(credits.len() as u32);
