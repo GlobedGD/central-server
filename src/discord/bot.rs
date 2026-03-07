@@ -27,6 +27,7 @@ impl DiscordBot {
                 event_handler: |ctx, event, framework, data| {
                     Box::pin(super::event_handler::event_handler(ctx, event, framework, data))
                 },
+                pre_command: |ctx| Box::pin(super::event_handler::pre_command(ctx)),
                 ..Default::default()
             })
             .setup(move |ctx, ready, framework| {

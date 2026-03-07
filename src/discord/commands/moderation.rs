@@ -10,7 +10,7 @@ use crate::{
 };
 
 use poise::serenity_prelude::{self as serenity, AutocompleteChoice, EmbedField};
-use tracing::debug;
+use tracing::info;
 
 async fn punish_autocomplete(
     _ctx: Context<'_>,
@@ -293,8 +293,6 @@ pub async fn kick(
 ) -> Result<(), BotError> {
     let user = check_linked_and_roles(ctx, |p| p.can_kick).await?;
 
-    debug!("{} ran /kick {} \"{}\"", user.username(), target, reason);
-
     let server = ctx.data().server()?;
     let users = server.handler().module::<UsersModule>();
 
@@ -317,7 +315,7 @@ pub async fn kick_all(
 ) -> Result<(), BotError> {
     let user = check_admin(ctx).await?;
 
-    debug!("{} ran /kick_all \"{}\"", user.username(), reason);
+    info!("{} ran /kick_all \"{}\"", user.username(), reason);
 
     let server = ctx.data().server()?;
 

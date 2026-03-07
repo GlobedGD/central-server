@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use super::serenity::*;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::{
     discord::{BotError, state::BotState},
@@ -54,4 +54,11 @@ pub async fn on_error(error: poise::FrameworkError<'_, Arc<BotState>, BotError>)
             }
         }
     }
+}
+
+pub async fn pre_command(ctx: poise::Context<'_, Arc<BotState>, BotError>) {
+    let command = ctx.command();
+    let user = ctx.author();
+
+    debug!("{} ({}) ran: /{}", user.name, user.id, command.name);
 }
