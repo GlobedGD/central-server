@@ -64,6 +64,11 @@ impl ConnectionHandler {
             for (n, level) in resp.levels.iter().enumerate() {
                 rate_tiers.set(n as u32, level.rate_tier as u8);
             }
+
+            let mut times = msg.reborrow().init_feature_times(resp.levels.len() as u32);
+            for (n, level) in resp.levels.iter().enumerate() {
+                times.set(n as u32, level.featured_at as u64);
+            }
         })?;
 
         client.send_data_bufkind(buf);

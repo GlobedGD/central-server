@@ -36,6 +36,8 @@ pub struct PartialFeaturedLevelId {
     pub edition: i32,
     #[sea_orm(from_col = "rate_tier")]
     pub rate_tier: i32,
+    #[sea_orm(from_col = "featured_at")]
+    pub featured_at: i64,
 }
 
 #[derive(Error, Debug)]

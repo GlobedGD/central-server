@@ -61,7 +61,6 @@ impl ConnectionHandler {
             }
         }
 
-        // TODO: benchmark size properly
         let cap = 56 + out_vals.len() * 12;
 
         let buf = data::encode_message_heap!(self, cap, msg => {

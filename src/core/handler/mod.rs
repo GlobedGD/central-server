@@ -114,7 +114,6 @@ impl AppHandler for ConnectionHandler {
             }
         });
 
-        // TODO: determine if this is really worth it?
         server.schedule(Duration::from_hours(12), |server| async move {
             let pool = server.get_buffer_pool();
             let prev_usage = pool.stats().total_heap_usage;
