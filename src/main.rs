@@ -61,15 +61,7 @@ pub mod features;
 pub mod word_filter;
 
 fn setup_logger(config: &CoreConfig) -> (WorkerGuard, WorkerGuard) {
-    server_shared::logging::setup_logger(
-        config.log_rolling,
-        &config.log_directory,
-        &config.log_filename,
-        &config.console_log_level,
-        &config.file_log_level,
-        config.log_file_enabled,
-        config.memory_usage,
-    )
+    server_shared::logging::setup_logger(&config.logging, config.memory_usage)
 }
 
 #[tokio::main]
