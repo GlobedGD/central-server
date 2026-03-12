@@ -457,9 +457,19 @@ impl ConnectionHandler {
         let filter = if name_filter.is_empty() { None } else { Some(name_filter) };
         let rooms = self.module::<RoomModule>();
 
-        let (sorted, total) = rooms.get_top_rooms(page as usize * 100, 100, |r| {
+        let (mut sorted, total) = rooms.get_top_rooms(page as usize * 100, 100, |r| {
             !r.settings.lock().hidden && filter.is_none_or(|n| username_match(&r.name, n))
         });
+
+        // if this is the first page and the user isn't filtering,
+        // get the list of friend rooms, so they can appear at the top of first page
+        if page == 0 && filter.is_none() {
+            let friends = client.friend_list.lock();
+            if !friends.is_empty() {
+                sorted.append(&mut rooms.get_friend_rooms(&friends));
+            }
+        }
+
         self.send_room_list(client, &sorted, page, total as u32)?;
 
         Ok(())

@@ -16,6 +16,7 @@ mod room;
 mod settings;
 pub use manager::{RoomCreationError, RoomManager};
 pub use room::{ClientRoomHandle, Room};
+use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
 pub use server_shared::SessionId;
 use server_shared::qunet::server::ServerHandle;
@@ -198,6 +199,15 @@ impl RoomModule {
                 .collect(),
             sorted.len(),
         )
+    }
+
+    pub fn get_friend_rooms(&self, friends: &FxHashSet<i32>) -> Vec<Arc<Room>> {
+        self.manager
+            .lock_sorted()
+            .iter()
+            .filter(|x| friends.contains(&x.1.owner()))
+            .map(|x| x.1.clone())
+            .collect()
     }
 
     pub async fn cleanup_player(&self, client: &ClientStateHandle, gsm: &GameServerManager) {
