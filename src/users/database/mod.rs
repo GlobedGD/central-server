@@ -383,7 +383,10 @@ impl UsersDb {
     }
 
     pub async fn fetch_all_with_roles(&self) -> DatabaseResult<Vec<user::Model>> {
-        Ok(User::find().filter(user::Column::Roles.is_not_null()).all(&self.conn).await?)
+        Ok(User::find()
+            .filter(user::Column::Roles.is_not_null().and(user::Column::Roles.ne("")))
+            .all(&self.conn)
+            .await?)
     }
 
     /// Returns whether the user was modified
