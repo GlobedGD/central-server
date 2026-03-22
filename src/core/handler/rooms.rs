@@ -466,7 +466,12 @@ impl ConnectionHandler {
         if page == 0 && filter.is_none() {
             let friends = client.friend_list.lock();
             if !friends.is_empty() {
-                sorted.append(&mut rooms.get_friend_rooms(&friends));
+                for room in rooms.get_friend_rooms(&friends) {
+                    // only push if not already present there
+                    if !sorted.iter().any(|r| r.id == room.id) {
+                        sorted.push(room);
+                    }
+                }
             }
         }
 
