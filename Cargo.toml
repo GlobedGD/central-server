@@ -18,7 +18,7 @@ heapless = { version = "0.9.2", features = ["serde"] }
 hex = "0.4.3"
 parking_lot = { version = "0.12.5", features = ["send_guard"] }
 rand = "0.10.0"
-server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "f2b8182", features = [
+server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "1cb1c71", features = [
     "main",
     "srvc",
     "dyn-encoding",
@@ -77,7 +77,14 @@ include_dir = { version = "0.7.4", optional = true }
 chrono = { version = "0.4.44", optional = true }
 
 [features]
-all = ["discord", "quic", "featured-levels", "word-filter", "analytics"]
+all = [
+    "discord",
+    "quic",
+    "websocket",
+    "featured-levels",
+    "word-filter",
+    "analytics",
+]
 docker-build = ["all"]
 docker-alpine-build = ["all", "mimalloc"]
 
@@ -86,5 +93,6 @@ featured-levels = ["dep:google-sheets4"]
 default = []
 discord = ["dep:poise"]
 quic = ["server-shared/quic"]
+websocket = ["server-shared/websocket"]
 mimalloc = ["dep:mimalloc"]
 analytics = ["dep:clickhouse", "dep:include_dir", "dep:chrono"]

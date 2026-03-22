@@ -411,5 +411,6 @@ fn conn_type_str(client: &ClientStateHandle) -> &'static str {
         TransportType::Tcp => "TCP",
         TransportType::Udp => "UDP",
         TransportType::Quic => "QUIC",
+        TransportType::WebSocket => "WS",
     }
 }

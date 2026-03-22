@@ -153,6 +153,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         builder = builder.with_tcp(parse_addr(&core.tcp_address, "tcp_address"));
     }
 
+    if core.enable_ws {
+        builder = builder.with_ws(parse_addr(&core.ws_address, "ws_address"));
+    }
+
     if core.enable_udp {
         builder = builder.with_udp(
             parse_addr(&core.udp_address, "udp_address"),

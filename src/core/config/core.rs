@@ -52,6 +52,16 @@ fn default_tcp_address() -> String {
     "[::]:4340".into()
 }
 
+// WS
+
+fn default_enable_ws() -> bool {
+    false
+}
+
+fn default_ws_address() -> String {
+    "[::]:4341".into()
+}
+
 // UDP
 
 fn default_enable_udp() -> bool {
@@ -126,6 +136,11 @@ pub struct CoreConfig {
     #[serde(default = "default_tcp_address")]
     pub tcp_address: String,
 
+    /// Whether to enable incoming WebSocket connections. This requires the "ws_address" parameter to be set.
+    pub enable_ws: bool,
+    /// The address to listen for WebSocket connections on.
+    pub ws_address: String,
+
     /// Whether to enable incoming UDP connections. This requires the "udp_address" parameter to be set.
     #[serde(default = "default_enable_udp")]
     pub enable_udp: bool,
@@ -176,6 +191,8 @@ impl Default for CoreConfig {
             quic_tls_key: default_quic_tls_key(),
             enable_tcp: default_enable_tcp(),
             tcp_address: default_tcp_address(),
+            enable_ws: default_enable_ws(),
+            ws_address: default_ws_address(),
             enable_udp: default_enable_udp(),
             udp_ping_only: default_udp_ping_only(),
             udp_address: default_udp_address(),
@@ -209,6 +226,9 @@ impl CoreConfig {
 
         env_replace("GLOBED_CORE_ENABLE_TCP", &mut self.enable_tcp);
         env_replace("GLOBED_CORE_TCP_ADDRESS", &mut self.tcp_address);
+
+        env_replace("GLOBED_CORE_ENABLE_WS", &mut self.enable_ws);
+        env_replace("GLOBED_CORE_WS_ADDRESS", &mut self.ws_address);
 
         env_replace("GLOBED_CORE_ENABLE_UDP", &mut self.enable_udp);
         env_replace("GLOBED_CORE_UDP_PING_ONLY", &mut self.udp_ping_only);
