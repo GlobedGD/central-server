@@ -14,6 +14,7 @@ pub struct LoginEvent {
     pub globed_version: heapless::String<16>,
     pub geode_version: heapless::String<16>,
     pub platform: heapless::String<16>,
+    pub platform_desc: heapless::String<64>,
 }
 
 fn convert_str<const N: usize>(mut s: &str) -> heapless::String<N> {
@@ -32,6 +33,7 @@ impl LoginEvent {
         globed_version: &str,
         geode_version: &str,
         platform: &str,
+        platform_desc: &str,
     ) -> Self {
         let ip_address = match ip_address {
             IpAddr::V4(v4) => v4.to_ipv6_mapped(),
@@ -46,6 +48,7 @@ impl LoginEvent {
             globed_version: convert_str(globed_version),
             geode_version: convert_str(geode_version),
             platform: convert_str(platform),
+            platform_desc: convert_str(platform_desc),
         }
     }
 }

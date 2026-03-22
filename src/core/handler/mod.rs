@@ -988,6 +988,7 @@ pub struct LoginData<'a> {
     globed_version: &'a str,
     geode_version: &'a str,
     platform: &'a str,
+    platform_desc: Option<&'a str>,
 }
 
 fn decode_login_data<'a>(
@@ -1027,6 +1028,12 @@ fn decode_login_data<'a>(
         Platform::Ios => "ios",
     };
 
+    let platform_desc = if message.has_platform_desc() {
+        Some(message.get_platform_desc()?.to_str()?)
+    } else {
+        None
+    };
+
     Ok(LoginData {
         kind,
         icons,
@@ -1035,6 +1042,7 @@ fn decode_login_data<'a>(
         globed_version,
         geode_version,
         platform,
+        platform_desc,
     })
 }
 

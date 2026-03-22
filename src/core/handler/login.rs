@@ -276,6 +276,7 @@ impl ConnectionHandler {
             login_data.globed_version,
             login_data.geode_version,
             login_data.platform,
+            login_data.platform_desc.unwrap_or(""),
         ));
 
         // put the user in the global room

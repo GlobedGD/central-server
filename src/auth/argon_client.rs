@@ -235,7 +235,7 @@ impl InnerState {
                 if do_clear {
                     // clear all requests, but only if the initial connection failed
                     in_flight.clear();
-                    self.req_rx.drain();
+                    let _ = self.req_rx.drain();
                 }
 
                 if do_sleep {
