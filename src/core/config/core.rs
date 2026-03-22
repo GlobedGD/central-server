@@ -42,6 +42,32 @@ fn default_quic_tls_key() -> String {
     String::new()
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, Validate)]
+pub struct QuicConfig {
+    /// Whether to enable incoming QUIC connections. This requires all the other parameters in this section to be set.
+    #[serde(default = "default_enable_quic")]
+    pub enable: bool,
+    #[serde(default = "default_quic_address")]
+    pub address: String,
+    /// The path to the TLS certificate for QUIC connections.
+    #[serde(default = "default_quic_tls_cert")]
+    pub tls_cert: String,
+    /// The path to the TLS key for QUIC connections.
+    #[serde(default = "default_quic_tls_key")]
+    pub tls_key: String,
+}
+
+impl Default for QuicConfig {
+    fn default() -> Self {
+        Self {
+            enable: default_enable_quic(),
+            address: default_quic_address(),
+            tls_cert: default_quic_tls_cert(),
+            tls_key: default_quic_tls_key(),
+        }
+    }
+}
+
 // TCP
 
 fn default_enable_tcp() -> bool {
@@ -52,6 +78,24 @@ fn default_tcp_address() -> String {
     "[::]:4340".into()
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, Validate)]
+pub struct TcpConfig {
+    /// Whether to enable incoming TCP connections. This requires the "address" option to be set.
+    #[serde(default = "default_enable_tcp")]
+    pub enable: bool,
+    #[serde(default = "default_tcp_address")]
+    pub address: String,
+}
+
+impl Default for TcpConfig {
+    fn default() -> Self {
+        Self {
+            enable: default_enable_tcp(),
+            address: default_tcp_address(),
+        }
+    }
+}
+
 // WS
 
 fn default_enable_ws() -> bool {
@@ -60,6 +104,24 @@ fn default_enable_ws() -> bool {
 
 fn default_ws_address() -> String {
     "[::]:4341".into()
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Validate)]
+pub struct WsConfig {
+    /// Whether to enable incoming WebSocket connections. This requires the "address" option to be set.
+    #[serde(default = "default_enable_ws")]
+    pub enable: bool,
+    #[serde(default = "default_ws_address")]
+    pub address: String,
+}
+
+impl Default for WsConfig {
+    fn default() -> Self {
+        Self {
+            enable: default_enable_ws(),
+            address: default_ws_address(),
+        }
+    }
 }
 
 // UDP
@@ -74,6 +136,30 @@ fn default_udp_ping_only() -> bool {
 
 fn default_udp_address() -> String {
     "[::]:4340".into()
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Validate)]
+pub struct UdpConfig {
+    /// Whether to enable incoming UDP connections. This requires the "address" option to be set.
+    #[serde(default = "default_enable_udp")]
+    pub enable: bool,
+    /// Whether to use UDP solely for "Discovery" (ping) purposes. New connections will not be established if this is enabled.
+    /// Note: `enable_udp` must be enabled for this to have any effect, otherwise pings will be ignored.
+    #[serde(default = "default_udp_ping_only")]
+    pub ping_only: bool,
+    /// The address to listen for UDP connections or pings on.
+    #[serde(default = "default_udp_address")]
+    pub address: String,
+}
+
+impl Default for UdpConfig {
+    fn default() -> Self {
+        Self {
+            enable: default_enable_udp(),
+            ping_only: default_udp_ping_only(),
+            address: default_udp_address(),
+        }
+    }
 }
 
 // qunet stuff
@@ -116,41 +202,14 @@ pub struct CoreConfig {
     #[serde(default = "default_logging")]
     pub logging: LoggerConfig,
 
-    /// Whether to enable incoming QUIC connections. This requires the "quic_address", "quic_tls_cert" and "quic_tls_key" parameters to be set.
-    #[serde(default = "default_enable_quic")]
-    pub enable_quic: bool,
-    /// The address to listen for QUIC connections on.
-    #[serde(default = "default_quic_address")]
-    pub quic_address: String,
-    /// The path to the TLS certificate for QUIC connections.
-    #[serde(default = "default_quic_tls_cert")]
-    pub quic_tls_cert: String,
-    /// The path to the TLS key for QUIC connections.
-    #[serde(default = "default_quic_tls_key")]
-    pub quic_tls_key: String,
-
-    /// Whether to enable incoming TCP connections. This requires the "tcp_address" parameter to be set.
-    #[serde(default = "default_enable_tcp")]
-    pub enable_tcp: bool,
-    /// The address to listen for TCP connections on.
-    #[serde(default = "default_tcp_address")]
-    pub tcp_address: String,
-
-    /// Whether to enable incoming WebSocket connections. This requires the "ws_address" parameter to be set.
-    pub enable_ws: bool,
-    /// The address to listen for WebSocket connections on.
-    pub ws_address: String,
-
-    /// Whether to enable incoming UDP connections. This requires the "udp_address" parameter to be set.
-    #[serde(default = "default_enable_udp")]
-    pub enable_udp: bool,
-    /// Whether to use UDP solely for "Discovery" (ping) purposes. New connections will not be established if this is enabled.
-    /// Note: `enable_udp` must be enabled for this to have any effect, otherwise pings will be ignored.
-    #[serde(default = "default_udp_ping_only")]
-    pub udp_ping_only: bool,
-    /// The address to listen for UDP connections or pings on.
-    #[serde(default = "default_udp_address")]
-    pub udp_address: String,
+    #[serde(default)]
+    pub quic: QuicConfig,
+    #[serde(default)]
+    pub tcp: TcpConfig,
+    #[serde(default)]
+    pub ws: WsConfig,
+    #[serde(default)]
+    pub udp: UdpConfig,
 
     /// The path to the QDB file.
     #[serde(default = "default_qdb_path")]
@@ -185,17 +244,10 @@ impl Default for CoreConfig {
             memory_usage: default_memory_usage(),
             compression_level: default_compression_level(),
             logging: default_logging(),
-            enable_quic: default_enable_quic(),
-            quic_address: default_quic_address(),
-            quic_tls_cert: default_quic_tls_cert(),
-            quic_tls_key: default_quic_tls_key(),
-            enable_tcp: default_enable_tcp(),
-            tcp_address: default_tcp_address(),
-            enable_ws: default_enable_ws(),
-            ws_address: default_ws_address(),
-            enable_udp: default_enable_udp(),
-            udp_ping_only: default_udp_ping_only(),
-            udp_address: default_udp_address(),
+            quic: QuicConfig::default(),
+            tcp: TcpConfig::default(),
+            ws: WsConfig::default(),
+            udp: UdpConfig::default(),
             qdb_path: default_qdb_path(),
             enable_stat_tracking: default_enable_stat_tracking(),
             gs_password: default_gs_password(),
@@ -219,20 +271,20 @@ impl CoreConfig {
         env_replace("GLOBED_CORE_LOG_FILENAME", &mut self.logging.filename);
         env_replace("GLOBED_CORE_LOG_ROLLING", &mut self.logging.rolling);
 
-        env_replace("GLOBED_CORE_ENABLE_QUIC", &mut self.enable_quic);
-        env_replace("GLOBED_CORE_QUIC_ADDRESS", &mut self.quic_address);
-        env_replace("GLOBED_CORE_QUIC_TLS_CERT", &mut self.quic_tls_cert);
-        env_replace("GLOBED_CORE_QUIC_TLS_KEY", &mut self.quic_tls_key);
+        env_replace("GLOBED_CORE_ENABLE_QUIC", &mut self.quic.enable);
+        env_replace("GLOBED_CORE_QUIC_ADDRESS", &mut self.quic.address);
+        env_replace("GLOBED_CORE_QUIC_TLS_CERT", &mut self.quic.tls_cert);
+        env_replace("GLOBED_CORE_QUIC_TLS_KEY", &mut self.quic.tls_key);
 
-        env_replace("GLOBED_CORE_ENABLE_TCP", &mut self.enable_tcp);
-        env_replace("GLOBED_CORE_TCP_ADDRESS", &mut self.tcp_address);
+        env_replace("GLOBED_CORE_ENABLE_TCP", &mut self.tcp.enable);
+        env_replace("GLOBED_CORE_TCP_ADDRESS", &mut self.tcp.address);
 
-        env_replace("GLOBED_CORE_ENABLE_WS", &mut self.enable_ws);
-        env_replace("GLOBED_CORE_WS_ADDRESS", &mut self.ws_address);
+        env_replace("GLOBED_CORE_ENABLE_WS", &mut self.ws.enable);
+        env_replace("GLOBED_CORE_WS_ADDRESS", &mut self.ws.address);
 
-        env_replace("GLOBED_CORE_ENABLE_UDP", &mut self.enable_udp);
-        env_replace("GLOBED_CORE_UDP_PING_ONLY", &mut self.udp_ping_only);
-        env_replace("GLOBED_CORE_UDP_ADDRESS", &mut self.udp_address);
+        env_replace("GLOBED_CORE_ENABLE_UDP", &mut self.udp.enable);
+        env_replace("GLOBED_CORE_UDP_PING_ONLY", &mut self.udp.ping_only);
+        env_replace("GLOBED_CORE_UDP_ADDRESS", &mut self.udp.address);
 
         env_replace("GLOBED_CORE_QDB_PATH", &mut self.qdb_path);
         env_replace("GLOBED_CORE_ENABLE_STAT_TRACKING", &mut self.enable_stat_tracking);

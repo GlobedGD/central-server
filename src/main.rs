@@ -140,27 +140,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "quic")]
     {
-        if core.enable_quic {
+        if core.quic.enable {
             builder = builder.with_quic(
-                parse_addr(&core.quic_address, "quic_address"),
-                &core.quic_tls_cert,
-                &core.quic_tls_key,
+                parse_addr(&core.quic.address, "quic_address"),
+                &core.quic.tls_cert,
+                &core.quic.tls_key,
             );
         }
     }
 
-    if core.enable_tcp {
-        builder = builder.with_tcp(parse_addr(&core.tcp_address, "tcp_address"));
+    if core.tcp.enable {
+        builder = builder.with_tcp(parse_addr(&core.tcp.address, "tcp_address"));
     }
 
-    if core.enable_ws {
-        builder = builder.with_ws(parse_addr(&core.ws_address, "ws_address"));
+    if core.ws.enable {
+        builder = builder.with_ws(parse_addr(&core.ws.address, "ws_address"));
     }
 
-    if core.enable_udp {
+    if core.udp.enable {
         builder = builder.with_udp(
-            parse_addr(&core.udp_address, "udp_address"),
-            if core.udp_ping_only {
+            parse_addr(&core.udp.address, "udp_address"),
+            if core.udp.ping_only {
                 UdpDiscoveryMode::Discovery
             } else {
                 UdpDiscoveryMode::Both
@@ -216,8 +216,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             builder = builder.with_quic(
                 parse_addr(addr, "gs_quic_address"),
-                &core.quic_tls_cert,
-                &core.quic_tls_key,
+                &core.quic.tls_cert,
+                &core.quic.tls_key,
             );
         }
     }
