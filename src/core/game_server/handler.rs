@@ -6,15 +6,23 @@ use std::{
     },
 };
 
-use server_shared::qunet::{
-    message::MsgData,
-    server::{
-        Server as QunetServer, ServerHandle as QunetServerHandle, WeakServerHandle,
-        app_handler::{AppHandler, AppResult},
-        client::ClientState,
+use anyhow::anyhow;
+use server_shared::{
+    data::SRVC_MAGIC,
+    qunet::{
+        buffers::ByteReader,
+        message::MsgData,
+        server::{
+            Server as QunetServer, ServerHandle as QunetServerHandle, WeakServerHandle,
+            app_handler::{AppHandler, AppResult},
+            client::ClientState,
+        },
     },
 };
-use server_shared::{data::GameServerData, encoding::EncodeMessageError};
+use server_shared::{
+    data::{GameServerData, SRVC_PROTOCOL_VERSION},
+    encoding::EncodeMessageError,
+};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
@@ -45,12 +53,14 @@ type HandlerResult<T> = Result<T, HandlerError>;
 
 pub struct GameServerClientData {
     authorized: AtomicBool,
+    srvc_handshaked: AtomicBool,
 }
 
 impl GameServerClientData {
     pub fn new() -> Self {
         Self {
             authorized: AtomicBool::new(false),
+            srvc_handshaked: AtomicBool::new(false),
         }
     }
 
@@ -60,6 +70,14 @@ impl GameServerClientData {
 
     pub fn set_authorized(&self, value: bool) {
         self.authorized.store(value, Ordering::Relaxed);
+    }
+
+    pub fn srvc_handshaked(&self) -> bool {
+        self.srvc_handshaked.load(Ordering::Relaxed)
+    }
+
+    pub fn set_srvc_handshaked(&self) {
+        self.srvc_handshaked.store(true, Ordering::Relaxed);
     }
 }
 
@@ -178,6 +196,30 @@ impl GameServerHandler {
 
         Ok(())
     }
+
+    fn handle_srvc_handshake(
+        &self,
+        _client: &ClientStateHandle,
+        data: &[u8],
+    ) -> anyhow::Result<()> {
+        // expect srvc handshake as the first message
+        let mut reader = ByteReader::new(data);
+
+        if reader.read_u64()? != SRVC_MAGIC {
+            return Err(anyhow!("invalid srvc magic"));
+        }
+
+        let version = reader.read_u32()?;
+        if version != SRVC_PROTOCOL_VERSION {
+            return Err(anyhow!(
+                "incompatible server versions, this central server uses protocol {}, while the game server uses {}",
+                SRVC_PROTOCOL_VERSION,
+                version
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 impl AppHandler for GameServerHandler {
@@ -220,6 +262,21 @@ impl AppHandler for GameServerHandler {
         client: &ClientStateHandle,
         data: MsgData<'_>,
     ) {
+        if !client.srvc_handshaked() {
+            match self.handle_srvc_handshake(client, data.as_bytes()) {
+                Ok(()) => {
+                    client.set_srvc_handshaked();
+                }
+
+                Err(e) => {
+                    debug!("[{}] client failed srvc handshake: {e}", client.address);
+                    client.disconnect(format!("handshake failed: {e}"));
+                }
+            }
+
+            return;
+        }
+
         let result = data::decode_message_match!(self, data, _unpacked_data, {
             LoginSrv(message) => {
                 let password = message.get_password()?.to_str()?;

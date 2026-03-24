@@ -9,7 +9,10 @@ use server_shared::qunet::{
     message::{BufferKind, channel},
     server::{ServerHandle, WeakServerHandle, client::ClientState},
 };
-use server_shared::{data::GameServerData, encoding::EncodeMessageError};
+use server_shared::{
+    data::{GameServerData, SrvUserData},
+    encoding::EncodeMessageError,
+};
 use thiserror::Error;
 
 use super::data;
@@ -196,9 +199,7 @@ impl GameServerManager {
     pub async fn notify_user_data(
         &self,
         server_id: u8,
-        account_id: i32,
-        can_use_qc: bool,
-        can_use_voice: bool,
+        data: SrvUserData,
     ) -> Result<(), GameServerError> {
         let servers = self.servers.load();
         let server = servers
@@ -206,12 +207,9 @@ impl GameServerManager {
             .find(|s| s.data.id == server_id)
             .ok_or(GameServerError::ServerNotFound)?;
 
-        let buf = data::encode_message_unsafe!(self, 80, msg => {
-            let mut notif = msg.init_notify_user_data();
-            notif.set_account_id(account_id);
-            notif.set_can_use_voice(can_use_voice);
-            notif.set_can_use_quick_chat(can_use_qc);
-            notif.set_is_banned(false);
+        let buf = data::encode_message_unsafe!(self, 128, msg => {
+            let notif = msg.init_notify_user_data();
+            data.encode(notif.init_data());
         })?;
 
         server.qclient.send_data_bufkind(buf);
@@ -220,50 +218,42 @@ impl GameServerManager {
     }
 
     pub async fn notify_user_banned(&self, account_id: i32) -> Result<(), GameServerError> {
-        let servers = self.servers.load();
-
-        let buf = data::encode_message_unsafe!(self, 80, msg => {
-            let mut notif = msg.init_notify_user_data();
-            notif.set_account_id(account_id);
-            notif.set_can_use_voice(false);
-            notif.set_is_banned(true);
-        })?;
-
-        let buf = Arc::new(buf);
-
-        for server in &**servers {
-            server.qclient.send_data_bufkind(BufferKind::Reference(buf.clone()));
-        }
-
-        Ok(())
+        self.notify_all_servers_data(SrvUserData {
+            account_id,
+            is_banned: true,
+            ..Default::default()
+        })
     }
 
     pub async fn notify_user_muted(&self, account_id: i32) -> Result<(), GameServerError> {
-        let servers = self.servers.load();
-
-        let buf = data::encode_message_unsafe!(self, 80, msg => {
-            let mut notif = msg.init_notify_user_data();
-            notif.set_account_id(account_id);
-            notif.set_can_use_voice(false);
-            notif.set_is_banned(false);
-        })?;
-
-        let buf = Arc::new(buf);
-
-        for server in &**servers {
-            server.qclient.send_data_bufkind(BufferKind::Reference(buf.clone()));
-        }
-
-        Ok(())
+        self.notify_all_servers_data(SrvUserData {
+            account_id,
+            can_use_voice: false,
+            is_muted: true,
+            ..Default::default()
+        })
     }
 
     pub async fn notify_user_kicked(&self, account_id: i32) -> Result<(), GameServerError> {
-        let servers = self.servers.load();
-
         let buf = data::encode_message_unsafe!(self, 80, msg => {
             let mut notif = msg.init_notify_kick_user();
             notif.set_account_id(account_id);
         })?;
+
+        self.notify_all_servers(buf)
+    }
+
+    fn notify_all_servers_data(&self, data: SrvUserData) -> Result<(), GameServerError> {
+        let buf = data::encode_message_unsafe!(self, 128, msg => {
+            let notif = msg.init_notify_user_data();
+            data.encode(notif.init_data());
+        })?;
+
+        self.notify_all_servers(buf)
+    }
+
+    fn notify_all_servers(&self, buf: BufferKind) -> Result<(), GameServerError> {
+        let servers = self.servers.load();
 
         let buf = Arc::new(buf);
 

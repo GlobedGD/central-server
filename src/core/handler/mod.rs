@@ -15,6 +15,7 @@ use parking_lot::Mutex;
 use rustc_hash::FxHashSet;
 use server_shared::{
     SessionId,
+    data::SRVC_MAGIC,
     qunet::{
         buffers::{BufPool, ByteWriter},
         message::{BufferKind, MsgData},
@@ -190,6 +191,20 @@ impl AppHandler for ConnectionHandler {
         client: &ClientStateHandle,
         data: MsgData<'_>,
     ) {
+        // cheap check since we already errored, sometimes people put in the wrong address
+        // and try to connect their game server here instead of the game server handler
+        if data.len() >= 8 {
+            let magic = u64::from_le_bytes(data[..8].try_into().unwrap());
+            if magic == SRVC_MAGIC {
+                client.disconnect("This port accepts client connections, not game server connections. You likely input the wrong port as part of the 'central_server_url' option in your game server configuration.");
+                debug!(
+                    "[{} @ {}] disconnected client that sent srvc magic",
+                    client.connection_id, client.address
+                );
+                return;
+            }
+        }
+
         let result = decode_message_match!(self, data, unpacked_data, {
             Login(message) => {
                 let data = decode_login_data(message)?;

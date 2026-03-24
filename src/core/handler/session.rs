@@ -1,4 +1,4 @@
-use server_shared::SessionId;
+use server_shared::{SessionId, data::SrvUserData};
 
 use crate::users::UsersModule;
 
@@ -84,21 +84,23 @@ impl ConnectionHandler {
             self.increment_level_players(new_session, is_blacklisted);
 
             let users = self.module::<UsersModule>();
-            let can_use_qc = client.active_mute.lock().is_none();
-            let can_use_voice =
-                can_use_qc && (!users.vc_requires_discord || client.is_discord_linked());
+
+            let is_muted = client.active_mute.lock().is_some();
+            let is_linked = client.is_discord_linked();
+
+            let data = SrvUserData {
+                account_id: client.account_id(),
+                can_use_quick_chat: !is_muted,
+                can_use_voice: !is_muted && (!users.vc_requires_discord || is_linked),
+                is_linked,
+                is_muted,
+                ..Default::default()
+            };
 
             // notify the appropriate game server
 
-            if let Err(e) = self
-                .game_server_manager
-                .notify_user_data(
-                    new_session.server_id(),
-                    client.account_id(),
-                    can_use_qc,
-                    can_use_voice,
-                )
-                .await
+            if let Err(e) =
+                self.game_server_manager.notify_user_data(new_session.server_id(), data).await
             {
                 warn!("Failed to send NotifyUserData to game server: {e}");
             }
