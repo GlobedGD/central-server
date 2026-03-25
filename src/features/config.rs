@@ -15,6 +15,7 @@ fn default_feature_cycle_interval() -> u32 {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default = "default_database_url")]
     pub database_url: String,

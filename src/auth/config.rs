@@ -35,6 +35,7 @@ fn default_trust_token_key() -> String {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default = "default_secret_key")]
     pub secret_key: String,

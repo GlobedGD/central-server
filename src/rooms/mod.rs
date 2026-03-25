@@ -252,10 +252,7 @@ impl RoomModule {
 }
 
 #[derive(Deserialize, Serialize, Default)]
-pub struct Config {
-    #[serde(default)]
-    _unused: bool,
-}
+pub struct Config {}
 
 impl ServerModule for RoomModule {
     async fn new(_config: &Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {

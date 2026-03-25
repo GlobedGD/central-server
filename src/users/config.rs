@@ -37,6 +37,7 @@ fn default_room_ban_reasons() -> Vec<String> {
 }
 
 #[derive(Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Role {
     pub id: String,
     pub priority: i32,
@@ -80,6 +81,7 @@ impl Role {
 }
 
 #[derive(Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct PunishReasons {
     #[serde(default = "default_mute_reasons")]
     pub mute: Vec<String>,
@@ -90,6 +92,7 @@ pub struct PunishReasons {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default = "default_database_url")]
     pub database_url: String,

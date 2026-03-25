@@ -102,6 +102,7 @@ impl Drop for DiscordModule {
 }
 
 #[derive(Deserialize, Serialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
     pub enabled: bool,

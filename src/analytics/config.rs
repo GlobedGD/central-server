@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// URL of the clickhouse instance
     #[serde(default)]

@@ -13,6 +13,7 @@ fn default_credits_categories() -> Vec<CreditsCategory> {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreditsUser {
     pub id: i32,
     #[serde(default)]
@@ -20,6 +21,7 @@ pub struct CreditsUser {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreditsCategory {
     pub name: String,
     #[serde(default)]
@@ -34,6 +36,7 @@ pub struct CreditsCategory {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// How long credits cache lasts in seconds
     #[serde(default = "default_credits_cache_timeout")]

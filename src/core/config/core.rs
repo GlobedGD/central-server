@@ -43,6 +43,7 @@ fn default_quic_tls_key() -> String {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct QuicConfig {
     /// Whether to enable incoming QUIC connections. This requires all the other parameters in this section to be set.
     #[serde(default = "default_enable_quic")]
@@ -79,6 +80,7 @@ fn default_tcp_address() -> String {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct TcpConfig {
     /// Whether to enable incoming TCP connections. This requires the "address" option to be set.
     #[serde(default = "default_enable_tcp")]
@@ -107,6 +109,7 @@ fn default_ws_address() -> String {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct WsConfig {
     /// Whether to enable incoming WebSocket connections. This requires the "address" option to be set.
     #[serde(default = "default_enable_ws")]
@@ -139,6 +142,7 @@ fn default_udp_address() -> String {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct UdpConfig {
     /// Whether to enable incoming UDP connections. This requires the "address" option to be set.
     #[serde(default = "default_enable_udp")]
@@ -187,6 +191,7 @@ fn default_gs_quic_address() -> Option<String> {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct CoreConfig {
     /// The memory usage value (1 to 11), determines how much memory the server will preallocate for operations.
     #[serde(default = "default_memory_usage")]
