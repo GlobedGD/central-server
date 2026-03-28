@@ -3,6 +3,7 @@
 pub use super::audit_log::Entity as AuditLog;
 pub use super::blacklisted_author::Entity as BlacklistedAuthor;
 pub use super::blacklisted_level::Entity as BlacklistedLevel;
+pub use super::player_count_log::Entity as PlayerCountLog;
 pub use super::punishment::Entity as Punishment;
 pub use super::uident::Entity as Uident;
 pub use super::user::Entity as User;

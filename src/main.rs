@@ -8,7 +8,8 @@
     if_let_guard,
     string_remove_matches,
     result_option_map_or_default,
-    generic_const_exprs
+    generic_const_exprs,
+    duration_constructors
 )]
 #![allow(clippy::new_without_default, clippy::collapsible_if, clippy::too_many_arguments)]
 
@@ -57,6 +58,8 @@ pub mod analytics;
 pub mod discord;
 #[cfg(feature = "featured-levels")]
 pub mod features;
+#[cfg(feature = "web")]
+pub mod web;
 #[cfg(feature = "word-filter")]
 pub mod word_filter;
 
@@ -109,6 +112,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // }
     }
 
+    #[cfg(feature = "web")]
+    init_module::<web::WebModule>(&handler).await;
+
     // Add necessary modules
     init_module::<AuthModule>(&handler).await;
     init_module::<RoomModule>(&handler).await;
@@ -153,6 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         builder = builder.with_tcp(parse_addr(&core.tcp.address, "tcp_address"));
     }
 
+    #[cfg(feature = "websocket")]
     if core.ws.enable {
         builder = builder.with_ws(parse_addr(&core.ws.address, "ws_address"));
     }

@@ -3,7 +3,7 @@ use smallvec::SmallVec;
 use std::{
     fmt::Display,
     num::{NonZeroI64, NonZeroU64},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use thiserror::Error;
 use tracing::warn;
@@ -394,7 +394,7 @@ impl UsersDb {
         let mut modified = false;
 
         let punishments = [&mut user.active_mute, &mut user.active_ban, &mut user.active_room_ban];
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let timestamp = timestamp().get();
 
         for pun in punishments {
             if let Some(p) = pun
@@ -604,7 +604,7 @@ impl UsersDb {
             return Ok(());
         }
 
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let timestamp = timestamp().get();
 
         let mut entry = audit_log::ActiveModel {
             account_id: Set(account_id),
@@ -659,6 +659,43 @@ impl UsersDb {
 
     pub async fn fetch_blacklisted_authors(&self) -> DatabaseResult<Vec<i32>> {
         Ok(BlacklistedAuthor::find().all(&self.conn).await?.into_iter().map(|x| x.id).collect())
+    }
+
+    pub async fn record_player_count(&self, count: u32) -> DatabaseResult<()> {
+        let entry = player_count_log::ActiveModel {
+            count: Set(count as i32),
+            timestamp: Set(timestamp().get()),
+        };
+
+        entry.insert(&self.conn).await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_old_player_counts(&self, secs: u64) -> DatabaseResult<()> {
+        let cutoff = timestamp().get() - secs as i64;
+
+        PlayerCountLog::delete_many()
+            .filter(player_count_log::Column::Timestamp.lt(cutoff))
+            .exec(&self.conn)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_player_counts(
+        &self,
+        period: Duration,
+    ) -> DatabaseResult<Vec<player_count_log::Model>> {
+        let cutoff = timestamp().get() - period.as_secs() as i64;
+
+        let counts = PlayerCountLog::find()
+            .filter(player_count_log::Column::Timestamp.gte(cutoff))
+            .order_by_asc(player_count_log::Column::Timestamp)
+            .all(&self.conn)
+            .await?;
+
+        Ok(counts)
     }
 }
 

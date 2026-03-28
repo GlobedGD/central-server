@@ -5,6 +5,7 @@ pub mod prelude;
 pub mod audit_log;
 pub mod blacklisted_author;
 pub mod blacklisted_level;
+pub mod player_count_log;
 pub mod punishment;
 pub mod uident;
 pub mod user;

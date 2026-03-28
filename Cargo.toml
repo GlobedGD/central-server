@@ -75,6 +75,8 @@ clickhouse = { version = "0.14.2", features = [
 ], optional = true }
 include_dir = { version = "0.7.4", optional = true }
 chrono = { version = "0.4.44", optional = true }
+axum = { version = "0.8.8", optional = true }
+tower-http = { version = "0.6.8", features = ["cors"] }
 
 [features]
 all = [
@@ -84,6 +86,7 @@ all = [
     "featured-levels",
     "word-filter",
     "analytics",
+    "web",
 ]
 docker-build = ["all"]
 docker-alpine-build = ["all", "mimalloc"]
@@ -96,3 +99,4 @@ quic = ["server-shared/quic"]
 websocket = ["server-shared/websocket"]
 mimalloc = ["dep:mimalloc"]
 analytics = ["dep:clickhouse", "dep:include_dir", "dep:chrono"]
+web = ["dep:axum"]

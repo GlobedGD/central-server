@@ -111,6 +111,12 @@ pub struct Config {
     /// Disallows regular players from being able to name rooms, instead requires them to have the appropriate role permission.
     #[serde(default)]
     pub disallow_room_names: bool,
+    /// Whether player counts should be recorded into the database
+    #[serde(default)]
+    pub record_player_counts: bool,
+    /// How long to keep player count records in the database, in days. 0 means to keep them indefinitely.
+    #[serde(default)]
+    pub player_count_retention_days: u32,
 
     /// Where logs are sent on Discord, requires `discord` feature and module to be enabled.
     #[serde(default)]
@@ -141,6 +147,8 @@ impl Default for Config {
             whitelist: false,
             vc_requires_discord_link: false,
             disallow_room_names: false,
+            record_player_counts: false,
+            player_count_retention_days: 0,
             mod_log_channel: Default::default(),
             punishment_reasons: PunishReasons::default(),
         }

@@ -1,5 +1,10 @@
 use std::{
-    cmp::Reverse, collections::HashSet, fmt::Write, num::NonZeroI64, sync::Arc, time::Duration,
+    cmp::Reverse,
+    collections::HashSet,
+    fmt::Write,
+    num::NonZeroI64,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
 #[cfg(feature = "discord")]
@@ -10,6 +15,15 @@ use {
     },
     poise::serenity_prelude::{CreateEmbed, CreateEmbedAuthor},
     std::collections::HashMap,
+};
+
+#[cfg(feature = "web")]
+use {
+    crate::web::{WebModule, WebState},
+    axum::{
+        extract::{Query, State},
+        response::IntoResponse,
+    },
 };
 
 use crate::{
@@ -26,6 +40,8 @@ use crate::{
 };
 
 use arc_swap::ArcSwap;
+#[cfg(feature = "web")]
+use axum::http::StatusCode;
 use rustc_hash::FxHashSet;
 use server_shared::{MultiColor, qunet::server::ServerHandle};
 
@@ -39,7 +55,8 @@ use database::UsersDb;
 pub use database::{DatabaseError, DatabaseResult, DbUser, UserPunishment, UserPunishmentType};
 use smallvec::SmallVec;
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
+use tokio::sync::RwLock;
+use tracing::{debug, error, info, trace, warn};
 
 #[derive(Error, Debug)]
 pub enum PunishUserError {
@@ -122,6 +139,8 @@ impl LinkedDiscordAccount {
     }
 }
 
+type CachedPlayerCounts = (Instant, Vec<PlayerCountHistoryEntry>);
+
 pub struct UsersModule {
     db: UsersDb,
     roles: Vec<Role>,       // index = numeric role ID
@@ -139,6 +158,10 @@ pub struct UsersModule {
     punish_reasons: PunishReasons,
     blacklisted_authors: ArcSwap<FxHashSet<i32>>,
     blacklisted_levels: ArcSwap<FxHashSet<i32>>,
+
+    record_player_counts: bool,
+    player_counts_retention: Duration,
+    player_counts_cache: RwLock<HashMap<Duration, CachedPlayerCounts>>,
 }
 
 impl UsersModule {
@@ -1043,6 +1066,78 @@ impl UsersModule {
 
         Ok(())
     }
+
+    async fn record_player_count(&self, count: u32) -> DatabaseResult<()> {
+        trace!("Recording player count: {count}");
+        self.db.record_player_count(count).await?;
+        self.db.delete_old_player_counts(self.player_counts_retention.as_secs()).await?;
+
+        Ok(())
+    }
+
+    fn player_cache_ttl(&self, period: Duration) -> Duration {
+        if period <= Duration::from_hours(1) {
+            Duration::from_mins(5)
+        } else if period <= Duration::from_days(1) {
+            Duration::from_mins(15)
+        } else {
+            Duration::from_mins(30)
+        }
+    }
+
+    async fn get_player_counts_cached(
+        &self,
+        period: Duration,
+    ) -> DatabaseResult<Vec<PlayerCountHistoryEntry>> {
+        const MAX_POINTS: usize = 400;
+
+        let ttl = self.player_cache_ttl(period);
+        let now = Instant::now();
+
+        {
+            let cache = self.player_counts_cache.read().await;
+            if let Some(entry) = cache.get(&period) {
+                if now < entry.0 {
+                    return Ok(entry.1.clone());
+                }
+            }
+        }
+
+        let counts: Vec<PlayerCountHistoryEntry> = self
+            .db
+            .get_player_counts(period)
+            .await?
+            .into_iter()
+            .map(|e| PlayerCountHistoryEntry {
+                timestamp: e.timestamp,
+                count: e.count as u32,
+            })
+            .collect();
+
+        let counts = if counts.len() > MAX_POINTS {
+            // if there are more than MAX_POINTS, we need to downsample the data by averaging it into MAX_POINTS buckets
+            let bucket_size = (counts.len() as f64 / MAX_POINTS as f64).ceil() as usize;
+
+            counts
+                .chunks(bucket_size)
+                .map(|chunk| {
+                    let sum: u64 = chunk.iter().map(|e| e.count as u64).sum();
+                    let avg = (sum / chunk.len() as u64) as u32;
+
+                    PlayerCountHistoryEntry {
+                        timestamp: chunk[chunk.len() / 2].timestamp,
+                        count: avg,
+                    }
+                })
+                .collect()
+        } else {
+            counts
+        };
+
+        self.player_counts_cache.write().await.insert(period, (now + ttl, counts.clone()));
+
+        Ok(counts)
+    }
 }
 
 impl ServerModule for UsersModule {
@@ -1080,6 +1175,19 @@ impl ServerModule for UsersModule {
         let levels = db.fetch_blacklisted_levels().await?.into_iter().collect();
         let authors = db.fetch_blacklisted_authors().await?.into_iter().collect();
 
+        #[cfg(feature = "web")]
+        {
+            use tower_http::cors::{Any, CorsLayer};
+
+            let web = handler.module::<WebModule>();
+            web.add_route(
+                "/players",
+                axum::routing::get(player_count_handler)
+                    .layer(CorsLayer::new().allow_methods(Any).allow_origin(Any)),
+            )
+            .await;
+        }
+
         Ok(Self {
             db,
             roles,
@@ -1096,6 +1204,9 @@ impl ServerModule for UsersModule {
             punish_reasons: config.punishment_reasons.clone(),
             blacklisted_authors: ArcSwap::new(Arc::new(authors)),
             blacklisted_levels: ArcSwap::new(Arc::new(levels)),
+            record_player_counts: config.record_player_counts,
+            player_counts_retention: Duration::from_days(config.player_count_retention_days as u64),
+            player_counts_cache: RwLock::new(HashMap::new()),
         })
     }
 
@@ -1105,6 +1216,16 @@ impl ServerModule for UsersModule {
                 error!("Failed to refresh blacklist cache: {e}");
             }
         });
+
+        if self.record_player_counts {
+            server.schedule(Duration::from_mins(1), async move |server| {
+                let me = server.handler().module::<Self>();
+                if let Err(e) = me.record_player_count(server.handler().client_count() as u32).await
+                {
+                    error!("Failed to record player count: {e}");
+                }
+            });
+        }
     }
 
     fn id() -> &'static str {
@@ -1126,5 +1247,44 @@ fn format_expiry(expires_at: i64) -> String {
         "Never".to_string()
     } else {
         format!("<t:{0}:f> (<t:{0}:R>)", expires_at)
+    }
+}
+
+#[derive(serde::Serialize, Clone)]
+struct PlayerCountHistoryEntry {
+    timestamp: i64,
+    count: u32,
+}
+
+#[cfg(feature = "web")]
+#[derive(Debug, serde::Deserialize)]
+struct PlayerCountQuery {
+    pub period: String,
+}
+
+#[cfg(feature = "web")]
+async fn player_count_handler(
+    Query(query): Query<PlayerCountQuery>,
+    State(state): State<Arc<WebState>>,
+) -> impl IntoResponse {
+    let server = state.server();
+    let users = server.handler().module::<UsersModule>();
+    let period = match &*query.period {
+        "hour" => Duration::from_hours(1),
+        "halfday" => Duration::from_hours(12),
+        "day" => Duration::from_days(1),
+        "week" => Duration::from_days(7),
+        _ => Duration::from_hours(24),
+    };
+
+    match users.get_player_counts_cached(period).await {
+        Ok(counts) => {
+            (StatusCode::OK, serde_json::to_string(&counts).unwrap_or_else(|_| "[]".to_string()))
+        }
+
+        Err(e) => {
+            warn!("Failed to get player counts: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "".to_owned())
+        }
     }
 }
