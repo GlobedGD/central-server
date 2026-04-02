@@ -249,7 +249,7 @@ impl LevelToRow for FeaturedLevelModel {
     fn into_row(self, _username_map: Option<&UsernameMap>) -> Vec<Value> {
         vec![
             Value::String(self.name),
-            Value::Number(self.id.into()),
+            Value::Number(self.level_id.into()),
             Value::String(self.author_name),
             Value::Number(self.author.into()),
             Value::String(format_timestamp(self.featured_at)),

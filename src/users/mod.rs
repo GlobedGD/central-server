@@ -615,8 +615,6 @@ impl UsersModule {
     }
 
     pub async fn fetch_moderators(&self) -> DatabaseResult<Vec<FetchedMod>> {
-        // TODO: this function is not very fast
-
         let mut out = Vec::new();
 
         let mut users = self.db.fetch_all_with_roles().await?;
