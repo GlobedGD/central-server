@@ -457,8 +457,11 @@ impl ConnectionHandler {
         let filter = if name_filter.is_empty() { None } else { Some(name_filter) };
         let rooms = self.module::<RoomModule>();
 
+        let is_mod = client.can_moderate();
+        let hidden_filt = |r: &Room| is_mod || !r.settings.lock().hidden;
+
         let (mut sorted, total) = rooms.get_top_rooms(page as usize * 100, 100, |r| {
-            !r.settings.lock().hidden && filter.is_none_or(|n| username_match(&r.name, n))
+            hidden_filt(r) && filter.is_none_or(|n| username_match(&r.name, n))
         });
 
         // if this is the first page and the user isn't filtering,
@@ -468,7 +471,7 @@ impl ConnectionHandler {
             if !friends.is_empty() {
                 for room in rooms.get_friend_rooms(&friends) {
                     // only push if not already present there
-                    if !sorted.iter().any(|r| r.id == room.id) {
+                    if hidden_filt(&room) && !sorted.iter().any(|r| r.id == room.id) {
                         sorted.push(room);
                     }
                 }
