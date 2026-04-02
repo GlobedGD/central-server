@@ -221,7 +221,11 @@ impl Db {
     }
 
     pub async fn set_feature_duration(&self, level_id: i32, duration: i32) -> DatabaseResult<()> {
-        if let Some(level) = FeaturedLevel::find_by_id(level_id).one(&self.conn).await? {
+        if let Some(level) = FeaturedLevel::find()
+            .filter(featured_level::Column::LevelId.eq(level_id))
+            .one(&self.conn)
+            .await?
+        {
             let mut model = level.into_active_model();
             model.feature_duration = Set(Some(duration));
             model.update(&self.conn).await?;

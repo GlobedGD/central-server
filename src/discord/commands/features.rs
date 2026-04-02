@@ -132,7 +132,7 @@ pub async fn set_duration(
     ctx: Context<'_>,
     level_id: i32,
     #[rename = "duration"]
-    #[description = "Punishment duration (i.e. \"1 year\", \"2 days\"); use \"permanent\" for permanent punishments."]
+    #[description = "Feature duration (i.e. \"1 year\", \"2 days\")"]
     duration_str: String,
 ) -> Result<(), BotError> {
     check_admin(ctx).await?;
