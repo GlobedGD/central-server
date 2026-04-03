@@ -15,6 +15,7 @@ pub struct Model {
     pub author_name: String,
     pub rate_tier: i32,
     pub feature_duration: Option<i32>,
+    pub queued_at: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

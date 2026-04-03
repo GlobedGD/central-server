@@ -3,7 +3,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use sea_orm::{ActiveValue::NotSet, FromQueryResult, QueryOrder, QuerySelect};
+use sea_orm::{
+    ActiveValue::NotSet, FromQueryResult, Order, QueryOrder, QuerySelect, sea_query::NullOrdering,
+};
 use thiserror::Error;
 use {
     sea_orm::{
@@ -97,11 +99,22 @@ impl Db {
             .await?)
     }
 
+    /// Returns all queued levels in the order they will be featured (first one is the next to be featured)
+    /// Sorts first by priority, then by date (earlier = higher priority)
     pub async fn get_all_queued_levels(&self) -> DatabaseResult<Vec<queued_level::Model>> {
-        Ok(QueuedLevel::find()
-            .order_by_desc(queued_level::Column::Priority)
-            .all(&self.conn)
-            .await?)
+        Ok(self._find_queued_level().all(&self.conn).await?)
+    }
+
+    pub async fn get_next_queued_level(&self) -> DatabaseResult<Option<queued_level::Model>> {
+        Ok(self._find_queued_level().one(&self.conn).await?)
+    }
+
+    fn _find_queued_level(&self) -> Select<queued_level::Entity> {
+        QueuedLevel::find().order_by_desc(queued_level::Column::Priority).order_by_with_nulls(
+            queued_level::Column::QueuedAt,
+            Order::Asc,
+            NullOrdering::First,
+        )
     }
 
     pub async fn get_all_sent_levels(&self) -> DatabaseResult<Vec<sent_level::Model>> {
@@ -131,11 +144,7 @@ impl Db {
 
     pub async fn cycle_next_queued_level(&self) -> DatabaseResult<Option<featured_level::Model>> {
         // pick the level with highest priority, using id as tiebreaker
-        let queued = QueuedLevel::find()
-            .order_by_desc(queued_level::Column::Priority)
-            .order_by_asc(queued_level::Column::Id)
-            .one(&self.conn)
-            .await?;
+        let queued = self.get_next_queued_level().await?;
 
         let Some(queued) = queued else {
             return Ok(None);
@@ -197,6 +206,7 @@ impl Db {
                 author_name: Set(author_name.to_string()),
                 rate_tier: Set(rate_tier as i32),
                 feature_duration: Set(None),
+                queued_at: Set(Some(timestamp().get())),
             };
 
             queued.insert(&self.conn).await?;
@@ -220,6 +230,7 @@ impl Db {
         Ok(())
     }
 
+    /// Removes sends for a level and removes it from the queue
     pub async fn remove_sent_level(&self, level_id: i32) -> DatabaseResult<()> {
         self.remove_sends_for(level_id).await?;
 
