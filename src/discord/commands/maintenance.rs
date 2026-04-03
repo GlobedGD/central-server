@@ -143,11 +143,14 @@ pub async fn status(ctx: Context<'_>) -> Result<(), BotError> {
     let state = ctx.data();
     let server = state.server()?;
 
-    let msg = ctx
+    let mut msg = ctx
         .reply_builder(CreateReply::default())
         .embed(collect_clients_stats(&server))
-        .embed(collect_perf_stats(&server))
-        .embed(collect_gs_stats(&server));
+        .embed(collect_perf_stats(&server));
+
+    for embed in collect_gs_stats(&server) {
+        msg = msg.embed(embed);
+    }
 
     ctx.send(msg).await?;
 
@@ -244,25 +247,37 @@ fn collect_connection_stats(data: &OverallStats) -> CreateEmbed {
         .field("Bytes received", ByteCount(data.bytes_rx).to_string(), true)
 }
 
-fn collect_gs_stats(server: &ServerHandle<ConnectionHandler>) -> CreateEmbed {
-    let servers = server.handler().get_game_servers();
+fn collect_gs_stats(server: &ServerHandle<ConnectionHandler>) -> Vec<CreateEmbed> {
+    let mut embeds: Vec<CreateEmbed> = server
+        .handler()
+        .get_game_servers()
+        .iter()
+        .map(|server| {
+            let sdata = server.status_data();
+            CreateEmbed::default()
+                .title(format!(
+                    "{} ({} / nID {})",
+                    server.data.name, server.data.string_id, server.data.id
+                ))
+                .color(hex_color_to_decimal("#ffd700"))
+                .field(
+                    "Clients",
+                    format!("{} ({} authorized)", sdata.clients, sdata.auth_clients),
+                    true,
+                )
+                .field("Rooms", sdata.rooms.to_string(), true)
+                .field("Sessions", sdata.sessions.to_string(), true)
+                .field("Connected for", Uptime(server.uptime()).to_string(), true)
+                .field("Total connections", sdata.total_connections.to_string(), true)
+                .field("Total data messages", sdata.total_data_messages.to_string(), true)
+        })
+        .collect();
 
-    let mut embed =
-        CreateEmbed::default().title("Game servers").color(hex_color_to_decimal("#ffd700"));
-
-    for server in &*servers {
-        embed = embed.field(
-            format!("{} ({} / nID {})", server.data.name, server.data.string_id, server.data.id),
-            format!("Connected for {}", Uptime(server.uptime())),
-            false,
-        );
+    if embeds.is_empty() {
+        embeds.push(CreateEmbed::default().title("No game servers connected"));
     }
 
-    if servers.is_empty() {
-        embed = embed.description("No connected game servers.");
-    }
-
-    embed
+    embeds
 }
 
 struct ByteCount(pub usize);

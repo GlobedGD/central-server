@@ -7,8 +7,13 @@ use std::{
 };
 
 use anyhow::anyhow;
+use parking_lot::Mutex;
 use server_shared::{
-    data::SRVC_MAGIC,
+    data::{GameServerData, SRVC_PROTOCOL_VERSION},
+    encoding::EncodeMessageError,
+};
+use server_shared::{
+    data::{SRVC_MAGIC, SrvStatusData},
     qunet::{
         buffers::ByteReader,
         message::MsgData,
@@ -18,10 +23,6 @@ use server_shared::{
             client::ClientState,
         },
     },
-};
-use server_shared::{
-    data::{GameServerData, SRVC_PROTOCOL_VERSION},
-    encoding::EncodeMessageError,
 };
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
@@ -54,6 +55,7 @@ type HandlerResult<T> = Result<T, HandlerError>;
 pub struct GameServerClientData {
     authorized: AtomicBool,
     srvc_handshaked: AtomicBool,
+    status_data: Mutex<SrvStatusData>,
 }
 
 impl GameServerClientData {
@@ -61,6 +63,7 @@ impl GameServerClientData {
         Self {
             authorized: AtomicBool::new(false),
             srvc_handshaked: AtomicBool::new(false),
+            status_data: Mutex::new(SrvStatusData::default()),
         }
     }
 
@@ -78,6 +81,14 @@ impl GameServerClientData {
 
     pub fn set_srvc_handshaked(&self) {
         self.srvc_handshaked.store(true, Ordering::Relaxed);
+    }
+
+    pub fn update_status_data(&self, data: SrvStatusData) {
+        *self.status_data.lock() = data;
+    }
+
+    pub fn status_data(&self) -> SrvStatusData {
+        self.status_data.lock().clone()
     }
 }
 
@@ -197,6 +208,15 @@ impl GameServerHandler {
         Ok(())
     }
 
+    async fn handle_server_status(
+        &self,
+        client: &ClientStateHandle,
+        data: SrvStatusData,
+    ) -> HandlerResult<()> {
+        client.update_status_data(data);
+        Ok(())
+    }
+
     fn handle_srvc_handshake(
         &self,
         _client: &ClientStateHandle,
@@ -297,6 +317,12 @@ impl AppHandler for GameServerHandler {
                 let room_id = message.get_room_id();
 
                 self.handle_room_created_ack(client, room_id).await
+            },
+
+            Status(message) => {
+                let status = SrvStatusData::from_reader(message)?;
+
+                self.handle_server_status(client, status).await
             }
         });
 

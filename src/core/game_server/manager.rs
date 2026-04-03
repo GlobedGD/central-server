@@ -5,9 +5,12 @@ use std::{
 
 use arc_swap::ArcSwap;
 use rustc_hash::FxHashMap;
-use server_shared::qunet::{
-    message::{BufferKind, channel},
-    server::{ServerHandle, WeakServerHandle, client::ClientState},
+use server_shared::{
+    data::SrvStatusData,
+    qunet::{
+        message::{BufferKind, channel},
+        server::{ServerHandle, WeakServerHandle, client::ClientState},
+    },
 };
 use server_shared::{
     data::{GameServerData, SrvUserData},
@@ -28,6 +31,10 @@ pub struct StoredGameServer {
 impl StoredGameServer {
     pub fn uptime(&self) -> Duration {
         self.connected_at.elapsed()
+    }
+
+    pub fn status_data(&self) -> SrvStatusData {
+        self.qclient.status_data()
     }
 }
 

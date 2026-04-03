@@ -232,7 +232,7 @@ pub async fn linkinfo(
         match linked {
             Some(acc) => {
                 ctx.reply(format!(
-                    "✅ `@{}` ({}) is linked to GD account `{}` ({})",
+                    "✅ `@{}` (`{}`) is linked to GD account `{}` (`{}`)",
                     u.user.name,
                     u.user.id,
                     acc.username.as_deref().unwrap_or("Unknown"),
@@ -260,7 +260,7 @@ pub async fn linkinfo(
         match (db_user, linked) {
             (Some(dbu), Some(link)) => {
                 ctx.reply(format!(
-                    "✅ GD account `{}` ({}) is linked to `@{}` ({})",
+                    "✅ GD account `{}` (`{}`) is linked to `@{}` (`{}`)",
                     dbu.username(),
                     dbu.account_id,
                     link.username,
