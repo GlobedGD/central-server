@@ -213,3 +213,70 @@ pub async fn syncall(ctx: Context<'_>) -> Result<(), BotError> {
 
     Ok(())
 }
+
+#[poise::command(slash_command, guild_only = true, ephemeral = true)]
+/// Check if a discord user is linked to a GD account and vice versa
+pub async fn linkinfo(
+    ctx: Context<'_>,
+    discord_user: Option<serenity::Member>,
+    gd_user: Option<String>,
+) -> Result<(), BotError> {
+    check_moderator(ctx).await?;
+
+    let server = ctx.data().server()?;
+    let users = server.handler().module::<UsersModule>();
+
+    if let Some(u) = discord_user {
+        let linked = users.get_linked_discord_inverse(u.user.id.get()).await?;
+
+        match linked {
+            Some(acc) => {
+                ctx.reply(format!(
+                    "✅ `@{}` ({}) is linked to GD account `{}` ({})",
+                    u.user.name,
+                    u.user.id,
+                    acc.username.as_deref().unwrap_or("Unknown"),
+                    acc.account_id
+                ))
+                .await?;
+            }
+
+            None => {
+                ctx.reply(format!(":x: `@{}` is not linked to any GD account.", u.user.name))
+                    .await?;
+            }
+        }
+
+        return Ok(());
+    }
+
+    if let Some(gdu) = gd_user {
+        let db_user = users.query_user(&gdu).await?;
+        let linked = match &db_user {
+            Some(x) => users.get_linked_discord(x.account_id).await?,
+            None => None,
+        };
+
+        match (db_user, linked) {
+            (Some(dbu), Some(link)) => {
+                ctx.reply(format!(
+                    "✅ GD account `{}` ({}) is linked to `@{}` ({})",
+                    dbu.username(),
+                    dbu.account_id,
+                    link.username,
+                    link.id
+                ))
+                .await?;
+            }
+
+            _ => {
+                ctx.reply(
+                    ":x: Could not find the account in the database or the user is not linked.",
+                )
+                .await?;
+            }
+        }
+    }
+
+    Ok(())
+}

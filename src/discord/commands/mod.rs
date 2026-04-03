@@ -17,6 +17,7 @@ pub fn all() -> Vec<poise::Command<Arc<BotState>, BotError>> {
         link::unlink(),
         link::sync(),
         link::syncall(),
+        link::linkinfo(),
         moderation::punish(),
         moderation::unpunish(),
         moderation::audit_log(),
