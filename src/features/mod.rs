@@ -125,6 +125,13 @@ impl FeaturesModule {
         Ok(())
     }
 
+    pub async fn unsend_level(&self, level_id: i32) -> DatabaseResult<()> {
+        self.db.remove_sent_level(level_id).await?;
+        self.update_spreadsheet(false, true, true).await;
+
+        Ok(())
+    }
+
     pub async fn set_feature_duration(
         &self,
         level_id: i32,

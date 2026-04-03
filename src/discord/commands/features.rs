@@ -8,6 +8,7 @@ use crate::{
     subcommands(
         "send",
         "queue",
+        "unsend",
         "update_spreadsheet",
         "set_duration",
         "set_priority",
@@ -128,6 +129,27 @@ async fn send_inner(
     }
 
     ctx.reply(format!("✅ Successfully sent {} by {}!", level.name, level.author_name)).await?;
+
+    Ok(())
+}
+
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
+/// Remove all instances of a level from the sent / queued table
+pub async fn unsend(ctx: Context<'_>, level_id: i32) -> Result<(), BotError> {
+    let user = check_linked_and_roles(ctx, |r| r.can_rate_features).await?;
+
+    let server = ctx.data().server()?;
+    let features = server.handler().module::<FeaturesModule>();
+
+    match features.unsend_level(level_id).await {
+        Ok(()) => {
+            ctx.reply("✅ Successfully removed level from sent/queued list.").await?;
+        }
+
+        Err(e) => {
+            ctx.reply(format!(":x: Failed to remove level from database: {e}")).await?;
+        }
+    }
 
     Ok(())
 }

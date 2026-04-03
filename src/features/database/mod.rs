@@ -220,6 +220,14 @@ impl Db {
         Ok(())
     }
 
+    pub async fn remove_sent_level(&self, level_id: i32) -> DatabaseResult<()> {
+        self.remove_sends_for(level_id).await?;
+
+        let _ = QueuedLevel::delete_by_id(level_id).exec(&self.conn).await;
+
+        Ok(())
+    }
+
     pub async fn set_feature_duration(&self, level_id: i32, duration: i32) -> DatabaseResult<()> {
         if let Some(level) = FeaturedLevel::find()
             .filter(featured_level::Column::LevelId.eq(level_id))
