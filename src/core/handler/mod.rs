@@ -798,15 +798,20 @@ impl ConnectionHandler {
     }
 
     pub async fn handle_game_server_disconnect(&self, client: Arc<ClientState<GameServerHandler>>) {
-        if let Some(_srv) = self.game_server_manager.remove_server(&client) {
-            // TODO: reset active session of clients that were connected to this server ?
-            self.notify_servers_changed().await;
-        } else {
+        let Some(srv) = self.game_server_manager.remove_server(&client) else {
             error!(
                 "[{} @ {}] unknown game server disconnected!",
                 client.connection_id, client.address
             );
-        }
+            return;
+        };
+
+        // close all rooms that are hosted on this server
+        let module = self.module::<RoomModule>();
+        module.close_all_rooms_on_server(srv.data.id, &self.game_server_manager).await;
+
+        // notify clients about the disconnect
+        self.notify_servers_changed().await;
     }
 
     pub async fn notify_servers_changed(&self) {

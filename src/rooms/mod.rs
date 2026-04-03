@@ -9,6 +9,10 @@ use crate::{
     },
     rooms::invite_token::InviteToken,
 };
+use rustc_hash::FxHashSet;
+use serde::{Deserialize, Serialize};
+use server_shared::qunet::server::ServerHandle;
+use tracing::info;
 
 mod invite_token;
 mod manager;
@@ -16,10 +20,7 @@ mod room;
 mod settings;
 pub use manager::{RoomCreationError, RoomManager};
 pub use room::{ClientRoomHandle, Room};
-use rustc_hash::FxHashSet;
-use serde::{Deserialize, Serialize};
 pub use server_shared::SessionId;
-use server_shared::qunet::server::ServerHandle;
 pub use settings::RoomSettings;
 
 // TODO: maybe refactor this to use actor pattern,
@@ -161,8 +162,23 @@ impl RoomModule {
         id: u32,
         gsm: &GameServerManager,
     ) -> Option<Vec<ClientStateHandle>> {
-        let room = self.get_room(id)?;
+        self.close_room_arc(self.get_room(id)?, gsm).await
+    }
 
+    pub async fn close_all_rooms_on_server(&self, server_id: u8, gsm: &GameServerManager) {
+        let rooms = self.manager.get_all_rooms_on_server(server_id);
+        info!("Closing {} rooms on server {server_id}", rooms.len());
+
+        for room in rooms {
+            self.close_room_arc(room, gsm).await;
+        }
+    }
+
+    async fn close_room_arc(
+        &self,
+        room: Arc<Room>,
+        gsm: &GameServerManager,
+    ) -> Option<Vec<ClientStateHandle>> {
         let mut out = Vec::new();
 
         // room is guaranteed not a global room, so sync variant is ok here

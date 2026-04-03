@@ -10,7 +10,10 @@ use parking_lot::{RawRwLock, RwLock, lock_api::RwLockReadGuard};
 use thiserror::Error;
 use tracing::{debug, error, warn};
 
-use crate::rooms::{RoomSettings, room::Room};
+use crate::{
+    core::util::iter_dashmap,
+    rooms::{RoomSettings, room::Room},
+};
 
 #[derive(Debug, Error)]
 pub enum RoomCreationError {
@@ -154,6 +157,18 @@ impl RoomManager {
                 kpc, room.id
             );
         }
+    }
+
+    pub(super) fn get_all_rooms_on_server(&self, server_id: u8) -> Vec<Arc<Room>> {
+        let mut out = Vec::new();
+
+        iter_dashmap(&self.rooms, |(_id, room)| {
+            if room.settings.lock().server_id == server_id {
+                out.push(room.clone());
+            }
+        });
+
+        out
     }
 }
 

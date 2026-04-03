@@ -12,7 +12,7 @@ debug = true
 sea-orm-migration = { version = "1.1.19" }
 base64 = "0.22.1"
 blake3 = "1.8.3"
-dashmap = { version = "6.1.0", features = ["inline"] }
+dashmap = { version = "6.1.0", features = ["inline", "raw-api"] }
 futures-util = "0.3.32"
 heapless = { version = "0.9.2", features = ["serde"] }
 hex = "0.4.3"
