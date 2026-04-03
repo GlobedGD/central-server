@@ -176,11 +176,22 @@ async fn audit_log_embed(
 }
 
 #[poise::command(slash_command, guild_only = true)]
-pub async fn audit_log(ctx: Context<'_>) -> Result<(), BotError> {
+pub async fn audit_log(ctx: Context<'_>, issuer: Option<String>) -> Result<(), BotError> {
     let user = check_moderator(ctx).await?;
 
     let server = ctx.data().server()?;
     let users = server.handler().module::<UsersModule>();
+
+    let issuer_id = if let Some(issuer) = issuer {
+        let target = users.query_user(&issuer).await?;
+        let Some(target) = target else {
+            ctx.reply(":x: Failed to find the issuer").await?;
+            return Ok(());
+        };
+        target.account_id
+    } else {
+        user.account_id
+    };
 
     // Define some unique identifiers for the navigation buttons
     let ctx_id = ctx.id();
@@ -197,7 +208,7 @@ pub async fn audit_log(ctx: Context<'_>) -> Result<(), BotError> {
         poise::CreateReply::default()
             .embed(
                 audit_log_embed(
-                    users.admin_fetch_logs(user.account_id, 0, "", 0, 0, 0).await?.0,
+                    users.admin_fetch_logs(issuer_id, 0, "", 0, 0, 0).await?.0,
                     users,
                     0,
                 )
@@ -230,7 +241,7 @@ pub async fn audit_log(ctx: Context<'_>) -> Result<(), BotError> {
         }
 
         // Update the message with the new page contents
-        let logs = users.admin_fetch_logs(user.account_id, 0, "", 0, 0, current_page).await?.0;
+        let logs = users.admin_fetch_logs(issuer_id, 0, "", 0, 0, current_page).await?.0;
         press
             .create_response(
                 ctx.serenity_context(),
