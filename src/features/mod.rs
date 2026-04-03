@@ -143,6 +143,17 @@ impl FeaturesModule {
         Ok(())
     }
 
+    pub async fn set_feature_tier(&self, level_id: i32, tier: u8) -> Result<(), FeaturesError> {
+        if tier > 2 {
+            return Err(FeaturesError::InvalidTier(tier));
+        }
+
+        self.db.set_feature_tier(level_id, tier).await?;
+        self.update_spreadsheet(true, true, false).await;
+
+        Ok(())
+    }
+
     fn set_active_from(&self, level: &FeaturedLevelModel) {
         self.active_level.store(level.level_id, Ordering::Relaxed);
         self.active_level_edition.store(level.id as u32, Ordering::Relaxed);

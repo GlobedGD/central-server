@@ -11,6 +11,7 @@ use crate::{
         "update_spreadsheet",
         "set_duration",
         "set_priority",
+        "set_tier",
         "force_cycle"
     )
 )]
@@ -32,13 +33,23 @@ pub async fn update_spreadsheet(ctx: Context<'_>) -> Result<(), BotError> {
 
     Ok(())
 }
+
 async fn send_autocomplete(
     _ctx: Context<'_>,
     _partial: &str,
 ) -> impl Iterator<Item = poise::serenity_prelude::AutocompleteChoice> {
-    ["Normal", "Featured", "Outstanding"]
+    ["Featured", "Epic", "Outstanding"]
         .iter()
         .map(|&n| poise::serenity_prelude::AutocompleteChoice::new(n, n))
+}
+
+fn tier_str_to_int(tier: &str) -> Option<u8> {
+    match tier {
+        "Featured" => Some(0),
+        "Epic" => Some(1),
+        "Outstanding" => Some(2),
+        _ => None,
+    }
 }
 
 #[poise::command(slash_command, ephemeral = true, guild_only = true)]
@@ -79,14 +90,9 @@ async fn send_inner(
 
     let server = ctx.data().server()?;
 
-    let rate_tier = match rate_tier.as_str() {
-        "Normal" => 0,
-        "Featured" => 1,
-        "Outstanding" => 2,
-        _ => {
-            ctx.reply(":x: Invalid rate tier.").await?;
-            return Ok(());
-        }
+    let Some(rate_tier) = tier_str_to_int(&rate_tier) else {
+        ctx.reply(":x: Invalid rate tier.").await?;
+        return Ok(());
     };
 
     let features = server.handler().module::<FeaturesModule>();
@@ -168,6 +174,34 @@ pub async fn set_priority(ctx: Context<'_>, level_id: i32, priority: i32) -> Res
     }
 
     ctx.reply("✅ Feature priority updated successfully!").await?;
+    Ok(())
+}
+
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
+/// Set the feature tier for a queued or featured level
+pub async fn set_tier(
+    ctx: Context<'_>,
+    level_id: i32,
+    #[autocomplete = "send_autocomplete"]
+    #[description = "Rate tier"]
+    rate_tier: String,
+) -> Result<(), BotError> {
+    check_admin(ctx).await?;
+
+    let server = ctx.data().server()?;
+    let Some(rate_tier) = tier_str_to_int(&rate_tier) else {
+        ctx.reply(":x: Invalid rate tier.").await?;
+        return Ok(());
+    };
+
+    let features = server.handler().module::<FeaturesModule>();
+    if let Err(e) = features.set_feature_tier(level_id, rate_tier).await {
+        ctx.reply(format!(":x: Failed to set feature tier: {e}")).await?;
+        return Ok(());
+    }
+
+    ctx.reply("✅ Feature tier updated successfully!").await?;
+
     Ok(())
 }
 

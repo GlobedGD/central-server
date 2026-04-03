@@ -251,6 +251,26 @@ impl Db {
         }
     }
 
+    pub async fn set_feature_tier(&self, level_id: i32, tier: u8) -> DatabaseResult<()> {
+        if let Some(level) = FeaturedLevel::find()
+            .filter(featured_level::Column::LevelId.eq(level_id))
+            .one(&self.conn)
+            .await?
+        {
+            let mut model = level.into_active_model();
+            model.rate_tier = Set(tier as i32);
+            model.update(&self.conn).await?;
+            Ok(())
+        } else if let Some(level) = QueuedLevel::find_by_id(level_id).one(&self.conn).await? {
+            let mut model = level.into_active_model();
+            model.rate_tier = Set(tier as i32);
+            model.update(&self.conn).await?;
+            Ok(())
+        } else {
+            Err(DatabaseError::NotFound)
+        }
+    }
+
     pub async fn was_featured(&self, level_id: i32) -> DatabaseResult<bool> {
         Ok(FeaturedLevel::find()
             .filter(featured_level::Column::LevelId.eq(level_id))

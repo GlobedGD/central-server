@@ -358,7 +358,7 @@ fn format_dur_seconds(secs: i32) -> String {
 
 fn format_rate_tier(tier: i32) -> String {
     match tier {
-        0 => "Normal",
+        0 => "Featured",
         1 => "Epic",
         2 => "Outstanding",
         _ => "Unknown",
