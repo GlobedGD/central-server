@@ -42,6 +42,8 @@ pub use database::PartialFeaturedLevelId;
 pub enum FeaturesError {
     #[error("{0}")]
     Db(#[from] database::DatabaseError),
+    #[error("Invalid feature tier: {0}")]
+    InvalidTier(u8),
 }
 
 pub struct FeaturesModule {
@@ -101,6 +103,10 @@ impl FeaturesModule {
         note: &str,
         queue: bool,
     ) -> Result<(), FeaturesError> {
+        if rate_tier > 2 {
+            return Err(FeaturesError::InvalidTier(rate_tier));
+        }
+
         self.db
             .add_sent_level(
                 sender_id,
