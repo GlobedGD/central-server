@@ -313,4 +313,21 @@ impl ConnectionHandler {
         debug!("{} could not reply to {target_user}, reply likely expired", client.account_id());
         Err("reply expired or user went offline")
     }
+
+    pub async fn handle_get_user_state(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+        // encode as anonymized, don't show the issuer to the user
+        let buf = data::encode_message_dyn!(self, msg => {
+            let mut state = msg.init_user_state();
+            if let Some(mute) = &*client.active_mute.lock() {
+                mute.encode_anonymized(&mut state.reborrow().init_active_mute());
+            }
+            if let Some(room_ban) = &*client.active_room_ban.lock() {
+                room_ban.encode_anonymized(&mut state.init_active_room_ban());
+            }
+        })?;
+
+        client.send_data_bufkind(buf);
+
+        Ok(())
+    }
 }

@@ -729,6 +729,19 @@ pub struct DbUser {
     pub discord_id: Option<NonZeroU64>,
 }
 
+impl UserPunishment {
+    pub fn encode(&self, out: &mut crate::core::data::user_punishment::Builder<'_>) {
+        self.encode_anonymized(out);
+        out.set_issued_by(self.issued_by);
+    }
+
+    pub fn encode_anonymized(&self, out: &mut crate::core::data::user_punishment::Builder<'_>) {
+        out.set_issued_at(self.issued_at.map_or(0, |t| t.get()));
+        out.set_expires_at(self.expires_at.map_or(0, |t| t.get()));
+        out.set_reason(&self.reason);
+    }
+}
+
 impl DbUser {
     pub fn is_muted(&self) -> bool {
         self.active_mute.is_some()

@@ -451,15 +451,15 @@ impl ConnectionHandler {
             fetch.set_punishment_count(resp.punishment_count);
 
             if let Some(ban) = resp.active_ban {
-                Self::encode_punishment(ban, &mut fetch.reborrow().init_active_ban());
+                ban.encode(&mut fetch.reborrow().init_active_ban());
             }
 
             if let Some(room_ban) = resp.active_room_ban {
-                Self::encode_punishment(room_ban, &mut fetch.reborrow().init_active_room_ban());
+                room_ban.encode(&mut fetch.reborrow().init_active_room_ban());
             }
 
             if let Some(mute) = resp.active_mute {
-                Self::encode_punishment(mute, &mut fetch.reborrow().init_active_mute());
+                mute.encode(&mut fetch.reborrow().init_active_mute());
             }
 
             let _ = fetch.set_roles(resp.roles);
@@ -467,16 +467,6 @@ impl ConnectionHandler {
 
         client.send_data_bufkind(buf);
         Ok(())
-    }
-
-    fn encode_punishment(
-        punishment: &UserPunishment,
-        out: &mut data::user_punishment::Builder<'_>,
-    ) {
-        out.set_issued_at(punishment.issued_at.map_or(0, |t| t.get()));
-        out.set_issued_by(punishment.issued_by);
-        out.set_expires_at(punishment.expires_at.map_or(0, |t| t.get()));
-        out.set_reason(&punishment.reason);
     }
 
     pub async fn handle_admin_ban(

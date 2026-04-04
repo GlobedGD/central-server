@@ -414,6 +414,11 @@ impl AppHandler for ConnectionHandler {
                 self.handle_fetch_credits(client)
             },
 
+            GetUserState(_message) => {
+                unpacked_data.reset(); // free up memory
+                self.handle_get_user_state(client).await
+            },
+
             GetDiscordLinkState(_message) => {
                 unpacked_data.reset(); // free up memory
                 self.handle_get_discord_link_state(client).await
