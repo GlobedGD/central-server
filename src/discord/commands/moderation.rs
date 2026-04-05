@@ -263,7 +263,7 @@ pub async fn audit_log(ctx: Context<'_>, issuer: Option<String>) -> Result<(), B
 pub async fn check_actions(
     ctx: Context<'_>,
     user: Option<serenity::Member>,
-    #[description = "Period of time to check (e.g. \"1 day\", \"2 weeks\"), default is 1 week"]
+    #[description = "Period of time to check (e.g. \"1 day\", \"2 weeks\"), default is 1 month"]
     period: Option<String>,
 ) -> Result<(), BotError> {
     check_moderator(ctx).await?;
@@ -279,7 +279,7 @@ pub async fn check_actions(
             d if d.is_zero() => None,
             d => Some(d),
         },
-        None => Some(Duration::from_weeks(1)),
+        None => Some(Duration::from_days(30)),
     };
 
     let actions = users.check_actions_over_period_discord(query_user.id.get(), period).await?;
