@@ -16,7 +16,7 @@ use tracing::{debug, info, warn};
 
 use crate::{
     core::handler::ConnectionHandler,
-    discord::{DiscordMessage, DiscordUserData},
+    discord::{DiscordMessage, DiscordUserData, commands::util::ParseDurationError},
     users::{DatabaseError, DbUser, Error as UsersError, UsersModule},
 };
 
@@ -68,6 +68,8 @@ pub enum BotError {
     InvalidChannel,
     #[error("No permission")]
     NoPermission,
+    #[error("Invalid duration: {0}")]
+    InvalidDuration(#[from] ParseDurationError),
     #[error("{0}")]
     Serenity(#[from] Box<serenity::Error>),
     #[error("Database error: {0}")]

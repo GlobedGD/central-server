@@ -8,7 +8,7 @@ mod link;
 mod maintenance;
 mod misc;
 mod moderation;
-mod util;
+pub mod util;
 
 pub fn all() -> Vec<poise::Command<Arc<BotState>, BotError>> {
     vec![
@@ -21,6 +21,7 @@ pub fn all() -> Vec<poise::Command<Arc<BotState>, BotError>> {
         moderation::punish(),
         moderation::unpunish(),
         moderation::audit_log(),
+        moderation::check_actions(),
         moderation::check_alts(),
         moderation::kick(),
         moderation::kick_all(),

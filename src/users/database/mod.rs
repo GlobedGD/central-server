@@ -51,6 +51,16 @@ struct PartialAccountUident {
     pub account_id: i32,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ActionsBreakdown {
+    pub mutes: u32,
+    pub roombans: u32,
+    pub bans: u32,
+    pub kicks: u32,
+    pub notices: u32,
+    pub total: u32,
+}
+
 pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
 pub struct UsersDb {
@@ -592,6 +602,44 @@ impl UsersDb {
         let results: Vec<audit_log::Model> = stmt.all(&self.conn).await?;
 
         Ok(results)
+    }
+
+    pub async fn check_actions_over_period(
+        &self,
+        account_id: i32,
+        period: Option<Duration>,
+    ) -> DatabaseResult<ActionsBreakdown> {
+        Ok(ActionsBreakdown {
+            bans: self.check_actions_of_kind(account_id, period, "ban").await?,
+            mutes: self.check_actions_of_kind(account_id, period, "mute").await?,
+            roombans: self.check_actions_of_kind(account_id, period, "roomban").await?,
+            kicks: self.check_actions_of_kind(account_id, period, "kick").await?,
+            notices: self.check_actions_of_kind(account_id, period, "notice").await?,
+            total: self.check_actions_of_kind(account_id, period, "").await?,
+        })
+    }
+
+    async fn check_actions_of_kind(
+        &self,
+        account_id: i32,
+        period: Option<Duration>,
+        kind: &str,
+    ) -> DatabaseResult<u32> {
+        let mut stmt = AuditLog::find().filter(audit_log::Column::AccountId.eq(account_id));
+
+        if !kind.is_empty() {
+            stmt = stmt.filter(audit_log::Column::Type.eq(kind));
+        }
+
+        if let Some(period) = period {
+            stmt = stmt.filter(
+                audit_log::Column::Timestamp.gte(timestamp().get() - period.as_secs() as i64),
+            );
+        }
+
+        let count = stmt.count(&self.conn).await?;
+
+        Ok(count as u32)
     }
 
     pub async fn log_action(&self, account_id: i32, action: LogAction<'_>) -> DatabaseResult<()> {

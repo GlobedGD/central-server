@@ -35,7 +35,7 @@ use crate::{
     },
     users::{
         config::PunishReasons,
-        database::{AuditLogModel, LogAction},
+        database::{ActionsBreakdown, AuditLogModel, LogAction},
     },
 };
 
@@ -778,6 +778,19 @@ impl UsersModule {
         }
 
         Ok((logs, datas))
+    }
+
+    pub async fn check_actions_over_period_discord(
+        &self,
+        discord_id: u64,
+        period: Option<Duration>,
+    ) -> DatabaseResult<ActionsBreakdown> {
+        let account_id = match self.get_linked_discord_inverse(discord_id).await? {
+            Some(user) => user.account_id,
+            None => return Ok(ActionsBreakdown::default()),
+        };
+
+        self.db.check_actions_over_period(account_id, period).await
     }
 
     pub async fn log_kick(&self, issuer_id: i32, account_id: i32, username: &str, reason: &str) {

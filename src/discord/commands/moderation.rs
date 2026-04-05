@@ -5,11 +5,14 @@ use std::{
 
 use super::util::*;
 use crate::{
-    discord::BotError,
+    discord::{BotError, hex_color_to_decimal},
     users::{UserPunishmentType, UsersModule, database::AuditLogModel},
 };
 
-use poise::serenity_prelude::{self as serenity, AutocompleteChoice, EmbedField};
+use poise::{
+    CreateReply,
+    serenity_prelude::{self as serenity, AutocompleteChoice, CreateEmbed, EmbedField},
+};
 use tracing::info;
 
 async fn punish_autocomplete(
@@ -57,10 +60,7 @@ pub async fn punish(
         return Ok(());
     };
 
-    let Ok(duration) = parse_duration_str(&duration_str) else {
-        ctx.reply(":x: Invalid duration!").await?;
-        return Ok(());
-    };
+    let duration = parse_duration_str(&duration_str)?;
     let expires_at = if duration.is_zero() {
         0
     } else {
@@ -255,6 +255,44 @@ pub async fn audit_log(ctx: Context<'_>, issuer: Option<String>) -> Result<(), B
             )
             .await?;
     }
+
+    Ok(())
+}
+
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
+pub async fn check_actions(
+    ctx: Context<'_>,
+    user: Option<serenity::Member>,
+    #[description = "Period of time to check (e.g. \"1 day\", \"2 weeks\"), default is 1 week"]
+    period: Option<String>,
+) -> Result<(), BotError> {
+    check_moderator(ctx).await?;
+
+    let server = ctx.data().server()?;
+    let users = server.handler().module::<UsersModule>();
+
+    let query_user = user.as_ref().map_or(ctx.author(), |u| &u.user);
+
+    // map
+    let period = match period {
+        Some(p) => match parse_duration_str(&p)? {
+            d if d.is_zero() => None,
+            d => Some(d),
+        },
+        None => Some(Duration::from_weeks(1)),
+    };
+
+    let actions = users.check_actions_over_period_discord(query_user.id.get(), period).await?;
+
+    let embed = CreateEmbed::default()
+        .color(hex_color_to_decimal("#629fd9"))
+        .title(format!("{}'s actions", query_user.display_name()))
+        .description(format!(
+            ":hammer: **Bans:** `{}`\n:mute: **Mutes:** `{}`\n:door: **Room Bans:** `{}`\n:bar_chart: **Total Actions:** `{}`",
+            actions.bans, actions.mutes, actions.roombans, actions.total
+        ));
+
+    ctx.send(ctx.reply_builder(CreateReply::default().embed(embed))).await?;
 
     Ok(())
 }
