@@ -135,10 +135,10 @@ pub async fn disallow_joins(ctx: Context<'_>, enable: bool) -> Result<(), BotErr
     Ok(())
 }
 
-#[poise::command(slash_command, guild_only = true)]
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Show server status
 pub async fn status(ctx: Context<'_>) -> Result<(), BotError> {
-    check_admin(ctx).await?;
+    check_moderator(ctx).await?;
 
     let state = ctx.data();
     let server = state.server()?;
@@ -157,7 +157,7 @@ pub async fn status(ctx: Context<'_>) -> Result<(), BotError> {
     Ok(())
 }
 
-#[poise::command(slash_command, guild_only = true)]
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Dump and show connection stats
 pub async fn conn_stats(ctx: Context<'_>) -> Result<(), BotError> {
     check_admin(ctx).await?;
