@@ -742,14 +742,16 @@ impl ConnectionHandler {
             let this = server.handler();
             let users = this.module::<UsersModule>();
 
-            let (logs, users) =
-                match users.admin_fetch_logs(issuer, target, &r#type, before, after, page).await {
-                    Ok(x) => x,
-                    Err(e) => {
-                        let _ = this.send_admin_db_result(&client, Err(e));
-                        return;
-                    }
-                };
+            let (logs, users) = match users
+                .admin_fetch_logs(issuer, target, &r#type, before, after, page as u64, 50)
+                .await
+            {
+                Ok(x) => x,
+                Err(e) => {
+                    let _ = this.send_admin_db_result(&client, Err(e));
+                    return;
+                }
+            };
 
             let Ok(buf) = data::encode_message_dyn!(this, msg => {
                 let mut msg = msg.reborrow().init_admin_logs_response();

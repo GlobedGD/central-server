@@ -743,9 +743,11 @@ impl UsersModule {
         r#type: &str,
         before: i64,
         after: i64,
-        page: u32,
+        page: u64,
+        page_size: u64,
     ) -> DatabaseResult<(Vec<AuditLogModel>, Vec<ClientAccountData>)> {
-        let logs = self.db.fetch_logs(issuer, target, r#type, before, after, page).await?;
+        let logs =
+            self.db.fetch_logs(issuer, target, r#type, before, after, page, page_size).await?;
 
         // build the account data vec, so that the user knows which account ids correspond to which person
         let mut datas: Vec<ClientAccountData> = Vec::new();

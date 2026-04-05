@@ -121,7 +121,7 @@ pub async fn unpunish(
 async fn audit_log_embed(
     logs: Vec<AuditLogModel>,
     users: &UsersModule,
-    num: u32,
+    num: u64,
 ) -> serenity::Embed {
     let mut res = serenity::Embed::default();
 
@@ -147,6 +147,7 @@ async fn audit_log_embed(
                     "mute" => "mute",
                     "unmute" => "sound",
                     "roomban" => "door",
+                    "editban" | "editmute" | "editroomban" => "pencil",
                     _ => "man_shrugging",
                 },
                 target_user.username.unwrap_or("`unable to retrieve username`".to_string()),
@@ -175,8 +176,10 @@ async fn audit_log_embed(
     res
 }
 
-#[poise::command(slash_command, guild_only = true)]
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
 pub async fn audit_log(ctx: Context<'_>, issuer: Option<String>) -> Result<(), BotError> {
+    const PAGE_SIZE: u64 = 10;
+
     let user = check_moderator(ctx).await?;
 
     let server = ctx.data().server()?;
@@ -208,7 +211,7 @@ pub async fn audit_log(ctx: Context<'_>, issuer: Option<String>) -> Result<(), B
         poise::CreateReply::default()
             .embed(
                 audit_log_embed(
-                    users.admin_fetch_logs(issuer_id, 0, "", 0, 0, 0).await?.0,
+                    users.admin_fetch_logs(issuer_id, 0, "", 0, 0, 0, PAGE_SIZE).await?.0,
                     users,
                     0,
                 )
@@ -221,13 +224,13 @@ pub async fn audit_log(ctx: Context<'_>, issuer: Option<String>) -> Result<(), B
     ctx.send(reply).await?;
 
     // Loop through incoming interactions with the navigation buttons
-    let mut current_page = 0u32;
+    let mut current_page = 0u64;
     while let Some(press) = serenity::collector::ComponentInteractionCollector::new(ctx)
         // We defined our button IDs to start with `ctx_id`. If they don't, some other command's
         // button was pressed
         .filter(move |press| press.data.custom_id.starts_with(&ctx_id.to_string()))
-        // Timeout when no navigation button has been pressed for 24 hours
-        .timeout(Duration::from_secs(3600 * 24))
+        // Timeout when no navigation button has been pressed for 5 minutes
+        .timeout(Duration::from_mins(5))
         .await
     {
         // Depending on which button was pressed, go to next or previous page
@@ -241,7 +244,7 @@ pub async fn audit_log(ctx: Context<'_>, issuer: Option<String>) -> Result<(), B
         }
 
         // Update the message with the new page contents
-        let logs = users.admin_fetch_logs(issuer_id, 0, "", 0, 0, current_page).await?.0;
+        let logs = users.admin_fetch_logs(issuer_id, 0, "", 0, 0, current_page, PAGE_SIZE).await?.0;
         press
             .create_response(
                 ctx.serenity_context(),
