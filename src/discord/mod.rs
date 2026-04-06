@@ -5,7 +5,7 @@ use poise::serenity_prelude as serenity;
 use serde::{Deserialize, Serialize};
 use server_shared::qunet::server::ServerHandle;
 use tokio::task::JoinHandle;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 #[cfg(feature = "web")]
 use {
@@ -83,6 +83,8 @@ impl DiscordModule {
         if self.ticket_ping_channel == 0 {
             return;
         }
+
+        info!("Sending ticket ping for channel {ticket_channel} to moderator {moderator_id}");
 
         self.send_message(
             self.ticket_ping_channel,
