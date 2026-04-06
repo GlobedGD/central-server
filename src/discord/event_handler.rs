@@ -29,6 +29,9 @@ pub async fn event_handler(
             let _ = module.unlink_discord_inverse(user.id.get()).await;
         }
 
+        // FullEvent::ChannelCreate { channel } => {
+
+        // }
         _ => {}
     }
 

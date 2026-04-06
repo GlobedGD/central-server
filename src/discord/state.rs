@@ -4,8 +4,11 @@ use std::{
 };
 
 use super::serenity::{self, ChannelId, Context, CreateMessage, UserId};
+use anyhow::anyhow;
 use dashmap::DashMap;
+use generic_async_http_client::Request;
 use poise::serenity_prelude::{GuildId, Member, RoleId};
+use serde::Deserialize;
 use server_shared::qunet::server::{ServerHandle, WeakServerHandle};
 use thiserror::Error;
 use tokio::{
@@ -15,8 +18,11 @@ use tokio::{
 use tracing::{debug, info, warn};
 
 use crate::{
-    core::handler::ConnectionHandler,
-    discord::{DiscordMessage, DiscordUserData, commands::util::ParseDurationError},
+    core::handler::{ClientStateHandle, ConnectionHandler, WeakClientStateHandle},
+    discord::{
+        DiscordMessage, DiscordModule, DiscordUserData, OauthOptions,
+        commands::util::ParseDurationError,
+    },
     users::{DatabaseError, DbUser, Error as UsersError, UsersModule},
 };
 
@@ -32,6 +38,24 @@ impl LinkAttempt {
             started_at: Instant::now(),
             gd_account,
             tx,
+        }
+    }
+}
+
+struct OauthAttempt {
+    started_at: Instant,
+    gd_account: i32,
+    client: WeakClientStateHandle,
+    secret: u64,
+}
+
+impl OauthAttempt {
+    pub fn new(gd_account: i32, client: WeakClientStateHandle, secret: u64) -> Self {
+        Self {
+            started_at: Instant::now(),
+            gd_account,
+            client,
+            secret,
         }
     }
 }
@@ -58,6 +82,9 @@ pub struct BotState {
     server: OnceLock<WeakServerHandle<ConnectionHandler>>,
     link_attempts: DashMap<u64, LinkAttempt>,
     pub main_guild_id: u64,
+
+    oauth_attempts: DashMap<i32, OauthAttempt>,
+    oauth: OauthOptions,
 }
 
 #[derive(Error, Debug)]
@@ -100,12 +127,14 @@ impl BotError {
 }
 
 impl BotState {
-    pub fn new(main_guild_id: u64) -> Self {
+    pub fn new(config: &super::Config) -> Self {
         Self {
             ctx: RwLock::new(None),
             server: OnceLock::new(),
             link_attempts: DashMap::new(),
-            main_guild_id,
+            oauth_attempts: DashMap::new(),
+            main_guild_id: config.main_guild_id,
+            oauth: config.oauth.clone(),
         }
     }
 
@@ -159,8 +188,99 @@ impl BotState {
         self.link_attempts.remove(&id);
     }
 
-    pub fn cleanup_link_attempts(&self) {
-        self.link_attempts.retain(|_, la| la.started_at.elapsed() < Duration::from_mins(1));
+    pub fn begin_oauth_flow(&self, client: WeakClientStateHandle, gd_account: i32) -> String {
+        let secret = rand::random::<u64>();
+        self.oauth_attempts.insert(gd_account, OauthAttempt::new(gd_account, client, secret));
+
+        format!(
+            "https://discord.com/api/oauth2/authorize?client_id={}&redirect_uri={}&response_type=code&scope=identify&state={}-{}",
+            self.oauth.client_id, self.oauth.redirect_uri, gd_account, secret
+        )
+    }
+
+    pub fn finish_oauth_flow(&self, code: String, state: String) {
+        let Some((id_str, secret_str)) = state.split_once('-') else {
+            debug!("Received invalid OAuth state: '{state}'");
+            return;
+        };
+
+        let Ok(id) = id_str.parse::<i32>() else {
+            debug!("Received invalid OAuth state: '{state}'");
+            return;
+        };
+
+        let Ok(secret) = secret_str.parse::<u64>() else {
+            debug!("Received invalid OAuth state: '{state}'");
+            return;
+        };
+
+        if let Some((_, attempt)) = self.oauth_attempts.remove(&id) {
+            if attempt.secret == secret {
+                // valid OAuth flow
+                debug!("Finished OAuth flow for user {id}");
+
+                let server = self.server().unwrap();
+                tokio::spawn(async move {
+                    let Some(client) = attempt.client.upgrade() else {
+                        return;
+                    };
+
+                    if let Err(e) = Self::finish_oauth_link(server, client, code).await {
+                        warn!("Failed to finish OAuth for user {id}: {e}");
+                    }
+                });
+            } else {
+                warn!(
+                    "Received invalid OAuth state for user {id} (secret mismatch: expected {}, got {})",
+                    attempt.secret, secret
+                );
+            }
+        } else {
+            warn!("Received OAuth state for unknown user {id}");
+        }
+    }
+
+    async fn finish_oauth_link(
+        server: ServerHandle<ConnectionHandler>,
+        client: ClientStateHandle,
+        code: String,
+    ) -> anyhow::Result<()> {
+        let this = server.handler().module::<DiscordModule>().state.clone();
+
+        let response = Request::post("https://discord.com/api/v10/oauth2/token")
+            .form(&[
+                ("client_id", this.oauth.client_id.as_str()),
+                ("client_secret", this.oauth.client_secret.as_str()),
+                ("grant_type", "authorization_code"),
+                ("redirect_uri", this.oauth.redirect_uri.as_str()),
+                ("code", code.as_str()),
+            ])?
+            .exec()
+            .await
+            .map_err(|e| anyhow!("failed to get discord access token: {e}"))?
+            .json::<DiscordOAuthAuthorizeResponse>()
+            .await?;
+
+        let response = Request::get("https://discord.com/api/v10/users/@me")
+            .add_header("Authorization", format!("Bearer {}", response.access_token).as_str())?
+            .exec()
+            .await
+            .map_err(|e| anyhow!("failed to get discord user data: {e}"))?
+            .json::<DiscordOAuthUserResponse>()
+            .await?;
+
+        let user_id = response
+            .id
+            .parse::<u64>()
+            .map_err(|e| anyhow!("failed to parse discord user id: {e}"))?;
+
+        info!("Received Discord OAuth data for user {}", response.id);
+        let users = server.handler().module::<UsersModule>();
+
+        users.link_discord_account_online(&client, user_id).await?;
+        this.sync_user_roles_by_id(user_id).await?;
+
+        Ok(())
     }
 
     /// Sync all linked users' roles. This will be slow and block for a while.
@@ -287,17 +407,26 @@ impl BotState {
         Ok(())
     }
 
-    pub(super) async fn sync_user_roles(&self, user: &Member) -> Result<Vec<String>, BotError> {
-        let server = self.server().unwrap();
+    async fn dbuser_from_discord_id(&self, discord_id: u64) -> Result<DbUser, BotError> {
+        let server = self.server()?;
         let users = server.handler().module::<UsersModule>();
 
-        let Some(db_user) = users.get_linked_discord_inverse(user.user.id.get()).await? else {
-            return Err(BotError::custom(
-                "Cannot sync roles, user is not linked to any GD account",
-            ));
+        let Some(db_user) = users.get_linked_discord_inverse(discord_id).await? else {
+            return Err(BotError::custom("User is not linked to any GD account"));
         };
 
+        Ok(db_user)
+    }
+
+    pub(super) async fn sync_user_roles(&self, user: &Member) -> Result<Vec<String>, BotError> {
+        let db_user = self.dbuser_from_discord_id(user.user.id.get()).await?;
         self.sync_user_roles_for_dbuser(&DiscordMemberData::from_discord(user), &db_user).await
+    }
+
+    async fn sync_user_roles_by_id(&self, discord_id: u64) -> Result<Vec<String>, BotError> {
+        let db_user = self.dbuser_from_discord_id(discord_id).await?;
+        let member = self.get_member_data(discord_id).await?;
+        self.sync_user_roles_for_dbuser(&member, &db_user).await
     }
 
     async fn sync_user_roles_for_dbuser(
@@ -325,4 +454,27 @@ impl BotState {
         users.system_set_roles(db_user.account_id, &new_roles_idx).await?;
         Ok(new_roles)
     }
+
+    fn cleanup_link_attempts(&self) {
+        self.link_attempts.retain(|_, la| la.started_at.elapsed() < Duration::from_mins(1));
+    }
+
+    fn cleanup_oauth_flows(&self) {
+        self.oauth_attempts.retain(|_, oa| oa.started_at.elapsed() < Duration::from_mins(10));
+    }
+
+    pub fn cleanup(&self) {
+        self.cleanup_link_attempts();
+        self.cleanup_oauth_flows();
+    }
+}
+
+#[derive(Deserialize)]
+struct DiscordOAuthAuthorizeResponse {
+    access_token: String,
+}
+
+#[derive(Deserialize)]
+struct DiscordOAuthUserResponse {
+    id: String,
 }

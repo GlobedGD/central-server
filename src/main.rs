@@ -101,19 +101,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut handler = ConnectionHandler::new(config);
 
-    // Add optional modules that have dependents
-    #[cfg(feature = "discord")]
-    {
-        let _discord =
-            init_optional_module::<discord::DiscordModule>(&handler, |c| c.enabled).await;
-
-        // if let Some(_) = discord {
-        //     // init modules that depend on discord
-        // }
-    }
-
     #[cfg(feature = "web")]
     init_module::<web::WebModule>(&handler).await;
+
+    #[cfg(feature = "discord")]
+    init_optional_module::<discord::DiscordModule>(&handler, |c| c.enabled).await;
 
     // Add necessary modules
     init_module::<AuthModule>(&handler).await;

@@ -439,6 +439,11 @@ impl AppHandler for ConnectionHandler {
                 self.handle_discord_link_confirm(client, id, accept)
             },
 
+            RequestDiscordOauth(_message) => {
+                unpacked_data.reset(); // free up memory
+                self.handle_discord_get_oauth(client)
+            },
+
             //
 
             AdminLogin(message) => {

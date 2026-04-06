@@ -7,9 +7,19 @@ use server_shared::qunet::server::ServerHandle;
 use tokio::task::JoinHandle;
 use tracing::{error, warn};
 
+#[cfg(feature = "web")]
+use {
+    crate::web::{WebModule, WebState},
+    axum::{
+        extract::{Query, State},
+        response::IntoResponse,
+    },
+    tracing::debug,
+};
+
 use crate::{
     core::{
-        handler::ConnectionHandler,
+        handler::{ClientStateHandle, ConnectionHandler},
         module::{ConfigurableModule, ModuleInitResult, ServerModule},
     },
     discord::{bot::DiscordBot, state::BotState},
@@ -44,6 +54,7 @@ pub struct DiscordModule {
     handle: JoinHandle<()>,
     state: Arc<BotState>,
     alert_channel: u64,
+    ticket_pings: bool,
     sent_alerts: Mutex<HashSet<i32>>,
 }
 
@@ -87,6 +98,15 @@ impl DiscordModule {
     pub fn finish_link_attempt(&self, gd_account: i32, id: u64, accepted: bool) {
         self.state.finish_link_attempt(gd_account, id, accepted)
     }
+
+    /// Begins oauth2 flow and returns a URL that the user must open
+    pub fn begin_oauth_flow(&self, client: &ClientStateHandle, gd_account: i32) -> String {
+        self.state.begin_oauth_flow(Arc::downgrade(client), gd_account)
+    }
+
+    pub fn finish_oauth_flow(&self, code: String, state: String) {
+        self.state.finish_oauth_flow(code, state)
+    }
 }
 
 impl Drop for DiscordModule {
@@ -101,6 +121,17 @@ impl Drop for DiscordModule {
     }
 }
 
+#[derive(Deserialize, Serialize, Default, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct OauthOptions {
+    #[serde(default)]
+    pub client_id: String,
+    #[serde(default)]
+    pub client_secret: String,
+    #[serde(default)]
+    pub redirect_uri: String,
+}
+
 #[derive(Deserialize, Serialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -112,11 +143,15 @@ pub struct Config {
     pub main_guild_id: u64,
     #[serde(default)]
     pub alert_channel: u64,
+    #[serde(default)]
+    pub ticket_pings: bool,
+    #[serde(default)]
+    pub oauth: OauthOptions,
 }
 
 impl ServerModule for DiscordModule {
-    async fn new(config: &Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
-        let state = Arc::new(BotState::new(config.main_guild_id));
+    async fn new(config: &Config, handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+        let state = Arc::new(BotState::new(config));
 
         let mut bot = DiscordBot::new(&config.token, state.clone()).await?;
 
@@ -126,10 +161,17 @@ impl ServerModule for DiscordModule {
             }
         });
 
+        #[cfg(feature = "web")]
+        {
+            let web = handler.module::<WebModule>();
+            web.add_route("/discord-oauth2", axum::routing::get(oauth_handler)).await;
+        }
+
         Ok(Self {
             handle,
             state,
             alert_channel: config.alert_channel,
+            ticket_pings: config.ticket_pings,
             sent_alerts: Mutex::new(HashSet::new()),
         })
     }
@@ -146,7 +188,7 @@ impl ServerModule for DiscordModule {
         self.state.set_server(server);
 
         server.schedule(Duration::from_hours(1), async |server| {
-            server.handler().module::<Self>().state.cleanup_link_attempts();
+            server.handler().module::<Self>().state.cleanup();
         });
 
         server.schedule(Duration::from_hours(24), async |server| {
@@ -167,4 +209,23 @@ pub const fn hex_color_to_decimal(color: &'static str) -> u32 {
     }
 
     u32::from_str_radix(color, 16).unwrap_or_default()
+}
+
+#[derive(Deserialize)]
+struct OauthQuery {
+    code: String,
+    state: String,
+}
+
+#[cfg(feature = "web")]
+async fn oauth_handler(
+    Query(OauthQuery { code, state }): Query<OauthQuery>,
+    State(wstate): State<Arc<WebState>>,
+) -> impl IntoResponse {
+    debug!("Received OAuth callback with code {code}");
+    let server = wstate.server();
+    let module = server.handler().module::<DiscordModule>();
+    module.finish_oauth_flow(code, state);
+
+    "OK"
 }
