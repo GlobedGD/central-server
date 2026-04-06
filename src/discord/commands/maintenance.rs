@@ -1,24 +1,33 @@
 use std::{
     fmt::Display,
+    io::Cursor,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use anyhow::anyhow;
 use build_time::build_time_utc;
+use plotters::{
+    chart::ChartBuilder,
+    prelude::{BitMapBackend, IntoDrawingArea},
+    series::LineSeries,
+    style::{Color, RED, RGBColor},
+};
 use poise::{
     CreateReply,
     serenity_prelude::{
-        ButtonStyle, CreateActionRow, CreateButton, CreateEmbed, CreateInteractionResponse,
+        ButtonStyle, CreateActionRow, CreateAttachment, CreateButton, CreateEmbed,
+        CreateInteractionResponse,
     },
 };
 use server_shared::qunet::server::{ServerHandle, stat_tracker::OverallStats};
-use tracing::info;
+use tracing::{info, warn};
 
 use super::util::*;
 use crate::{
     core::handler::ConnectionHandler,
     discord::{BotError, hex_color_to_decimal},
     rooms::RoomModule,
-    users::UsersModule,
+    users::{PlayerCountHistoryEntry, UsersModule},
 };
 
 #[poise::command(slash_command, ephemeral = true, guild_only = true)]
@@ -172,6 +181,136 @@ pub async fn conn_stats(ctx: Context<'_>) -> Result<(), BotError> {
     } else {
         ctx.reply(":x: Stat tracking is not enabled on this server.").await?;
     }
+
+    Ok(())
+}
+
+fn make_chart(entries: &[PlayerCountHistoryEntry]) -> anyhow::Result<CreateAttachment> {
+    let width = 800;
+    let height = 350;
+    let mut buffer = vec![0u8; width * height * 3];
+
+    let bg_color = RGBColor(240, 250, 217);
+    let main_color = RED.mix(0.7);
+    let text_color = RGBColor(0, 0, 0);
+
+    {
+        let root = BitMapBackend::with_buffer(&mut buffer, (width as u32, height as u32))
+            .into_drawing_area();
+        root.fill(&bg_color)?;
+
+        let min_time = entries.first().map(|e| e.timestamp).unwrap_or(0);
+        let max_time = entries.last().map(|e| e.timestamp).unwrap_or(0);
+        let max_count = (entries.iter().map(|e| e.count).max().unwrap_or(50) as f32 * 1.2) as u32;
+
+        let show_full_time = (max_time - min_time) > 3600 * 32; // 32 hours
+
+        let mut chart = ChartBuilder::on(&root)
+            .caption("Player Count", ("sans-serif", 32))
+            .margin(20)
+            .x_label_area_size(40)
+            .y_label_area_size(50)
+            .build_cartesian_2d(min_time..max_time, 0..max_count)?;
+
+        chart
+            .configure_mesh()
+            .disable_x_mesh()
+            .disable_y_mesh()
+            .axis_style(text_color.mix(0.2))
+            .label_style(("sans-serif", 15, &text_color))
+            .x_label_formatter(&|x| format_timestamp(*x, show_full_time))
+            .draw()?;
+
+        chart.draw_series(LineSeries::new(
+            entries.iter().map(|e| (e.timestamp, e.count)),
+            main_color.stroke_width(3),
+        ))?;
+
+        // chart.draw_series(PointSeries::of_element(
+        //     entries.iter().map(|e| (e.timestamp, e.count)),
+        //     3,
+        //     main_color.filled(),
+        //     &|c, s, st| EmptyElement::at(c) + Circle::new((0, 0), s, st),
+        // ))?;
+
+        root.present()?;
+    }
+
+    let mut png_buf = Vec::new();
+    let mut cursor = Cursor::new(&mut png_buf);
+    image::write_buffer_with_format(
+        &mut cursor,
+        &buffer,
+        width as u32,
+        height as u32,
+        image::ColorType::Rgb8,
+        image::ImageFormat::Png,
+    )?;
+
+    Ok(CreateAttachment::bytes(png_buf, "player_count.png"))
+}
+
+fn format_timestamp(ts: i64, full: bool) -> String {
+    if full {
+        time_format::strftime_utc("%Y-%m-%d %H:%M", ts).unwrap()
+    } else {
+        time_format::strftime_utc("%H:%M", ts).unwrap()
+    }
+}
+
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
+/// Show the player count graph for a given period of time
+pub async fn player_count(
+    ctx: Context<'_>,
+    #[description = "The time period (e.g. 1 day, 2 weeks), by default is 24 hours"] period: Option<
+        String,
+    >,
+) -> Result<(), BotError> {
+    check_moderator(ctx).await?;
+
+    let state = ctx.data();
+    let server = state.server()?;
+    let users = server.handler().module::<UsersModule>();
+
+    let period =
+        period.map(|p| parse_duration_str(&p)).transpose()?.unwrap_or(Duration::from_days(1));
+
+    let counts = users.get_player_counts_cached(period).await?;
+    if counts.is_empty() {
+        ctx.reply(":x: No player count data available.").await?;
+        return Ok(());
+    }
+
+    let max_count = counts.iter().map(|e| e.count).max().unwrap_or(0);
+    let mean_count = counts.iter().map(|e| e.count as u64).sum::<u64>() / counts.len() as u64;
+    let current = counts.last().map_or(0, |e| e.count);
+
+    let result = tokio::task::spawn_blocking(move || make_chart(&counts))
+        .await
+        .map_err(|e| anyhow!("task failed: {e}"))
+        .flatten();
+
+    match result {
+        Ok(attachment) => {
+            ctx.send(
+                CreateReply::default().attachment(attachment).embed(
+                    CreateEmbed::new()
+                        .title("Player count graph")
+                        .field("Max players", max_count.to_string(), true)
+                        .field("Average players", mean_count.to_string(), true)
+                        .field("Current players", current.to_string(), true)
+                        .image("attachment://player_count.png")
+                        .color(0x00ff00),
+                ),
+            )
+            .await?;
+        }
+
+        Err(e) => {
+            warn!("Failed to generate player count chart: {e}");
+            ctx.reply(format!(":x: Failed to generate chart: {e}")).await?;
+        }
+    };
 
     Ok(())
 }

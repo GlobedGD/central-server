@@ -1098,7 +1098,7 @@ impl UsersModule {
         }
     }
 
-    async fn get_player_counts_cached(
+    pub async fn get_player_counts_cached(
         &self,
         period: Duration,
     ) -> DatabaseResult<Vec<PlayerCountHistoryEntry>> {
@@ -1264,9 +1264,9 @@ fn format_expiry(expires_at: i64) -> String {
 }
 
 #[derive(serde::Serialize, Clone)]
-struct PlayerCountHistoryEntry {
-    timestamp: i64,
-    count: u32,
+pub struct PlayerCountHistoryEntry {
+    pub timestamp: i64,
+    pub count: u32,
 }
 
 #[cfg(feature = "web")]
