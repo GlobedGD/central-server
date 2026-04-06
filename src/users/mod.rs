@@ -793,6 +793,10 @@ impl UsersModule {
         self.db.check_actions_over_period(account_id, period).await
     }
 
+    pub async fn get_punishment(&self, pun_id: i32) -> DatabaseResult<Option<UserPunishment>> {
+        self.db.get_punishment(pun_id).await
+    }
+
     pub async fn log_kick(&self, issuer_id: i32, account_id: i32, username: &str, reason: &str) {
         self.perform_log(issuer_id, LogAction::Kick { account_id, username, reason }).await
     }

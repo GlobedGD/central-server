@@ -12,7 +12,9 @@ pub struct DiscordBot {
 
 impl DiscordBot {
     pub async fn new(token: &str, state: Arc<BotState>) -> serenity::Result<Self> {
-        let intents = GatewayIntents::non_privileged() | GatewayIntents::GUILD_MEMBERS;
+        let intents = GatewayIntents::non_privileged()
+            | GatewayIntents::GUILD_MEMBERS
+            | GatewayIntents::MESSAGE_CONTENT;
 
         let framework = poise::Framework::builder()
             .options(poise::FrameworkOptions {

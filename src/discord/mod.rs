@@ -54,7 +54,7 @@ pub struct DiscordModule {
     handle: JoinHandle<()>,
     state: Arc<BotState>,
     alert_channel: u64,
-    ticket_pings: bool,
+    ticket_ping_channel: u64,
     sent_alerts: Mutex<HashSet<i32>>,
 }
 
@@ -77,6 +77,18 @@ impl DiscordModule {
         }
 
         self.send_message(self.alert_channel, msg)
+    }
+
+    pub fn send_ticket_ping(&self, ticket_channel: u64, moderator_id: u64) {
+        if self.ticket_ping_channel == 0 {
+            return;
+        }
+
+        self.send_message(
+            self.ticket_ping_channel,
+            DiscordMessage::new()
+                .content(format!("<@{moderator_id}> New ticket to handle: <#{ticket_channel}>")),
+        )
     }
 
     pub fn send_username_alert(&self, username: &str, id: i32) {
@@ -144,7 +156,7 @@ pub struct Config {
     #[serde(default)]
     pub alert_channel: u64,
     #[serde(default)]
-    pub ticket_pings: bool,
+    pub ticket_ping_channel: u64,
     #[serde(default)]
     pub oauth: OauthOptions,
 }
@@ -175,7 +187,7 @@ impl ServerModule for DiscordModule {
             handle,
             state,
             alert_channel: config.alert_channel,
-            ticket_pings: config.ticket_pings,
+            ticket_ping_channel: config.ticket_ping_channel,
             sent_alerts: Mutex::new(HashSet::new()),
         })
     }

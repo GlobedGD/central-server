@@ -29,9 +29,12 @@ pub async fn event_handler(
             let _ = module.unlink_discord_inverse(user.id.get()).await;
         }
 
-        // FullEvent::ChannelCreate { channel } => {
+        FullEvent::ChannelCreate { channel } => {
+            if channel.name().starts_with("ticket-") {
+                state.on_ticket_channel_created(channel.clone()).await?;
+            }
+        }
 
-        // }
         _ => {}
     }
 

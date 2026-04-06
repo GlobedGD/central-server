@@ -1,5 +1,5 @@
 use std::{
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
 
@@ -7,7 +7,7 @@ use super::serenity::{self, ChannelId, Context, CreateMessage, UserId};
 use anyhow::{anyhow, bail};
 use dashmap::DashMap;
 use generic_async_http_client::Request;
-use poise::serenity_prelude::{GuildId, Member, RoleId};
+use poise::serenity_prelude::{GetMessages, GuildChannel, GuildId, Member, RoleId};
 use serde::Deserialize;
 use server_shared::qunet::server::{ServerHandle, WeakServerHandle};
 use thiserror::Error;
@@ -15,7 +15,7 @@ use tokio::{
     sync::{RwLock, oneshot},
     time::MissedTickBehavior,
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     core::handler::{ClientStateHandle, ConnectionHandler, WeakClientStateHandle},
@@ -153,6 +153,10 @@ impl BotState {
             .get()
             .and_then(|x| x.upgrade())
             .ok_or_else(|| BotError::custom("Server handle not initialized"))
+    }
+
+    pub fn get_from_server(handle: &ServerHandle<ConnectionHandler>) -> Arc<Self> {
+        handle.handler().module::<DiscordModule>().state.clone()
     }
 
     pub fn create_link_attempt(&self, id: u64, gd_account: i32) -> oneshot::Receiver<bool> {
@@ -392,6 +396,108 @@ impl BotState {
 
         // ignore errors
         let _ = self.sync_user_roles(new).await;
+
+        Ok(())
+    }
+
+    // wow this function sucks
+    pub(super) async fn on_ticket_channel_created(
+        &self,
+        channel: GuildChannel,
+    ) -> Result<(), BotError> {
+        let server = self.server()?;
+        tokio::spawn(async move {
+            let this = Self::get_from_server(&server);
+
+            info!("Detected new ticket channel: {} ({})", channel.name(), channel.id);
+
+            let mut iters = 0;
+            let message = loop {
+                let result = this
+                    .with_ctx(async |ctx| channel.messages(&ctx.http, GetMessages::new()).await)
+                    .await;
+
+                match result {
+                    Ok(mut messages) if !messages.is_empty() => {
+                        break Some(messages.remove(0));
+                    }
+
+                    Ok(_) => {
+                        info!("No messages available in channel {} yet...", channel.id);
+                    }
+
+                    Err(e) => {
+                        warn!("Failed to fetch messages for channel {}: {e}", channel.id);
+                    }
+                }
+
+                iters += 1;
+                if iters >= 100 {
+                    warn!("Giving up on channel {} after 10 attempts", channel.id);
+                    break None;
+                }
+
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            };
+
+            let Some(message) = message else {
+                return;
+            };
+
+            let mut username = String::new();
+            for embed in message.embeds {
+                let Some(desc) = embed.description else {
+                    continue;
+                };
+
+                for [question, answer] in desc.split('\n').array_chunks::<2>() {
+                    if question.contains("in-game name") {
+                        username = answer.trim_matches('`').trim().to_owned();
+                    }
+                }
+            }
+
+            let users = server.handler().module::<UsersModule>();
+
+            let Some(user) = users.query_user(&username).await.ok().flatten() else {
+                warn!(
+                    "Failed to find user with username '{}' for channel {}",
+                    username, channel.id
+                );
+                return;
+            };
+
+            let Some(pun_id) =
+                user.active_ban.or(user.active_mute).or(user.active_room_ban).map(|p| p.id)
+            else {
+                warn!(
+                    "User {} ({}) doesn't have an active punishment, skipping lookup for channel {}",
+                    username, user.account_id, channel.id
+                );
+                return;
+            };
+
+            let Some(pun) = users.get_punishment(pun_id).await.ok().flatten() else {
+                error!(
+                    cid = channel.id.get(),
+                    "Punishment lookup failed for punishment id {pun_id}"
+                );
+                return;
+            };
+
+            let Some(issuer) = users.get_user(pun.issued_by).await.ok().flatten() else {
+                error!(
+                    cid = channel.id.get(),
+                    "Punishment issuer lookup failed for user id {}", pun.issued_by
+                );
+                return;
+            };
+
+            let issuer_discord = issuer.discord_id.map_or(0, |d| d.get());
+
+            let discord = server.handler().module::<DiscordModule>();
+            discord.send_ticket_ping(channel.id.get(), issuer_discord);
+        });
 
         Ok(())
     }
