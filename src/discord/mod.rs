@@ -12,7 +12,7 @@ use {
     crate::web::{WebModule, WebState},
     axum::{
         extract::{Query, State},
-        response::IntoResponse,
+        response::{Html, IntoResponse, Redirect},
     },
     tracing::debug,
 };
@@ -104,7 +104,7 @@ impl DiscordModule {
         self.state.begin_oauth_flow(Arc::downgrade(client), gd_account)
     }
 
-    pub fn finish_oauth_flow(&self, code: String, state: String) {
+    pub fn finish_oauth_flow(&self, code: String, state: String) -> anyhow::Result<()> {
         self.state.finish_oauth_flow(code, state)
     }
 }
@@ -164,7 +164,11 @@ impl ServerModule for DiscordModule {
         #[cfg(feature = "web")]
         {
             let web = handler.module::<WebModule>();
-            web.add_route("/discord-oauth2", axum::routing::get(oauth_handler)).await;
+            web.add_route("/discord-oauth/callback", axum::routing::get(oauth_handler)).await;
+            web.add_route("/discord-oauth/success", axum::routing::get(oauth_success_handler))
+                .await;
+            web.add_route("/discord-oauth/failure", axum::routing::get(oauth_failure_handler))
+                .await;
         }
 
         Ok(Self {
@@ -225,7 +229,22 @@ async fn oauth_handler(
     debug!("Received OAuth callback with code {code}");
     let server = wstate.server();
     let module = server.handler().module::<DiscordModule>();
-    module.finish_oauth_flow(code, state);
 
-    "OK"
+    match module.finish_oauth_flow(code, state) {
+        Ok(()) => Redirect::to("/discord-oauth/success").into_response(),
+        Err(e) => {
+            error!("Failed to finish OAuth flow: {e}");
+            Redirect::to("/discord-oauth/failure").into_response()
+        }
+    }
+}
+
+#[cfg(feature = "web")]
+async fn oauth_success_handler() -> impl IntoResponse {
+    Html(include_str!("oauth_success.html")).into_response()
+}
+
+#[cfg(feature = "web")]
+async fn oauth_failure_handler() -> impl IntoResponse {
+    Html(include_str!("oauth_failure.html")).into_response()
 }

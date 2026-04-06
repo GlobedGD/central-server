@@ -4,7 +4,7 @@ use std::{
 };
 
 use super::serenity::{self, ChannelId, Context, CreateMessage, UserId};
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use dashmap::DashMap;
 use generic_async_http_client::Request;
 use poise::serenity_prelude::{GuildId, Member, RoleId};
@@ -44,16 +44,14 @@ impl LinkAttempt {
 
 struct OauthAttempt {
     started_at: Instant,
-    gd_account: i32,
     client: WeakClientStateHandle,
     secret: u64,
 }
 
 impl OauthAttempt {
-    pub fn new(gd_account: i32, client: WeakClientStateHandle, secret: u64) -> Self {
+    pub fn new(client: WeakClientStateHandle, secret: u64) -> Self {
         Self {
             started_at: Instant::now(),
-            gd_account,
             client,
             secret,
         }
@@ -190,7 +188,7 @@ impl BotState {
 
     pub fn begin_oauth_flow(&self, client: WeakClientStateHandle, gd_account: i32) -> String {
         let secret = rand::random::<u64>();
-        self.oauth_attempts.insert(gd_account, OauthAttempt::new(gd_account, client, secret));
+        self.oauth_attempts.insert(gd_account, OauthAttempt::new(client, secret));
 
         format!(
             "https://discord.com/api/oauth2/authorize?client_id={}&redirect_uri={}&response_type=code&scope=identify&state={}-{}",
@@ -198,21 +196,13 @@ impl BotState {
         )
     }
 
-    pub fn finish_oauth_flow(&self, code: String, state: String) {
+    pub fn finish_oauth_flow(&self, code: String, state: String) -> anyhow::Result<()> {
         let Some((id_str, secret_str)) = state.split_once('-') else {
-            debug!("Received invalid OAuth state: '{state}'");
-            return;
+            bail!("invalid OAuth state: '{state}'");
         };
 
-        let Ok(id) = id_str.parse::<i32>() else {
-            debug!("Received invalid OAuth state: '{state}'");
-            return;
-        };
-
-        let Ok(secret) = secret_str.parse::<u64>() else {
-            debug!("Received invalid OAuth state: '{state}'");
-            return;
-        };
+        let id = id_str.parse::<i32>()?;
+        let secret = secret_str.parse::<u64>()?;
 
         if let Some((_, attempt)) = self.oauth_attempts.remove(&id) {
             if attempt.secret == secret {
@@ -230,14 +220,13 @@ impl BotState {
                     }
                 });
             } else {
-                warn!(
-                    "Received invalid OAuth state for user {id} (secret mismatch: expected {}, got {})",
-                    attempt.secret, secret
-                );
+                bail!("invalid OAuth state: secret mismatch for user {id}");
             }
         } else {
-            warn!("Received OAuth state for unknown user {id}");
+            bail!("Received OAuth state for unknown user {id}");
         }
+
+        Ok(())
     }
 
     async fn finish_oauth_link(
