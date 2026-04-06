@@ -97,8 +97,9 @@ async fn send_inner(
     };
 
     let features = server.handler().module::<FeaturesModule>();
+    let client = GDApiClient::new(server.handler().http_client());
 
-    let level = match GDApiClient::new().fetch_level(level_id).await {
+    let level = match client.fetch_level(level_id).await {
         Ok(Some(level)) => level,
         Ok(None) => {
             ctx.reply(":x: Level not found. Make sure the ID is correct.").await?;

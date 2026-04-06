@@ -1,6 +1,5 @@
 use std::sync::LazyLock;
 
-use generic_async_http_client::{Error as RequestError, Request};
 use parking_lot::Mutex;
 use serde::Serialize;
 use server_shared::UsernameString;
@@ -104,7 +103,7 @@ impl GDDifficulty {
 #[derive(Debug, Error)]
 pub enum GDApiFetchError {
     #[error("Error making request: {0}")]
-    Network(Box<RequestError>),
+    Network(#[from] reqwest::Error),
     #[error("Rate limited by cloudflare (error 1015)")]
     RateLimited,
     #[error("IP banned by cloudflare (error 1006)")]
@@ -119,12 +118,6 @@ pub enum GDApiFetchError {
     BoomlingsUnparsable,
     #[error("GD server returned invalid user data")]
     InvalidUser,
-}
-
-impl From<RequestError> for GDApiFetchError {
-    fn from(e: RequestError) -> Self {
-        GDApiFetchError::Network(Box::new(e))
-    }
 }
 
 #[derive(Serialize)]
@@ -160,12 +153,13 @@ static AUTH_TOKEN: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new
 
 #[derive(Default)]
 pub struct GDApiClient {
+    client: reqwest::Client,
     base_url: Option<String>,
 }
 
 impl GDApiClient {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(client: reqwest::Client) -> Self {
+        Self { client, base_url: None }
     }
 
     pub fn with_base_url(url: String) -> Self {
@@ -211,13 +205,13 @@ impl GDApiClient {
         url: &str,
         payload: &impl Serialize,
     ) -> Result<String, GDApiFetchError> {
-        let mut req = Request::post(url).add_header("User-Agent", "")?;
+        let mut req = self.client.post(url).header("User-Agent", "");
 
         if let Some(token) = AUTH_TOKEN.lock().as_deref() {
-            req = req.add_header("Authorization", token)?;
+            req = req.header("Authorization", token);
         }
 
-        let text = req.form(payload)?.exec().await?.text().await?;
+        let text = req.form(&payload).send().await?.text().await?;
 
         if let Some(text) = text.strip_prefix("error code:").map(|x| x.trim()) {
             match text.parse::<i32>() {

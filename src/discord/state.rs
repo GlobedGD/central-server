@@ -6,7 +6,6 @@ use std::{
 use super::serenity::{self, ChannelId, Context, CreateMessage, UserId};
 use anyhow::{anyhow, bail};
 use dashmap::DashMap;
-use generic_async_http_client::Request;
 use poise::serenity_prelude::{GetMessages, GuildChannel, GuildId, Member, RoleId};
 use serde::Deserialize;
 use server_shared::qunet::server::{ServerHandle, WeakServerHandle};
@@ -78,6 +77,7 @@ impl DiscordMemberData {
 pub struct BotState {
     ctx: RwLock<Option<Context>>,
     server: OnceLock<WeakServerHandle<ConnectionHandler>>,
+    http_client: reqwest::Client,
     link_attempts: DashMap<u64, LinkAttempt>,
     pub main_guild_id: u64,
 
@@ -125,10 +125,11 @@ impl BotError {
 }
 
 impl BotState {
-    pub fn new(config: &super::Config) -> Self {
+    pub fn new(http_client: reqwest::Client, config: &super::Config) -> Self {
         Self {
             ctx: RwLock::new(None),
             server: OnceLock::new(),
+            http_client,
             link_attempts: DashMap::new(),
             oauth_attempts: DashMap::new(),
             main_guild_id: config.main_guild_id,
@@ -240,23 +241,27 @@ impl BotState {
     ) -> anyhow::Result<()> {
         let this = server.handler().module::<DiscordModule>().state.clone();
 
-        let response = Request::post("https://discord.com/api/v10/oauth2/token")
+        let response = this
+            .http_client
+            .post("https://discord.com/api/v10/oauth2/token")
             .form(&[
                 ("client_id", this.oauth.client_id.as_str()),
                 ("client_secret", this.oauth.client_secret.as_str()),
                 ("grant_type", "authorization_code"),
                 ("redirect_uri", this.oauth.redirect_uri.as_str()),
                 ("code", code.as_str()),
-            ])?
-            .exec()
+            ])
+            .send()
             .await
             .map_err(|e| anyhow!("failed to get discord access token: {e}"))?
             .json::<DiscordOAuthAuthorizeResponse>()
             .await?;
 
-        let response = Request::get("https://discord.com/api/v10/users/@me")
-            .add_header("Authorization", format!("Bearer {}", response.access_token).as_str())?
-            .exec()
+        let response = this
+            .http_client
+            .get("https://discord.com/api/v10/users/@me")
+            .header("Authorization", format!("Bearer {}", response.access_token).as_str())
+            .send()
             .await
             .map_err(|e| anyhow!("failed to get discord user data: {e}"))?
             .json::<DiscordOAuthUserResponse>()

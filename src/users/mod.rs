@@ -145,6 +145,7 @@ pub struct UsersModule {
     db: UsersDb,
     roles: Vec<Role>,       // index = numeric role ID
     super_admins: Vec<i32>, // account IDs of super admins
+    gd_client: GDApiClient,
     #[cfg(feature = "discord")]
     discord: Option<Arc<DiscordModule>>,
     #[cfg(feature = "discord")]
@@ -275,10 +276,9 @@ impl UsersModule {
             return Ok(Some(user));
         }
 
-        let client = GDApiClient::new();
         let user = match query.parse::<i32>() {
-            Ok(id) => client.fetch_user(id).await?,
-            Err(_) => client.fetch_user_by_username(query).await?,
+            Ok(id) => self.gd_client.fetch_user(id).await?,
+            Err(_) => self.gd_client.fetch_user_by_username(query).await?,
         };
 
         let Some(user) = user else {
@@ -1209,6 +1209,7 @@ impl ServerModule for UsersModule {
             db,
             roles,
             super_admins: config.super_admins.clone(),
+            gd_client: GDApiClient::new(handler.http_client()),
             #[cfg(feature = "discord")]
             discord,
             #[cfg(feature = "discord")]

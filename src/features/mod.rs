@@ -64,6 +64,8 @@ pub struct FeaturesModule {
     feature_notif_channel: u64,
     #[cfg(feature = "discord")]
     feature_notif_message: Option<String>,
+
+    gd_client: GDApiClient,
 }
 
 pub struct FeaturedLevelMeta {
@@ -323,7 +325,8 @@ impl FeaturesModule {
             return Ok(());
         }
 
-        let difficulty = GDApiClient::new()
+        let difficulty = self
+            .gd_client
             .fetch_level(level.level_id)
             .await?
             .map_or(GDDifficulty::NA, |l| l.difficulty);
@@ -401,6 +404,7 @@ impl ServerModule for FeaturesModule {
             feature_notif_channel: config.feature_notif_channel,
             #[cfg(feature = "discord")]
             feature_notif_message: config.feature_notif_message.clone(),
+            gd_client: GDApiClient::new(handler.http_client()),
         };
 
         out.update_featured_level().await;

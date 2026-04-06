@@ -70,6 +70,7 @@ pub struct ConnectionHandler {
     // we use a weak handle here to avoid ref cycles, which will make it impossible to drop the server
     server: OnceLock<WeakServerHandle<Self>>,
     game_server_manager: GameServerManager,
+    http_client: reqwest::Client,
     config: Config,
 
     clients: ClientStore,
@@ -661,12 +662,20 @@ impl AppHandler for ConnectionHandler {
 
 impl ConnectionHandler {
     pub fn new(config: Config) -> Self {
+        static APP_USER_AGENT: &str =
+            concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
+
         Self {
             modules: TypeMap::new(),
             module_list: Mutex::new(Vec::new()),
             server: OnceLock::new(),
             game_server_manager: GameServerManager::new(),
             config,
+            http_client: reqwest::Client::builder()
+                .user_agent(APP_USER_AGENT)
+                .connect_timeout(Duration::from_secs(5))
+                .build()
+                .expect("failed to create an http client"),
             clients: ClientStore::new(),
             all_levels: DashMap::new(),
             refuse_connections: AtomicBool::new(false),
@@ -781,6 +790,10 @@ impl ConnectionHandler {
         } else {
             false
         }
+    }
+
+    pub fn http_client(&self) -> reqwest::Client {
+        self.http_client.clone()
     }
 
     // Handling of game servers.

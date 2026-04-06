@@ -165,7 +165,7 @@ pub struct Config {
 
 impl ServerModule for DiscordModule {
     async fn new(config: &Config, handler: &ConnectionHandler) -> ModuleInitResult<Self> {
-        let state = Arc::new(BotState::new(config));
+        let state = Arc::new(BotState::new(handler.http_client(), config));
 
         let mut bot = DiscordBot::new(&config.token, state.clone()).await?;
 
