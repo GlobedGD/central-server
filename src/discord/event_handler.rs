@@ -3,10 +3,7 @@ use std::sync::Arc;
 use super::serenity::*;
 use tracing::{debug, warn};
 
-use crate::{
-    discord::{BotError, state::BotState},
-    users::UsersModule,
-};
+use crate::discord::{BotError, state::BotState};
 
 pub async fn event_handler(
     _ctx: &Context,
@@ -22,11 +19,7 @@ pub async fn event_handler(
         } => state.on_member_updated(old_if_available.as_ref(), new).await?,
 
         FullEvent::GuildMemberRemoval { user, .. } => {
-            // unlink user
-            let server = state.server().unwrap();
-            let module = server.handler().module::<UsersModule>();
-
-            let _ = module.unlink_discord_inverse(user.id.get()).await;
+            state.on_member_leave(user).await?;
         }
 
         FullEvent::ChannelCreate { channel } => {

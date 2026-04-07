@@ -6,7 +6,7 @@ use std::{
 use super::serenity::{self, ChannelId, Context, CreateMessage, UserId};
 use anyhow::{anyhow, bail};
 use dashmap::DashMap;
-use poise::serenity_prelude::{GetMessages, GuildChannel, GuildId, Member, RoleId};
+use poise::serenity_prelude::{GetMessages, GuildChannel, GuildId, Member, RoleId, User};
 use serde::Deserialize;
 use server_shared::qunet::server::{ServerHandle, WeakServerHandle};
 use thiserror::Error;
@@ -294,20 +294,30 @@ impl BotState {
 
             let discord_id = user.discord_id.expect("returned user didn't have discord id");
 
-            let user_data = match self.get_member_data(discord_id.get()).await {
-                Ok(u) => u,
+            match self.get_member_data(discord_id.get()).await {
+                Ok(Some(u)) => {
+                    // sync their roles
+                    if let Err(e) = self.sync_user_roles_for_dbuser(&u, &user).await {
+                        warn!("Failed to sync roles for {} ({}): {e}", discord_id, user.account_id);
+                    }
+                }
+
+                Ok(None) => {
+                    // remove all roles that require linking, user left the server
+                    info!(
+                        "Clearing roles for user {} ({}), they left the server",
+                        user.account_id, discord_id
+                    );
+                    self.clear_roles_for_dbuser(&user).await?;
+                    continue;
+                }
+
                 Err(e) => {
                     warn!("failed to fetch discord user {discord_id}: {e}");
-                    // TODO: if the user was e.g. deleted or left the server, we should unlink this user
-                    // we should not do this upon any error, since then we will accidentally
-                    // unlink everyone during a network outage or similar
+                    // don't do anything if we fail to fetch the user
                     continue;
                 }
             };
-
-            if let Err(e) = self.sync_user_roles_for_dbuser(&user_data, &user).await {
-                warn!("Failed to sync roles for {} ({}): {e}", discord_id, user.account_id);
-            }
         }
 
         Ok(())
@@ -369,7 +379,7 @@ impl BotState {
     }
 
     /// Note: panics if self.main_guild_id == 0
-    pub async fn get_member_data(&self, id: u64) -> Result<DiscordMemberData, BotError> {
+    pub async fn get_member_data(&self, id: u64) -> Result<Option<DiscordMemberData>, BotError> {
         let id = UserId::new(id);
         let guild_id = GuildId::new(self.main_guild_id);
 
@@ -380,12 +390,21 @@ impl BotState {
                 let cached = cached_guild.as_ref().and_then(|r| r.members.get(&id));
 
                 if let Some(c) = cached {
-                    return Ok(DiscordMemberData::from_discord(c));
+                    return Ok(Some(DiscordMemberData::from_discord(c)));
                 }
             }
 
-            let member = c.http.get_member(guild_id, id).await?;
-            Ok(DiscordMemberData::from_discord(&member))
+            match c.http.get_member(guild_id, id).await {
+                Ok(member) => Ok(Some(DiscordMemberData::from_discord(&member))),
+
+                Err(serenity::Error::Http(he))
+                    if he.status_code().is_some_and(|c| c.as_u16() == 404) =>
+                {
+                    Ok(None)
+                }
+
+                Err(e) => Err(e.into()),
+            }
         })
         .await
     }
@@ -401,6 +420,13 @@ impl BotState {
 
         // ignore errors
         let _ = self.sync_user_roles(new).await;
+
+        Ok(())
+    }
+
+    pub(super) async fn on_member_leave(&self, user: &User) -> Result<(), BotError> {
+        // ignore errors
+        let _ = self.sync_user_roles_by_id(user.id.get()).await;
 
         Ok(())
     }
@@ -525,8 +551,13 @@ impl BotState {
 
     async fn sync_user_roles_by_id(&self, discord_id: u64) -> Result<Vec<String>, BotError> {
         let db_user = self.dbuser_from_discord_id(discord_id).await?;
-        let member = self.get_member_data(discord_id).await?;
-        self.sync_user_roles_for_dbuser(&member, &db_user).await
+
+        if let Some(member) = self.get_member_data(discord_id).await? {
+            self.sync_user_roles_for_dbuser(&member, &db_user).await
+        } else {
+            self.clear_roles_for_dbuser(&db_user).await?;
+            Ok(vec![])
+        }
     }
 
     async fn sync_user_roles_for_dbuser(
@@ -553,6 +584,18 @@ impl BotState {
 
         users.system_set_roles(db_user.account_id, &new_roles_idx).await?;
         Ok(new_roles)
+    }
+
+    /// Clears all roles that require linking
+    async fn clear_roles_for_dbuser(&self, db_user: &DbUser) -> Result<(), BotError> {
+        // TODO: for now we just remove all roles
+        let server = self.server().unwrap();
+        let users = server.handler().module::<UsersModule>();
+
+        info!("Syncing roles for {} ({}): <none>", db_user.username(), db_user.account_id);
+
+        users.system_set_roles(db_user.account_id, &[]).await?;
+        Ok(())
     }
 
     fn cleanup_link_attempts(&self) {
