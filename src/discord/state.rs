@@ -285,6 +285,8 @@ impl BotState {
     pub async fn slow_sync_all(&self) -> anyhow::Result<()> {
         let users = self.server()?.handler().module::<UsersModule>().get_all_linked_users().await?;
 
+        info!("Beginning to sync roles for all ({}) linked users", users.len());
+
         // limit to 5 requests per second
         let mut interval = tokio::time::interval(Duration::from_millis(200));
         interval.set_missed_tick_behavior(MissedTickBehavior::Burst);
