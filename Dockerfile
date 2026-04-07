@@ -8,7 +8,7 @@ ENV CARGO_HOME=/cargo \
     PATH="/cargo/bin:/rustup/toolchains/${RUST_NIGHTLY_VERSION}/bin:/zig:$PATH"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config ca-certificates curl xz-utils build-essential libfontconfig1-dev \
+    pkg-config ca-certificates curl xz-utils build-essential \
     && rm -rf /var/lib/apt/lists/* \
     && curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain ${RUST_NIGHTLY_VERSION} \
     && curl -L https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz | tar -xJ && mv zig-x86_64-linux-${ZIG_VERSION} /zig \
