@@ -103,7 +103,10 @@ impl UsersDb {
             .one(&self.conn)
             .await?;
 
-        Ok(user.and_then(|x| x.discord_id.map(|x| x as u64)))
+        Ok(user.and_then(|x| match x.discord_id {
+            Some(0) | None => None,
+            Some(id) => Some(id as u64),
+        }))
     }
 
     pub async fn get_linked_discord_inverse(
