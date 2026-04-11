@@ -1243,6 +1243,10 @@ impl ServerModule for UsersModule {
         }
     }
 
+    fn reload(&self, _server: &ServerHandle<ConnectionHandler>, config: Arc<Config>) {
+        self.config.store(config);
+    }
+
     fn id() -> &'static str {
         "users"
     }
