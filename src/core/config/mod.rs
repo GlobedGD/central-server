@@ -70,20 +70,41 @@ impl Config {
     }
 
     pub fn custom<T: DeserializeOwned + Send + Sync + 'static>(&self) -> Arc<T> {
-        self.mod_config.get::<Arc<T>>().cloned().expect("config not initialized for module")
+        self.mod_config.get::<ArcSwap<T>>().expect("config not initialized for module").load_full()
     }
 
     pub fn core(&self) -> Arc<CoreConfig> {
         self.core_config.load_full()
     }
 
-    pub fn init_module<T: ServerModule + ConfigurableModule>(&self) -> Result<(), ConfigError> {
-        self.init_custom::<T::Config>(T::id())
+    pub fn init_module<T: ServerModule + ConfigurableModule>(&mut self) -> Result<(), ConfigError> {
+        self.init_custom::<T::Config>(T::id())?;
+
+        Ok(())
     }
 
-    fn init_custom<T: ConfigTrait>(&self, id: &str) -> Result<(), ConfigError> {
+    pub fn reload_core(&self) -> Result<(), ConfigError> {
+        let mut cfg = Self::_init_core(&self.root_dir)?;
+        cfg.replace_with_env();
+        cfg.validate()?;
+
+        self.core_config.store(Arc::new(cfg));
+        Ok(())
+    }
+
+    pub fn reload_module<T: ServerModule + ConfigurableModule>(
+        &self,
+    ) -> Result<Arc<T::Config>, ConfigError> {
+        let cfg = Self::_init_from_path::<T::Config>(&self.root_dir, T::id())?;
+        let cfg = Arc::new(cfg);
+
+        self.mod_config.get::<ArcSwap<T::Config>>().unwrap().store(cfg.clone());
+        Ok(cfg)
+    }
+
+    fn init_custom<T: ConfigTrait>(&mut self, id: &'static str) -> Result<(), ConfigError> {
         let config = Self::_init_from_path::<T>(&self.root_dir, id)?;
-        self.mod_config.insert(Arc::new(config));
+        self.mod_config.insert(ArcSwap::new(Arc::new(config)));
         Ok(())
     }
 

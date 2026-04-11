@@ -28,12 +28,11 @@ pub trait ServerModule: Send + Sync + 'static {
 
     /// Called when the configuration of the module should be reloaded.
     /// This is optional to implement
-    fn reload(&self, config: Arc<Self::Config>) -> impl Future<Output = ModuleInitResult<()>> + Send
+    fn reload(&self, config: Arc<Self::Config>)
     where
         Self: Sized + ConfigurableModule,
     {
         let _ = config;
-        async { Ok(()) }
     }
 
     fn on_launch(&self, _server: &ServerHandle<ConnectionHandler>) {}

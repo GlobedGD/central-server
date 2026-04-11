@@ -102,26 +102,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut handler = ConnectionHandler::new(config);
 
     #[cfg(feature = "web")]
-    init_module::<web::WebModule>(&handler).await;
+    init_module::<web::WebModule>(&mut handler).await;
 
     #[cfg(feature = "discord")]
-    init_optional_module::<discord::DiscordModule>(&handler, |c| c.enabled).await;
+    init_optional_module::<discord::DiscordModule>(&mut handler, |c| c.enabled).await;
 
     // Add necessary modules
-    init_module::<AuthModule>(&handler).await;
-    init_module::<RoomModule>(&handler).await;
-    init_module::<UsersModule>(&handler).await;
-    init_module::<CreditsModule>(&handler).await;
+    init_module::<AuthModule>(&mut handler).await;
+    init_module::<RoomModule>(&mut handler).await;
+    init_module::<UsersModule>(&mut handler).await;
+    init_module::<CreditsModule>(&mut handler).await;
 
     // Add more optional modules
     #[cfg(feature = "featured-levels")]
-    init_module::<features::FeaturesModule>(&handler).await;
+    init_module::<features::FeaturesModule>(&mut handler).await;
 
     #[cfg(feature = "word-filter")]
-    init_module::<word_filter::WordFilterModule>(&handler).await;
+    init_module::<word_filter::WordFilterModule>(&mut handler).await;
 
     #[cfg(feature = "analytics")]
-    init_module::<analytics::AnalyticsModule>(&handler).await;
+    init_module::<analytics::AnalyticsModule>(&mut handler).await;
 
     // Freeze handler, this disallows adding new modules and module configs,
     // but improves performance by removing the need for locks.
@@ -266,15 +266,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn init_module<T: ServerModule + ConfigurableModule>(handler: &ConnectionHandler) -> Arc<T> {
+async fn init_module<T: ServerModule + ConfigurableModule>(
+    handler: &mut ConnectionHandler,
+) -> Arc<T> {
     init_optional_module(handler, |_| true).await.expect("module initialization failed")
 }
 
 async fn init_optional_module<T: ServerModule + ConfigurableModule>(
-    handler: &ConnectionHandler,
+    handler: &mut ConnectionHandler,
     should_enable: impl FnOnce(&T::Config) -> bool,
 ) -> Option<Arc<T>> {
-    let config = handler.config();
+    let config: &mut Config = handler.config_mut();
 
     if let Err(e) = config.init_module::<T>() {
         error!("Failed to initialize config for module {} ({}): {e}", T::name(), T::id());

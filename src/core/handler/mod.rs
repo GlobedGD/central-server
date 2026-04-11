@@ -41,7 +41,7 @@ use crate::{
         data::{self, decode_message_match},
         game_server::{GameServerHandler, GameServerManager, StoredGameServer},
         handler::client_store::{ClientStore, normalize_username},
-        module::ServerModule,
+        module::{ConfigurableModule, ServerModule},
     },
     rooms::{RoomModule, RoomSettings},
     users::{ComputedRole, UsersModule},
@@ -64,9 +64,13 @@ struct LevelEntry {
     is_hidden: bool,
 }
 
+type ModuleReloadFn = Box<dyn Fn(&Config) + Send + Sync>;
+
 pub struct ConnectionHandler {
     modules: TypeMap,
     module_list: Mutex<Vec<Arc<dyn ServerModule>>>,
+    module_reload_fns: Mutex<Vec<ModuleReloadFn>>,
+
     // we use a weak handle here to avoid ref cycles, which will make it impossible to drop the server
     server: OnceLock<WeakServerHandle<Self>>,
     game_server_manager: GameServerManager,
@@ -658,6 +662,18 @@ impl AppHandler for ConnectionHandler {
     async fn on_sigusr1(&self, _server: &QunetServer<Self>) {
         self.dump_all_connections().await;
     }
+
+    async fn on_sigusr2(&self, _server: &QunetServer<Self>) {
+        if let Err(e) = self.config().reload_core() {
+            error!("Failed to reload core config: {e}");
+        }
+
+        for func in self.module_reload_fns.lock().iter() {
+            func(self.config());
+        }
+
+        info!("Reloaded server configuration!");
+    }
 }
 
 impl ConnectionHandler {
@@ -668,6 +684,7 @@ impl ConnectionHandler {
         Self {
             modules: TypeMap::new(),
             module_list: Mutex::new(Vec::new()),
+            module_reload_fns: Mutex::new(Vec::new()),
             server: OnceLock::new(),
             game_server_manager: GameServerManager::new(),
             config,
@@ -682,10 +699,26 @@ impl ConnectionHandler {
         }
     }
 
-    pub fn insert_module<T: ServerModule>(&self, module: T) {
+    pub fn insert_module<T: ServerModule + ConfigurableModule + Sized>(&self, module: T) {
         self.modules.insert(module);
-        let module: Arc<dyn ServerModule> = self.opt_module_owned::<T>().unwrap();
+        let module = self.opt_module_owned::<T>().unwrap();
+        let weak = Arc::downgrade(&module);
+
         self.module_list.lock().push(module);
+
+        self.module_reload_fns.lock().push(Box::new(move |config| {
+            let Some(module) = weak.upgrade() else {
+                return;
+            };
+
+            match config.reload_module::<T>() {
+                Ok(cfg) => module.reload(cfg),
+
+                Err(e) => {
+                    error!("Failed to reload config for module {}: {}", T::id(), e);
+                }
+            }
+        }));
     }
 
     /// Get a module by type. Panics if the module is not found.
@@ -710,6 +743,10 @@ impl ConnectionHandler {
 
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    pub fn config_mut(&mut self) -> &mut Config {
+        &mut self.config
     }
 
     pub async fn dump_all_connections(&self) -> Option<OverallStats> {
