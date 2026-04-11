@@ -14,6 +14,7 @@ use tracing::{debug, error, info};
 
 use crate::{
     core::{
+        gd_api::GDApiClient,
         handler::ConnectionHandler,
         module::{ConfigurableModule, ModuleInitResult, ServerModule},
     },
@@ -26,7 +27,7 @@ use crate::{
 #[cfg(feature = "discord")]
 use {
     crate::{
-        core::gd_api::{GDApiClient, GDDifficulty},
+        core::gd_api::GDDifficulty,
         discord::{DiscordMessage, DiscordModule, hex_color_to_decimal},
     },
     poise::serenity_prelude::{CreateEmbed, CreateEmbedAuthor},
@@ -58,6 +59,7 @@ pub struct FeaturesModule {
     discord: Option<Arc<DiscordModule>>,
     users_module: Arc<UsersModule>,
 
+    #[allow(unused)]
     gd_client: GDApiClient,
 }
 

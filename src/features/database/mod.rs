@@ -3,9 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use sea_orm::{
-    ActiveValue::NotSet, FromQueryResult, Order, QueryOrder, QuerySelect, sea_query::NullOrdering,
-};
+use sea_orm::{ActiveValue::NotSet, Order, QueryOrder, QuerySelect, sea_query::NullOrdering};
 use thiserror::Error;
 use {
     sea_orm::{
@@ -15,10 +13,9 @@ use {
     sea_orm_migration::MigratorTrait,
 };
 
-use migration::Migrator;
+use features_migration::Migrator;
 
 mod entities;
-mod migration;
 
 pub use entities::prelude::*;
 use entities::*;
@@ -29,7 +26,7 @@ pub type SentLevelModel = sent_level::Model;
 
 const FEATURE_PAGE_SIZE: u64 = 25;
 
-#[derive(DerivePartialModel, FromQueryResult)]
+#[derive(DerivePartialModel)]
 #[sea_orm(entity = "FeaturedLevel")]
 pub struct PartialFeaturedLevelId {
     #[sea_orm(from_col = "level_id")]

@@ -217,9 +217,14 @@ impl ConnectionHandler {
             if accounts.iter().any(|&id| id != data.account_id) {
                 match users.insert_uident(data.account_id, uident).await {
                     Ok(true) => {
-                        // notify on discord
+                        // notify on discord if any of the accounts have active punishments
                         #[cfg(feature = "discord")]
-                        if let Some(discord) = discord {
+                        if let Some(discord) = discord
+                            && users
+                                .any_active_punishments_for_uident(uident)
+                                .await
+                                .unwrap_or(false)
+                        {
                             discord
                                 .send_alt_alert(
                                     &data.username,

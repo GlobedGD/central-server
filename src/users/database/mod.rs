@@ -9,9 +9,12 @@ use thiserror::Error;
 use tracing::warn;
 
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::NotSet, ActiveValue::Set, ColumnTrait, ConnectOptions, Database,
-    DatabaseConnection, EntityTrait, FromQueryResult, IntoActiveModel, QueryFilter, QueryOrder,
-    QuerySelect, prelude::*,
+    ActiveModelTrait,
+    ActiveValue::{NotSet, Set},
+    ColumnTrait, ConnectOptions, Database, DatabaseConnection, EntityTrait, ExprTrait,
+    IntoActiveModel, QueryFilter, QueryOrder, QuerySelect,
+    prelude::*,
+    raw_sql,
 };
 use sea_orm_migration::MigratorTrait;
 
@@ -21,11 +24,10 @@ pub use log_action::LogAction;
 
 #[allow(warnings)]
 mod entities;
-mod migration;
 
 pub use entities::prelude::*;
 use entities::*;
-use migration::Migrator;
+use users_migration::Migrator;
 
 #[derive(Error, Debug)]
 pub enum DatabaseError {
@@ -37,14 +39,14 @@ pub enum DatabaseError {
     NotFound,
 }
 
-#[derive(DerivePartialModel, FromQueryResult)]
+#[derive(DerivePartialModel)]
 #[sea_orm(entity = "User")]
 struct PartialDiscordUser {
     #[sea_orm(from_col = "discord_id")]
     pub discord_id: Option<i64>,
 }
 
-#[derive(DerivePartialModel, FromQueryResult)]
+#[derive(DerivePartialModel)]
 #[sea_orm(entity = "Uident")]
 struct PartialAccountUident {
     #[sea_orm(from_col = "account_id")]
@@ -87,6 +89,7 @@ impl UsersDb {
         Migrator::up(&self.conn, None).await?;
         Ok(())
     }
+
     pub async fn get_user(&self, account_id: i32) -> DatabaseResult<Option<DbUser>> {
         let user = User::find_by_id(account_id).one(&self.conn).await?;
 
@@ -318,6 +321,37 @@ impl UsersDb {
 
     pub async fn get_account_count_for_uident(&self, ident: &str) -> DatabaseResult<u64> {
         Ok(Uident::find().filter(uident::Column::Ident.eq(ident)).count(&self.conn).await?)
+    }
+
+    pub async fn any_active_punishments_for_uident(&self, ident: &str) -> DatabaseResult<bool> {
+        // i could not figure out how to do this with solely sea orm lol
+        // so instead we make a funny query and then make separate queries for punishments
+        let users = User::find().from_raw_sql(raw_sql!(
+            Sqlite,
+            r#"select u.* from uident ui right join user u on u.account_id = ui.account_id where ident = {ident}"#
+        )).all(&self.conn).await?;
+
+        for user in users {
+            let try_one = async |id| -> bool {
+                if let Some(id) = id {
+                    matches!(
+                        self.get_punishment(id).await.ok().flatten(),
+                        Some(p) if p.expires_at.is_none_or(|p| p > timestamp())
+                    )
+                } else {
+                    false
+                }
+            };
+
+            if try_one(user.active_ban).await
+                || try_one(user.active_mute).await
+                || try_one(user.active_room_ban).await
+            {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
     }
 
     pub async fn get_accounts_for_uident(&self, ident: &str) -> DatabaseResult<SmallVec<[i32; 8]>> {

@@ -1,3 +1,10 @@
+[workspace]
+members = [
+    ".",
+    "src/users/database/migration",
+    "src/features/database/migration",
+]
+
 [package]
 name = "central-server"
 version = "1.0.0"
@@ -9,7 +16,10 @@ codegen-units = 1
 debug = true
 
 [dependencies]
-sea-orm-migration = { version = "1.1.19" }
+users_migration = { path = "src/users/database/migration" }
+features_migration = { path = "src/features/database/migration" }
+
+sea-orm-migration = { version = "2.0.0-rc.38" }
 base64 = "0.22.1"
 blake3 = "1.8.3"
 dashmap = { version = "6.1.0", features = ["inline", "raw-api"] }
@@ -36,7 +46,7 @@ toml = "1.0.3"
 tracing = "0.1.44"
 arc-swap = "1.8.2"
 rustc-hash = "2.1.1"
-sea-orm = { version = "1.1.19", default-features = false, features = [
+sea-orm = { version = "2.0.0-rc.38", default-features = false, features = [
     "macros",
     "runtime-tokio-rustls",
     "sqlx-sqlite",

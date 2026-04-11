@@ -143,7 +143,7 @@ impl DiscordModule {
                 }
 
                 None => {
-                    writeln!(alert_str, "- account ID {acc_id} (failed to fetch details)").unwrap();
+                    writeln!(alert_str, "- {acc_id} (failed to fetch details)").unwrap();
                 }
             }
         }
@@ -300,6 +300,7 @@ pub const fn hex_color_to_decimal(color: &'static str) -> u32 {
     u32::from_str_radix(color, 16).unwrap_or_default()
 }
 
+#[cfg(feature = "web")]
 #[derive(Deserialize)]
 struct OauthQuery {
     code: String,

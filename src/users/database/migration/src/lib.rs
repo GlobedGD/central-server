@@ -1,6 +1,5 @@
-use sea_orm_migration::prelude::*;
+pub use sea_orm_migration::prelude::*;
 
-// generate using `sea-orm-cli migrate generate <name>` (not in this dir, in database)
 mod m20250802_000001_initial;
 mod m20250829_161555_add_uident;
 mod m20250910_214142_add_discord_id;

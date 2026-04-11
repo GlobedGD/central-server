@@ -1,6 +1,5 @@
-use sea_orm_migration::prelude::*;
+pub use sea_orm_migration::prelude::*;
 
-// generate using `sea-orm-cli migrate generate <name>` in database/ folder
 mod m20250928_144510_add_featured;
 mod m20251010_160043_add_blacklisted;
 mod m20260403_222137_make_queued_sane;

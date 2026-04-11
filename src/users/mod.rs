@@ -1,6 +1,6 @@
 use std::{
     cmp::Reverse,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fmt::Write,
     num::NonZeroI64,
     sync::{Arc, OnceLock},
@@ -10,11 +10,10 @@ use std::{
 #[cfg(feature = "discord")]
 use {
     crate::{
-        core::handler::ClientStateHandle,
         discord::{DiscordMessage, DiscordModule, hex_color_to_decimal},
+        users::database::ActionsBreakdown,
     },
     poise::serenity_prelude::{CreateEmbed, CreateEmbedAuthor},
-    std::collections::HashMap,
 };
 
 #[cfg(feature = "web")]
@@ -30,10 +29,10 @@ use crate::{
     auth::ClientAccountData,
     core::{
         gd_api::{GDApiClient, GDApiFetchError},
-        handler::ConnectionHandler,
+        handler::{ClientStateHandle, ConnectionHandler},
         module::{ConfigurableModule, ModuleInitResult, ServerModule},
     },
-    users::database::{ActionsBreakdown, AuditLogModel, LogAction},
+    users::database::{AuditLogModel, LogAction},
 };
 
 use arc_swap::ArcSwap;
@@ -335,6 +334,10 @@ impl UsersModule {
         } else {
             self.db.get_accounts_for_uident(ident).await
         }
+    }
+
+    pub async fn any_active_punishments_for_uident(&self, ident: &str) -> DatabaseResult<bool> {
+        self.db.any_active_punishments_for_uident(ident).await
     }
 
     pub async fn get_user_uident(&self, account_id: i32) -> DatabaseResult<Option<String>> {
@@ -800,6 +803,7 @@ impl UsersModule {
         Ok((logs, datas))
     }
 
+    #[cfg(feature = "discord")]
     pub async fn check_actions_over_period_discord(
         &self,
         discord_id: u64,
@@ -1179,6 +1183,7 @@ impl UsersModule {
         Ok(counts)
     }
 
+    #[allow(unused)]
     fn server(&self) -> ServerHandle<ConnectionHandler> {
         self.server
             .get()
