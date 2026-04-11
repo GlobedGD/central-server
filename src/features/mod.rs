@@ -8,6 +8,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use arc_swap::ArcSwap;
 use server_shared::qunet::server::ServerHandle;
 use tracing::{debug, error, info};
 
@@ -48,22 +49,14 @@ pub enum FeaturesError {
 
 pub struct FeaturesModule {
     db: Db,
+    config: ArcSwap<config::Config>,
     active_level: AtomicI32,
     active_level_tier: AtomicU8,
     active_level_edition: AtomicU32,
-    feature_cycle_interval: Duration,
     sheets: Option<SheetsClient>,
     #[cfg(feature = "discord")]
     discord: Option<Arc<DiscordModule>>,
     users_module: Arc<UsersModule>,
-    #[cfg(feature = "discord")]
-    exhaust_notif_channel: u64,
-    #[cfg(feature = "discord")]
-    exhaust_notif_message: Option<String>,
-    #[cfg(feature = "discord")]
-    feature_notif_channel: u64,
-    #[cfg(feature = "discord")]
-    feature_notif_message: Option<String>,
 
     gd_client: GDApiClient,
 }
@@ -196,15 +189,18 @@ impl FeaturesModule {
         };
 
         // don't cycle if interval is 0
-        if self.feature_cycle_interval.is_zero() {
+        let config = self.config.load();
+        if config.feature_cycle_interval == 0 {
             return;
         }
+
+        let cycle_interval = Duration::from_secs(config.feature_cycle_interval as u64);
 
         let expired = match &level {
             Some(level) => {
                 let dur = level
                     .feature_duration
-                    .map_or(self.feature_cycle_interval, |d| Duration::from_secs(d as u64));
+                    .map_or(cycle_interval, |d| Duration::from_secs(d as u64));
 
                 let until = (UNIX_EPOCH + Duration::from_secs(level.featured_at as u64) + dur)
                     .duration_since(SystemTime::now())
@@ -321,7 +317,8 @@ impl FeaturesModule {
             return Ok(());
         };
 
-        if self.feature_notif_channel == 0 {
+        let config = self.config.load();
+        if config.feature_notif_channel == 0 {
             return Ok(());
         }
 
@@ -332,9 +329,9 @@ impl FeaturesModule {
             .map_or(GDDifficulty::NA, |l| l.difficulty);
 
         discord.send_message(
-            self.feature_notif_channel,
+            config.feature_notif_channel,
             DiscordMessage::new()
-                .content(self.feature_notif_message.as_deref().unwrap_or_default())
+                .content(config.feature_notif_message.as_deref().unwrap_or_default())
                 .add_embed(
                     CreateEmbed::new()
                         .author(CreateEmbedAuthor::new("New Featured Level"))
@@ -354,14 +351,16 @@ impl FeaturesModule {
             return Ok(());
         };
 
-        if self.exhaust_notif_channel == 0 {
+        let config = self.config.load();
+
+        if config.exhaust_notif_channel == 0 {
             return Ok(());
         }
 
         discord.send_message(
-            self.exhaust_notif_channel,
+            config.exhaust_notif_channel,
             DiscordMessage::new()
-                .content(self.exhaust_notif_message.as_deref().unwrap_or_default()),
+                .content(config.exhaust_notif_message.as_deref().unwrap_or_default()),
         );
 
         Ok(())
@@ -391,28 +390,24 @@ impl ServerModule for FeaturesModule {
 
         let out = Self {
             db,
+            config: ArcSwap::new(config),
             active_level: AtomicI32::new(0),
             active_level_tier: AtomicU8::new(0),
             active_level_edition: AtomicU32::new(0),
-            feature_cycle_interval: Duration::from_secs(config.feature_cycle_interval as u64),
             sheets,
             #[cfg(feature = "discord")]
             discord,
             users_module: handler.opt_module_owned::<UsersModule>().unwrap(),
-            #[cfg(feature = "discord")]
-            exhaust_notif_channel: config.exhaust_notif_channel,
-            #[cfg(feature = "discord")]
-            exhaust_notif_message: config.exhaust_notif_message.clone(),
-            #[cfg(feature = "discord")]
-            feature_notif_channel: config.feature_notif_channel,
-            #[cfg(feature = "discord")]
-            feature_notif_message: config.feature_notif_message.clone(),
             gd_client: GDApiClient::new(handler.http_client()),
         };
 
         out.update_featured_level().await;
 
         Ok(out)
+    }
+
+    fn reload(&self, _server: &ServerHandle<ConnectionHandler>, config: Arc<config::Config>) {
+        self.config.store(config);
     }
 
     fn id() -> &'static str {
@@ -424,7 +419,7 @@ impl ServerModule for FeaturesModule {
     }
 
     fn on_launch(&self, server: &ServerHandle<ConnectionHandler>) {
-        server.schedule(Duration::from_mins(15), async |server| {
+        server.schedule(Duration::from_mins(5), async |server| {
             server.handler().module::<Self>().update_featured_level().await;
         });
 
