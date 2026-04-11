@@ -1158,7 +1158,7 @@ impl UsersModule {
 }
 
 impl ServerModule for UsersModule {
-    async fn new(config: &Config, handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+    async fn new(config: Arc<Config>, handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         let db = UsersDb::new(&config.database_url, config.database_pool_size).await?;
         db.run_migrations().await?;
 

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use serde::{Serialize, de::DeserializeOwned};
 use server_shared::qunet::server::ServerHandle;
 
@@ -7,7 +9,7 @@ pub type ModuleInitResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync
 
 pub trait ServerModule: Send + Sync + 'static {
     fn new(
-        config: &Self::Config,
+        config: Arc<Self::Config>,
         handler: &ConnectionHandler,
     ) -> impl Future<Output = ModuleInitResult<Self>> + Send
     where
@@ -23,6 +25,16 @@ pub trait ServerModule: Send + Sync + 'static {
     fn name() -> &'static str
     where
         Self: Sized;
+
+    /// Called when the configuration of the module should be reloaded.
+    /// This is optional to implement
+    fn reload(&self, config: Arc<Self::Config>) -> impl Future<Output = ModuleInitResult<()>> + Send
+    where
+        Self: Sized + ConfigurableModule,
+    {
+        let _ = config;
+        async { Ok(()) }
+    }
 
     fn on_launch(&self, _server: &ServerHandle<ConnectionHandler>) {}
 }

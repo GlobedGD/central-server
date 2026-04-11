@@ -1,8 +1,10 @@
 use std::{
     io,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
+use arc_swap::ArcSwap;
 use serde::{Serialize, de::DeserializeOwned};
 use server_shared::{TypeMap, config::env_replace};
 use thiserror::Error;
@@ -28,7 +30,7 @@ pub enum ConfigError {
 }
 
 pub struct Config {
-    core_config: CoreConfig,
+    core_config: ArcSwap<CoreConfig>,
     mod_config: TypeMap,
     root_dir: PathBuf,
 }
@@ -55,7 +57,7 @@ impl Config {
         Ok(Self {
             mod_config: TypeMap::new(),
             root_dir,
-            core_config,
+            core_config: ArcSwap::new(Arc::new(core_config)),
         })
     }
 
@@ -63,16 +65,16 @@ impl Config {
         self.mod_config.freeze();
     }
 
-    pub fn module<T: ConfigurableModule>(&self) -> &T::Config {
+    pub fn module<T: ConfigurableModule>(&self) -> Arc<T::Config> {
         self.custom::<T::Config>()
     }
 
-    pub fn custom<T: DeserializeOwned + Send + Sync + 'static>(&self) -> &T {
-        self.mod_config.get::<T>().expect("config not initialized for module")
+    pub fn custom<T: DeserializeOwned + Send + Sync + 'static>(&self) -> Arc<T> {
+        self.mod_config.get::<Arc<T>>().cloned().expect("config not initialized for module")
     }
 
-    pub fn core(&self) -> &CoreConfig {
-        &self.core_config
+    pub fn core(&self) -> Arc<CoreConfig> {
+        self.core_config.load_full()
     }
 
     pub fn init_module<T: ServerModule + ConfigurableModule>(&self) -> Result<(), ConfigError> {
@@ -81,7 +83,7 @@ impl Config {
 
     fn init_custom<T: ConfigTrait>(&self, id: &str) -> Result<(), ConfigError> {
         let config = Self::_init_from_path::<T>(&self.root_dir, id)?;
-        self.mod_config.insert(config);
+        self.mod_config.insert(Arc::new(config));
         Ok(())
     }
 

@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let _guard = setup_logger(config.core());
+    let _guard = setup_logger(&config.core());
 
     // this is needed for tokio tungstenite :/
     rustls::crypto::ring::default_provider()
@@ -283,7 +283,7 @@ async fn init_optional_module<T: ServerModule + ConfigurableModule>(
 
     let conf = config.module::<T>();
 
-    if !should_enable(conf) {
+    if !should_enable(&conf) {
         return None;
     }
 

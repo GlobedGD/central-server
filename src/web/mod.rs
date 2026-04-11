@@ -1,6 +1,7 @@
 use std::sync::{Arc, OnceLock};
 
 use anyhow::anyhow;
+use arc_swap::ArcSwap;
 use axum::routing::MethodRouter;
 use server_shared::qunet::server::{ServerHandle, WeakServerHandle};
 use tokio::{net::TcpListener, sync::Mutex};
@@ -30,7 +31,7 @@ impl WebState {
 
 pub struct WebModule {
     #[allow(dead_code)]
-    config: Config,
+    config: ArcSwap<Config>,
     router: Mutex<Option<axum::Router<Arc<WebState>>>>,
     listener: Mutex<Option<TcpListener>>,
     state: Arc<WebState>,
@@ -51,7 +52,7 @@ impl WebModule {
 }
 
 impl ServerModule for WebModule {
-    async fn new(config: &Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+    async fn new(config: Arc<Config>, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         let listener = TcpListener::bind(format!("0.0.0.0:{}", config.port))
             .await
             .map_err(|e| anyhow!("failed to bind web server port: {e}"))?;
@@ -60,7 +61,7 @@ impl ServerModule for WebModule {
         let router = axum::Router::new();
 
         Ok(Self {
-            config: config.clone(),
+            config: ArcSwap::new(config),
             router: Mutex::new(Some(router)),
             listener: Mutex::new(Some(listener)),
             state,

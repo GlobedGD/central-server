@@ -369,7 +369,10 @@ impl FeaturesModule {
 }
 
 impl ServerModule for FeaturesModule {
-    async fn new(config: &config::Config, handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+    async fn new(
+        config: Arc<config::Config>,
+        handler: &ConnectionHandler,
+    ) -> ModuleInitResult<Self> {
         let db = Db::new(&config.database_url, config.database_pool_size).await?;
         db.run_migrations().await?;
 

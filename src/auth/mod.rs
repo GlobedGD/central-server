@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::core::handler::ConnectionHandler;
@@ -129,7 +130,7 @@ impl AuthModule {
 }
 
 impl ServerModule for AuthModule {
-    async fn new(config: &Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+    async fn new(config: Arc<Config>, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         let token_issuer =
             TokenIssuer::new(&config.secret_key, Duration::from_secs(config.token_expiry as u64))?;
 

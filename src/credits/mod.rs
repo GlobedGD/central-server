@@ -131,7 +131,10 @@ impl CreditsModule {
 }
 
 impl ServerModule for CreditsModule {
-    async fn new(config: &config::Config, handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+    async fn new(
+        config: Arc<config::Config>,
+        handler: &ConnectionHandler,
+    ) -> ModuleInitResult<Self> {
         Ok(Self {
             interval: Duration::from_secs(config.credits_cache_timeout as u64),
             next_refresh: Mutex::new(Instant::now()),

@@ -167,7 +167,7 @@ pub struct Config {
 }
 
 impl ServerModule for DiscordModule {
-    async fn new(config: &Config, handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+    async fn new(config: Arc<Config>, handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         // laod the roboto font
         let _ = tokio::task::spawn_blocking(|| {
             if plotters::style::register_font("sans-serif", FontStyle::Normal, ROBOTO_TTF).is_err()
@@ -177,7 +177,7 @@ impl ServerModule for DiscordModule {
         })
         .await;
 
-        let state = Arc::new(BotState::new(handler.http_client(), config));
+        let state = Arc::new(BotState::new(handler.http_client(), &config));
 
         let mut bot = DiscordBot::new(&config.token, state.clone()).await?;
 

@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use async_watcher::{AsyncDebouncer, notify::RecursiveMode};
 use filter::WordFilter;
@@ -21,7 +21,7 @@ pub struct WordFilterModule {
 }
 
 impl ServerModule for WordFilterModule {
-    async fn new(config: &Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+    async fn new(config: Arc<Config>, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         let path = config.file_path.clone().unwrap_or_else(|| "config/word-filter.txt".into());
 
         let filter = if path.exists() {

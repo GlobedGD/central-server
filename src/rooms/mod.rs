@@ -271,7 +271,7 @@ impl RoomModule {
 pub struct Config {}
 
 impl ServerModule for RoomModule {
-    async fn new(_config: &Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+    async fn new(_config: Arc<Config>, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         Ok(Self { manager: RoomManager::new() })
     }
 

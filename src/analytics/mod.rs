@@ -1,5 +1,5 @@
 use std::{
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
 
@@ -134,11 +134,11 @@ fn create_client(config: &Config) -> Result<Option<clickhouse::Client>> {
 }
 
 impl ServerModule for AnalyticsModule {
-    async fn new(config: &Config, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+    async fn new(config: Arc<Config>, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         let (tx, rx) = channel::new_channel(1024);
 
         Ok(Self {
-            client: create_client(config)?,
+            client: create_client(&config)?,
             server: OnceLock::new(),
             tx,
             rx: Mutex::new(Some(rx)),
