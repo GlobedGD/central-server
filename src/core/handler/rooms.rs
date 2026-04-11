@@ -43,7 +43,7 @@ impl ConnectionHandler {
 
         let default_name;
         // if the user is not allowed to name rooms, override the name with a default one
-        if users.disallow_room_names && client.role().as_ref().is_none_or(|r| !r.can_name_rooms) {
+        if users.disallow_room_names() && client.role().as_ref().is_none_or(|r| !r.can_name_rooms) {
             default_name = format!("{}'s Room", client.username());
             name = &default_name;
         }

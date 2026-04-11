@@ -138,7 +138,8 @@ impl ConnectionHandler {
         if result.is_ok() {
             client.set_authorized_mod();
 
-            let reasons = users.get_punishment_reasons();
+            let config = users.config();
+            let reasons = &config.punishment_reasons;
 
             let buf = data::encode_message_dyn!(self, msg => {
                 let mut msg = msg.init_admin_punishment_reasons();

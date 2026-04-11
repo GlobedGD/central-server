@@ -33,10 +33,7 @@ use crate::{
         handler::ConnectionHandler,
         module::{ConfigurableModule, ModuleInitResult, ServerModule},
     },
-    users::{
-        config::PunishReasons,
-        database::{ActionsBreakdown, AuditLogModel, LogAction},
-    },
+    users::database::{ActionsBreakdown, AuditLogModel, LogAction},
 };
 
 use arc_swap::ArcSwap;
@@ -143,29 +140,33 @@ type CachedPlayerCounts = (Instant, Vec<PlayerCountHistoryEntry>);
 
 pub struct UsersModule {
     db: UsersDb,
-    roles: Vec<Role>,       // index = numeric role ID
-    super_admins: Vec<i32>, // account IDs of super admins
+    config: ArcSwap<Config>,
+    roles: Vec<Role>, // index = numeric role ID
     gd_client: GDApiClient,
     #[cfg(feature = "discord")]
     discord: Option<Arc<DiscordModule>>,
     #[cfg(feature = "discord")]
     discord_role_map: HashMap<u64, u8>,
-    #[cfg(feature = "discord")]
-    log_channel: u64,
-    whitelist: bool,
-    pub disallow_room_names: bool,
-    pub vc_requires_discord: bool,
 
-    punish_reasons: PunishReasons,
     blacklisted_authors: ArcSwap<FxHashSet<i32>>,
     blacklisted_levels: ArcSwap<FxHashSet<i32>>,
 
-    record_player_counts: bool,
-    player_counts_retention: Duration,
     player_counts_cache: RwLock<HashMap<Duration, CachedPlayerCounts>>,
 }
 
 impl UsersModule {
+    pub fn config(&self) -> arc_swap::Guard<Arc<Config>> {
+        self.config.load()
+    }
+
+    pub fn disallow_room_names(&self) -> bool {
+        self.config().disallow_room_names
+    }
+
+    pub fn vc_requires_discord(&self) -> bool {
+        self.config().vc_requires_discord_link
+    }
+
     pub async fn get_user(&self, account_id: i32) -> DatabaseResult<Option<DbUser>> {
         self.db.get_user(account_id).await
     }
@@ -339,15 +340,11 @@ impl UsersModule {
     }
 
     pub fn whitelist(&self) -> bool {
-        self.whitelist
-    }
-
-    pub fn get_punishment_reasons(&self) -> &PunishReasons {
-        &self.punish_reasons
+        self.config().whitelist
     }
 
     pub async fn is_whitelisted(&self, account_id: i32) -> bool {
-        if self.super_admins.contains(&account_id) {
+        if self.config().super_admins.contains(&account_id) {
             return true;
         }
 
@@ -373,6 +370,8 @@ impl UsersModule {
         account_id: i32,
         iter: impl Iterator<Item = u8>,
     ) -> ComputedRole {
+        let config = self.config();
+
         // start with a baseline user role with minimum priority and no permissions
         let mut out_role = ComputedRole {
             priority: i32::MIN,
@@ -429,7 +428,7 @@ impl UsersModule {
         let mut default = false;
 
         // super admin has the highest possible priority and perms
-        if self.super_admins.contains(&account_id) {
+        if config.super_admins.contains(&account_id) {
             out_role.priority = i32::MAX;
             default = true;
         }
@@ -488,7 +487,8 @@ impl UsersModule {
 
     pub async fn admin_login(&self, account_id: i32, password: &str) -> DatabaseResult<bool> {
         // super admins can log in without a password
-        if self.super_admins.contains(&account_id) {
+        let config = self.config();
+        if config.super_admins.contains(&account_id) {
             return Ok(true);
         }
 
@@ -643,7 +643,8 @@ impl UsersModule {
     }
 
     async fn get_user_highest_priority(&self, account_id: i32) -> DatabaseResult<i32> {
-        if self.super_admins.contains(&account_id) {
+        let config = self.config();
+        if config.super_admins.contains(&account_id) {
             return Ok(i32::MAX);
         }
 
@@ -667,7 +668,8 @@ impl UsersModule {
         }
 
         // super admins can do anything
-        if self.super_admins.contains(&issuer_id) {
+        let config = self.config();
+        if config.super_admins.contains(&issuer_id) {
             return Ok(());
         }
 
@@ -873,13 +875,14 @@ impl UsersModule {
 
         #[cfg(feature = "discord")]
         {
+            let config = self.config();
             if let Some(d) = &self.discord
-                && self.log_channel != 0
+                && config.mod_log_channel != 0
             {
                 match self.convert_to_discord_log(log, issuer_id).await {
                     Ok(msg) => {
                         if msg.content.is_some() || !msg.embeds.is_empty() {
-                            d.send_message(self.log_channel, msg);
+                            d.send_message(config.mod_log_channel, msg);
                         }
                     }
 
@@ -1087,7 +1090,9 @@ impl UsersModule {
     async fn record_player_count(&self, count: u32) -> DatabaseResult<()> {
         trace!("Recording player count: {count}");
         self.db.record_player_count(count).await?;
-        self.db.delete_old_player_counts(self.player_counts_retention.as_secs()).await?;
+
+        let secs = Duration::from_days(self.config().player_count_retention_days as u64).as_secs();
+        self.db.delete_old_player_counts(secs).await?;
 
         Ok(())
     }
@@ -1208,22 +1213,14 @@ impl ServerModule for UsersModule {
         Ok(Self {
             db,
             roles,
-            super_admins: config.super_admins.clone(),
+            config: ArcSwap::new(config.clone()),
             gd_client: GDApiClient::new(handler.http_client()),
             #[cfg(feature = "discord")]
             discord,
             #[cfg(feature = "discord")]
             discord_role_map,
-            #[cfg(feature = "discord")]
-            log_channel: config.mod_log_channel,
-            whitelist: config.whitelist,
-            disallow_room_names: config.disallow_room_names,
-            vc_requires_discord: config.vc_requires_discord_link,
-            punish_reasons: config.punishment_reasons.clone(),
             blacklisted_authors: ArcSwap::new(Arc::new(authors)),
             blacklisted_levels: ArcSwap::new(Arc::new(levels)),
-            record_player_counts: config.record_player_counts,
-            player_counts_retention: Duration::from_days(config.player_count_retention_days as u64),
             player_counts_cache: RwLock::new(HashMap::new()),
         })
     }
@@ -1235,7 +1232,7 @@ impl ServerModule for UsersModule {
             }
         });
 
-        if self.record_player_counts {
+        if self.config().record_player_counts {
             server.schedule(Duration::from_mins(1), async move |server| {
                 let me = server.handler().module::<Self>();
                 if let Err(e) = me.record_player_count(server.handler().client_count() as u32).await

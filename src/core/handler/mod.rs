@@ -1016,7 +1016,7 @@ impl ConnectionHandler {
         mut builder: data::extended_user_data::Builder<'_>,
     ) {
         let users = self.module::<UsersModule>();
-        let can_name_rooms = role.can_name_rooms || !users.disallow_room_names;
+        let can_name_rooms = role.can_name_rooms || !users.disallow_room_names();
 
         if let Err(e) = builder.set_roles(role.roles.as_slice()) {
             warn!("failed to encode user roles: {e}, roles: {:?}", role.roles);

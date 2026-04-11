@@ -91,7 +91,7 @@ impl ConnectionHandler {
             let data = SrvUserData {
                 account_id: client.account_id(),
                 can_use_quick_chat: !is_muted,
-                can_use_voice: !is_muted && (!users.vc_requires_discord || is_linked),
+                can_use_voice: !is_muted && (!users.vc_requires_discord() || is_linked),
                 is_linked,
                 is_muted,
                 ..Default::default()
