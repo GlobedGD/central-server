@@ -1,5 +1,4 @@
-use std::borrow::Cow;
-use std::sync::atomic::Ordering;
+use std::{borrow::Cow, sync::atomic::Ordering};
 
 use crypto_secretbox::{KeyInit, aead::AeadMutInPlace};
 use server_shared::qunet::buffers::{ByteReader, ByteReaderError, ByteWriter};
@@ -19,7 +18,7 @@ use crate::features::FeaturesModule;
 #[cfg(feature = "analytics")]
 use crate::analytics::{AnalyticsModule, LoginEvent};
 #[cfg(feature = "discord")]
-use crate::discord::{DiscordMessage, DiscordModule};
+use crate::discord::DiscordModule;
 
 use super::{ConnectionHandler, util::*};
 
@@ -221,12 +220,15 @@ impl ConnectionHandler {
                         // notify on discord
                         #[cfg(feature = "discord")]
                         if let Some(discord) = discord {
-                            discord.send_alert(DiscordMessage::new().content(
-                            format!(
-                                "⚠️ Potential alt account logged in: {} ({}), accounts: {:?}. Uident: {}",
-                                data.username, data.account_id, accounts, uident
-                            ),
-                        ));
+                            discord
+                                .send_alt_alert(
+                                    &data.username,
+                                    data.account_id,
+                                    &accounts,
+                                    uident,
+                                    users,
+                                )
+                                .await;
                         }
 
                         // put the user into the db

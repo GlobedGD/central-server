@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{collections::HashSet, fmt::Write, sync::Arc, time::Duration};
 
 use arc_swap::ArcSwap;
 use parking_lot::Mutex;
@@ -25,6 +25,7 @@ use crate::{
         module::{ConfigurableModule, ModuleInitResult, ServerModule},
     },
     discord::{bot::DiscordBot, state::BotState},
+    users::UsersModule,
 };
 
 pub use message::*;
@@ -96,6 +97,58 @@ impl DiscordModule {
             DiscordMessage::new()
                 .content(format!("<@{moderator_id}> New ticket to handle: <#{ticket_channel}>")),
         )
+    }
+
+    pub async fn send_alt_alert(
+        &self,
+        username: &str,
+        account_id: i32,
+        alts: &[i32],
+        uident: &str,
+        users: &UsersModule,
+    ) {
+        let mut alert_str = format!(
+            "⚠️ Potential alt account logged in: {} ({}), uident: {}. Other (suspected) accounts:\n",
+            username,
+            account_id,
+            &uident[..8]
+        );
+
+        for acc_id in alts {
+            match users.get_user(*acc_id).await.ok().flatten() {
+                Some(user) => {
+                    let mut pun_strs = Vec::new();
+                    if user.is_banned() {
+                        pun_strs.push("banned");
+                    }
+                    if user.is_muted() {
+                        pun_strs.push("muted");
+                    }
+                    if user.is_room_banned() {
+                        pun_strs.push("room banned");
+                    }
+
+                    writeln!(
+                        alert_str,
+                        "- {} ({}){}",
+                        user.username(),
+                        acc_id,
+                        if pun_strs.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" ({})", pun_strs.join(", "))
+                        }
+                    )
+                    .unwrap();
+                }
+
+                None => {
+                    writeln!(alert_str, "- account ID {acc_id} (failed to fetch details)").unwrap();
+                }
+            }
+        }
+
+        self.send_alert(DiscordMessage::new().content(alert_str));
     }
 
     pub fn send_username_alert(&self, username: &str, id: i32) {
