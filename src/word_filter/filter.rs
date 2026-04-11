@@ -54,21 +54,6 @@ impl WordFilter {
         content.split(' ').any(|word| self.whole_words.contains(word))
     }
 
-    pub async fn reload_from_file(&mut self, path: &Path) -> Result<(), std::io::Error> {
-        let lines = tokio::fs::read_to_string(path)
-            .await?
-            .lines()
-            .map(|x| x.to_string())
-            .collect::<Vec<_>>();
-
-        let new_filter = Self::new_from_lines(lines);
-        self.algo = new_filter.algo;
-        self.word_count = new_filter.word_count;
-        self.whole_words = new_filter.whole_words;
-
-        Ok(())
-    }
-
     pub fn word_count(&self) -> usize {
         self.word_count
     }

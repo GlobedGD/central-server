@@ -64,7 +64,7 @@ struct LevelEntry {
     is_hidden: bool,
 }
 
-type ModuleReloadFn = Box<dyn Fn(&Config) + Send + Sync>;
+type ModuleReloadFn = Box<dyn Fn(&QunetServerHandle<ConnectionHandler>, &Config) + Send + Sync>;
 
 pub struct ConnectionHandler {
     modules: TypeMap,
@@ -669,7 +669,7 @@ impl AppHandler for ConnectionHandler {
         }
 
         for func in self.module_reload_fns.lock().iter() {
-            func(self.config());
+            func(&self.server(), self.config());
         }
 
         info!("Reloaded server configuration!");
@@ -706,13 +706,13 @@ impl ConnectionHandler {
 
         self.module_list.lock().push(module);
 
-        self.module_reload_fns.lock().push(Box::new(move |config| {
+        self.module_reload_fns.lock().push(Box::new(move |server, config| {
             let Some(module) = weak.upgrade() else {
                 return;
             };
 
             match config.reload_module::<T>() {
-                Ok(cfg) => module.reload(cfg),
+                Ok(cfg) => module.reload(server, cfg),
 
                 Err(e) => {
                     error!("Failed to reload config for module {}: {}", T::id(), e);
