@@ -43,11 +43,11 @@ impl DiscordBot {
                     state.set_ctx(ctx.clone()).await;
 
                     // register commands
-                    if state.main_guild_id != 0 {
+                    if state.main_guild_id() != 0 {
                         poise::builtins::register_in_guild(
                             ctx,
                             &framework.options().commands,
-                            state.main_guild_id.into(),
+                            state.main_guild_id().into(),
                         )
                         .await?;
 

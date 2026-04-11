@@ -1,5 +1,6 @@
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
+use arc_swap::ArcSwap;
 use parking_lot::Mutex;
 use plotters::style::FontStyle;
 use poise::serenity_prelude as serenity;
@@ -54,10 +55,9 @@ impl DiscordUserData {
 }
 
 pub struct DiscordModule {
+    config: ArcSwap<Config>,
     handle: JoinHandle<()>,
     state: Arc<BotState>,
-    alert_channel: u64,
-    ticket_ping_channel: u64,
     sent_alerts: Mutex<HashSet<i32>>,
 }
 
@@ -75,22 +75,24 @@ impl DiscordModule {
     }
 
     pub fn send_alert(&self, msg: DiscordMessage<'_>) {
-        if self.alert_channel == 0 {
+        let config = self.config.load();
+        if config.alert_channel == 0 {
             return;
         }
 
-        self.send_message(self.alert_channel, msg)
+        self.send_message(config.alert_channel, msg)
     }
 
     pub fn send_ticket_ping(&self, ticket_channel: u64, moderator_id: u64) {
-        if self.ticket_ping_channel == 0 {
+        let config = self.config.load();
+        if config.ticket_ping_channel == 0 {
             return;
         }
 
         info!("Sending ticket ping for channel {ticket_channel} to moderator {moderator_id}");
 
         self.send_message(
-            self.ticket_ping_channel,
+            config.ticket_ping_channel,
             DiscordMessage::new()
                 .content(format!("<@{moderator_id}> New ticket to handle: <#{ticket_channel}>")),
         )
@@ -177,7 +179,7 @@ impl ServerModule for DiscordModule {
         })
         .await;
 
-        let state = Arc::new(BotState::new(handler.http_client(), &config));
+        let state = Arc::new(BotState::new(handler.http_client(), config.clone()));
 
         let mut bot = DiscordBot::new(&config.token, state.clone()).await?;
 
@@ -200,10 +202,14 @@ impl ServerModule for DiscordModule {
         Ok(Self {
             handle,
             state,
-            alert_channel: config.alert_channel,
-            ticket_ping_channel: config.ticket_ping_channel,
+            config: ArcSwap::new(config),
             sent_alerts: Mutex::new(HashSet::new()),
         })
+    }
+
+    fn reload(&self, _server: &ServerHandle<ConnectionHandler>, config: Arc<Config>) {
+        self.config.store(config.clone());
+        self.state.reload_config(config);
     }
 
     fn id() -> &'static str {

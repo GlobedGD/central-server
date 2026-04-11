@@ -5,6 +5,7 @@ use std::{
 
 use super::serenity::{self, ChannelId, Context, CreateMessage, UserId};
 use anyhow::{anyhow, bail};
+use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use poise::serenity_prelude::{GetMessages, GuildChannel, GuildId, Member, RoleId, User};
 use serde::Deserialize;
@@ -18,10 +19,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     core::handler::{ClientStateHandle, ConnectionHandler, WeakClientStateHandle},
-    discord::{
-        DiscordMessage, DiscordModule, DiscordUserData, OauthOptions,
-        commands::util::ParseDurationError,
-    },
+    discord::{DiscordMessage, DiscordModule, DiscordUserData, commands::util::ParseDurationError},
     users::{DatabaseError, DbUser, Error as UsersError, UsersModule},
 };
 
@@ -75,14 +73,13 @@ impl DiscordMemberData {
 }
 
 pub struct BotState {
+    config: ArcSwap<super::Config>,
     ctx: RwLock<Option<Context>>,
     server: OnceLock<WeakServerHandle<ConnectionHandler>>,
     http_client: reqwest::Client,
-    link_attempts: DashMap<u64, LinkAttempt>,
-    pub main_guild_id: u64,
 
+    link_attempts: DashMap<u64, LinkAttempt>,
     oauth_attempts: DashMap<i32, OauthAttempt>,
-    oauth: OauthOptions,
 }
 
 #[derive(Error, Debug)]
@@ -125,16 +122,23 @@ impl BotError {
 }
 
 impl BotState {
-    pub fn new(http_client: reqwest::Client, config: &super::Config) -> Self {
+    pub fn new(http_client: reqwest::Client, config: Arc<super::Config>) -> Self {
         Self {
+            config: ArcSwap::new(config),
             ctx: RwLock::new(None),
             server: OnceLock::new(),
             http_client,
             link_attempts: DashMap::new(),
             oauth_attempts: DashMap::new(),
-            main_guild_id: config.main_guild_id,
-            oauth: config.oauth.clone(),
         }
+    }
+
+    pub fn main_guild_id(&self) -> u64 {
+        self.config.load().main_guild_id
+    }
+
+    pub fn reload_config(&self, config: Arc<super::Config>) {
+        self.config.store(config);
     }
 
     pub fn reset_ctx(&self) {
@@ -195,9 +199,10 @@ impl BotState {
         let secret = rand::random::<u64>();
         self.oauth_attempts.insert(gd_account, OauthAttempt::new(client, secret));
 
+        let config = self.config.load();
         format!(
             "https://discord.com/api/oauth2/authorize?client_id={}&redirect_uri={}&response_type=code&scope=identify&state={}-{}",
-            self.oauth.client_id, self.oauth.redirect_uri, gd_account, secret
+            config.oauth.client_id, config.oauth.redirect_uri, gd_account, secret
         )
     }
 
@@ -240,15 +245,16 @@ impl BotState {
         code: String,
     ) -> anyhow::Result<()> {
         let this = server.handler().module::<DiscordModule>().state.clone();
+        let config = this.config.load();
 
         let response = this
             .http_client
             .post("https://discord.com/api/v10/oauth2/token")
             .form(&[
-                ("client_id", this.oauth.client_id.as_str()),
-                ("client_secret", this.oauth.client_secret.as_str()),
+                ("client_id", config.oauth.client_id.as_str()),
+                ("client_secret", config.oauth.client_secret.as_str()),
                 ("grant_type", "authorization_code"),
-                ("redirect_uri", this.oauth.redirect_uri.as_str()),
+                ("redirect_uri", config.oauth.redirect_uri.as_str()),
                 ("code", code.as_str()),
             ])
             .send()
@@ -383,7 +389,7 @@ impl BotState {
     /// Note: panics if self.main_guild_id == 0
     pub async fn get_member_data(&self, id: u64) -> Result<Option<DiscordMemberData>, BotError> {
         let id = UserId::new(id);
-        let guild_id = GuildId::new(self.main_guild_id);
+        let guild_id = GuildId::new(self.main_guild_id());
 
         self.with_ctx::<_, BotError>(async |c| {
             // scope has to exist here to satisfy Sync of the cache ref
