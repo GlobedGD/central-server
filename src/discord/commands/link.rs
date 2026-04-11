@@ -147,7 +147,7 @@ pub async fn adminlink(
     Ok(())
 }
 
-#[poise::command(slash_command, guild_only = true)]
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Unlink a GD account, admin only command
 pub async fn unlink(ctx: Context<'_>, user: serenity::Member) -> Result<(), BotError> {
     check_moderator(ctx).await?;

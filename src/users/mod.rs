@@ -3,7 +3,7 @@ use std::{
     collections::HashSet,
     fmt::Write,
     num::NonZeroI64,
-    sync::Arc,
+    sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
 
@@ -40,7 +40,11 @@ use arc_swap::ArcSwap;
 #[cfg(feature = "web")]
 use axum::http::StatusCode;
 use rustc_hash::FxHashSet;
-use server_shared::{MultiColor, qunet::server::ServerHandle};
+use server_shared::{
+    MultiColor,
+    data::SrvUserData,
+    qunet::server::{ServerHandle, WeakServerHandle},
+};
 
 mod config;
 pub mod database;
@@ -140,6 +144,7 @@ type CachedPlayerCounts = (Instant, Vec<PlayerCountHistoryEntry>);
 
 pub struct UsersModule {
     db: UsersDb,
+    server: OnceLock<WeakServerHandle<ConnectionHandler>>,
     config: ArcSwap<Config>,
     roles: Vec<Role>, // index = numeric role ID
     gd_client: GDApiClient,
@@ -165,6 +170,20 @@ impl UsersModule {
 
     pub fn vc_requires_discord(&self) -> bool {
         self.config().vc_requires_discord_link
+    }
+
+    pub fn gather_user_data(&self, client: &ClientStateHandle) -> SrvUserData {
+        let is_muted = client.active_mute.lock().is_some();
+        let is_linked = client.is_discord_linked();
+
+        SrvUserData {
+            account_id: client.account_id(),
+            can_use_quick_chat: !is_muted,
+            can_use_voice: !is_muted && (!self.vc_requires_discord() || is_linked),
+            is_linked,
+            is_muted,
+            ..Default::default()
+        }
     }
 
     pub async fn get_user(&self, account_id: i32) -> DatabaseResult<Option<DbUser>> {
@@ -237,8 +256,7 @@ impl UsersModule {
             .await?;
 
         self.db.link_discord_account(account_id, discord_id).await?;
-
-        handle.set_discord_linked(true);
+        self.server().handler().notify_user_linked(handle).await;
 
         Ok(())
     }
@@ -1160,6 +1178,14 @@ impl UsersModule {
 
         Ok(counts)
     }
+
+    fn server(&self) -> ServerHandle<ConnectionHandler> {
+        self.server
+            .get()
+            .expect("server handle not set")
+            .upgrade()
+            .expect("server handle was dropped")
+    }
 }
 
 impl ServerModule for UsersModule {
@@ -1212,6 +1238,7 @@ impl ServerModule for UsersModule {
 
         Ok(Self {
             db,
+            server: OnceLock::new(),
             roles,
             config: ArcSwap::new(config.clone()),
             gd_client: GDApiClient::new(handler.http_client()),
@@ -1226,6 +1253,8 @@ impl ServerModule for UsersModule {
     }
 
     fn on_launch(&self, server: &ServerHandle<ConnectionHandler>) {
+        let _ = self.server.set(server.make_weak());
+
         server.schedule(Duration::from_hours(12), async move |server| {
             if let Err(e) = server.handler().module::<Self>().refresh_blacklist_cache().await {
                 error!("Failed to refresh blacklist cache: {e}");

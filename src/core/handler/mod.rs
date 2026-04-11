@@ -931,6 +931,19 @@ impl ConnectionHandler {
         self.clients.collect_all_authorized()
     }
 
+    pub async fn notify_user_linked(&self, handle: &ClientStateHandle) {
+        handle.set_discord_linked(true);
+
+        // if the user is in a session, notify the appropriate game server
+        let session = handle.session_id();
+        if !session.is_zero() {
+            let users = self.module::<UsersModule>();
+            let data = users.gather_user_data(handle);
+
+            let _ = self.game_server_manager.notify_user_data(session.server_id(), data).await;
+        }
+    }
+
     // Misc encoding stuff
 
     fn encode_game_server(

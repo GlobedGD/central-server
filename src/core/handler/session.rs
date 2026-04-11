@@ -1,4 +1,4 @@
-use server_shared::{SessionId, data::SrvUserData};
+use server_shared::SessionId;
 
 use crate::users::UsersModule;
 
@@ -84,18 +84,7 @@ impl ConnectionHandler {
             self.increment_level_players(new_session, is_blacklisted);
 
             let users = self.module::<UsersModule>();
-
-            let is_muted = client.active_mute.lock().is_some();
-            let is_linked = client.is_discord_linked();
-
-            let data = SrvUserData {
-                account_id: client.account_id(),
-                can_use_quick_chat: !is_muted,
-                can_use_voice: !is_muted && (!users.vc_requires_discord() || is_linked),
-                is_linked,
-                is_muted,
-                ..Default::default()
-            };
+            let data = users.gather_user_data(client);
 
             // notify the appropriate game server
 
