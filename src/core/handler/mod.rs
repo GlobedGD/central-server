@@ -664,15 +664,7 @@ impl AppHandler for ConnectionHandler {
     }
 
     async fn on_sigusr2(&self, _server: &QunetServer<Self>) {
-        if let Err(e) = self.config().reload_core() {
-            error!("Failed to reload core config: {e}");
-        }
-
-        for func in self.module_reload_fns.lock().iter() {
-            func(&self.server(), self.config());
-        }
-
-        info!("Reloaded server configuration!");
+        self.reload_config().await;
     }
 }
 
@@ -786,6 +778,18 @@ impl ConnectionHandler {
         }
 
         Some(overall)
+    }
+
+    pub async fn reload_config(&self) {
+        if let Err(e) = self.config().reload_core() {
+            error!("Failed to reload core config: {e}");
+        }
+
+        for func in self.module_reload_fns.lock().iter() {
+            func(&self.server(), self.config());
+        }
+
+        info!("Reloaded server configuration!");
     }
 
     /// Obtain a reference to the server. This must not be called before the server is launched and `on_launch` is called.

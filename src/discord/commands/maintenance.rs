@@ -167,6 +167,21 @@ pub async fn status(ctx: Context<'_>) -> Result<(), BotError> {
 }
 
 #[poise::command(slash_command, ephemeral = true, guild_only = true)]
+/// Reloads the server configuration and applies all possible changes at runtime
+pub async fn reload_config(ctx: Context<'_>) -> Result<(), BotError> {
+    check_admin(ctx).await?;
+
+    let state = ctx.data();
+    let server = state.server()?;
+
+    server.handler().reload_config().await;
+
+    ctx.reply("✅ Server configuration reloaded. See console for possible errors.").await?;
+
+    Ok(())
+}
+
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Dump and show connection stats
 pub async fn conn_stats(ctx: Context<'_>) -> Result<(), BotError> {
     check_admin(ctx).await?;

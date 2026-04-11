@@ -32,6 +32,7 @@ pub fn all() -> Vec<poise::Command<Arc<BotState>, BotError>> {
         maintenance::shutdown_server(),
         maintenance::disallow_joins(),
         maintenance::status(),
+        maintenance::reload_config(),
         maintenance::conn_stats(),
         maintenance::player_count(),
         misc::say(),
