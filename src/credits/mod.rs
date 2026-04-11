@@ -29,11 +29,9 @@ pub struct CreditsCategory {
 pub type CategoryVec = SmallVec<[CreditsCategory; 8]>;
 
 pub struct CreditsModule {
-    interval: Duration,
     next_refresh: Mutex<Instant>,
-    req_interval: Duration,
 
-    config_categories: Vec<config::CreditsCategory>,
+    config: ArcSwap<config::Config>,
     cache: ArcSwap<Option<CategoryVec>>,
     server: OnceLock<WeakServerHandle<ConnectionHandler>>,
     client: GDApiClient,
@@ -45,6 +43,14 @@ impl CreditsModule {
         *self.next_refresh.lock() = Instant::now();
     }
 
+    fn interval(&self) -> Duration {
+        Duration::from_secs(self.config.load().credits_cache_timeout as u64)
+    }
+
+    fn req_interval(&self) -> Duration {
+        Duration::from_secs(self.config.load().credits_req_interval as u64)
+    }
+
     async fn reload_cache(&self) {
         info!("Reloading credits cache");
 
@@ -54,9 +60,10 @@ impl CreditsModule {
 
         let mut out_credits = CategoryVec::new();
 
-        let mut interval = tokio::time::interval(self.req_interval);
+        let mut interval = tokio::time::interval(self.req_interval());
+        let config = self.config.load();
 
-        for cat in &self.config_categories {
+        for cat in &config.credits_categories {
             let mut ids = Vec::new();
             let filter = |id: &i32| !cat.ignored.contains(id);
 
@@ -114,7 +121,7 @@ impl CreditsModule {
         );
 
         self.cache.store(Arc::new(Some(out_credits)));
-        *self.next_refresh.lock() = Instant::now() + self.interval;
+        *self.next_refresh.lock() = Instant::now() + self.interval();
     }
 
     async fn reload_if_needed(&self) {
@@ -136,14 +143,16 @@ impl ServerModule for CreditsModule {
         handler: &ConnectionHandler,
     ) -> ModuleInitResult<Self> {
         Ok(Self {
-            interval: Duration::from_secs(config.credits_cache_timeout as u64),
             next_refresh: Mutex::new(Instant::now()),
-            req_interval: Duration::from_secs(config.credits_req_interval as u64),
-            config_categories: config.credits_categories.clone(),
+            config: ArcSwap::new(config.clone()),
             cache: ArcSwap::new(Arc::new(None)),
             server: OnceLock::new(),
             client: GDApiClient::new(handler.http_client()),
         })
+    }
+
+    fn reload(&self, _server: &ServerHandle<ConnectionHandler>, config: Arc<config::Config>) {
+        self.config.store(config);
     }
 
     fn id() -> &'static str {
