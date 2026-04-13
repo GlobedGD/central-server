@@ -31,6 +31,7 @@ impl WordFilter {
             if is_whole {
                 let mut word = std::mem::take(w);
                 word.remove_matches("!!");
+                word.make_ascii_lowercase();
                 whole_words.insert(word);
             }
 
@@ -53,7 +54,14 @@ impl WordFilter {
         }
 
         // check if any of the words are contained in self.whole_words
-        let filter = |word: &str| word.len() > 2 && self.whole_words.contains(word);
+        let filter = |word: &str| {
+            if word.len() > 2 {
+                let word_lower = word.to_ascii_lowercase();
+                self.whole_words.contains(&word_lower)
+            } else {
+                false
+            }
+        };
 
         WordIterator::new(content).any(filter) || content.split_whitespace().any(filter)
     }
