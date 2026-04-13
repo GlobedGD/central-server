@@ -167,6 +167,10 @@ impl UsersModule {
         self.config().disallow_room_names
     }
 
+    pub fn check_usernames(&self) -> bool {
+        self.config().check_usernames
+    }
+
     pub fn vc_requires_discord(&self) -> bool {
         self.config().vc_requires_discord_link
     }

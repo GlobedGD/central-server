@@ -268,7 +268,8 @@ impl ConnectionHandler {
 
         // if the username has disallowed words, send a discord notification
         #[cfg(feature = "discord")]
-        if self.is_disallowed(&data.username).await
+        if users.check_usernames()
+            && self.is_disallowed(&data.username).await
             && let Some(discord) = discord
         {
             discord.send_username_alert(&data.username, data.account_id);

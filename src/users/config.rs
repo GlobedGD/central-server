@@ -24,6 +24,10 @@ fn default_script_sign_key() -> String {
     hex::encode(secret_key)
 }
 
+fn default_check_usernames() -> bool {
+    true
+}
+
 fn default_mute_reasons() -> Vec<String> {
     vec![]
 }
@@ -111,6 +115,9 @@ pub struct Config {
     /// Disallows regular players from being able to name rooms, instead requires them to have the appropriate role permission.
     #[serde(default)]
     pub disallow_room_names: bool,
+    /// Check for disallowed terms in usernames of people who connect and send an alert on discord
+    #[serde(default = "default_check_usernames")]
+    pub check_usernames: bool,
     /// Whether player counts should be recorded into the database
     #[serde(default)]
     pub record_player_counts: bool,
@@ -147,6 +154,7 @@ impl Default for Config {
             whitelist: false,
             vc_requires_discord_link: false,
             disallow_room_names: false,
+            check_usernames: default_check_usernames(),
             record_player_counts: false,
             player_count_retention_days: 0,
             mod_log_channel: Default::default(),
