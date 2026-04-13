@@ -424,6 +424,7 @@ fn collect_gs_stats(server: &ServerHandle<ConnectionHandler>) -> Vec<CreateEmbed
                 .field("Connected for", Uptime(server.uptime()).to_string(), true)
                 .field("Total connections", sdata.total_connections.to_string(), true)
                 .field("Total data messages", sdata.total_data_messages.to_string(), true)
+                .field("Current load", format!("{:.1}%", sdata.server_load * 100f32), true)
         })
         .collect();
 
