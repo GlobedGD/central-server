@@ -2,6 +2,8 @@ use std::{collections::HashSet, path::Path};
 
 use aho_corasick::AhoCorasick;
 
+use crate::word_filter::word_iterator::WordIterator;
+
 pub struct WordFilter {
     algo: AhoCorasick,
     word_count: usize,
@@ -51,7 +53,9 @@ impl WordFilter {
         }
 
         // check if any of the words are contained in self.whole_words
-        content.split(' ').any(|word| self.whole_words.contains(word))
+        let filter = |word: &str| word.len() > 2 && self.whole_words.contains(word);
+
+        WordIterator::new(content).any(filter) || content.split_whitespace().any(filter)
     }
 
     pub fn word_count(&self) -> usize {

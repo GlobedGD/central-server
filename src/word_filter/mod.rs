@@ -12,6 +12,7 @@ use crate::core::{
 };
 
 mod filter;
+mod word_iterator;
 
 pub struct WordFilterModule {
     filter: ArcSwap<Option<WordFilter>>,
