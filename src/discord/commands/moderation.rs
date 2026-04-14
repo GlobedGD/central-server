@@ -346,7 +346,6 @@ pub async fn kick(
     let user = check_linked_and_roles(ctx, |p| p.can_kick).await?;
 
     let server = ctx.data().server()?;
-    let users = server.handler().module::<UsersModule>();
 
     let target = server.handler().find_client_by_id_or_name(&target);
     let Some(target) = target else {

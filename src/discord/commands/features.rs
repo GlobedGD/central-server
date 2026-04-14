@@ -137,7 +137,7 @@ async fn send_inner(
 #[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Remove all instances of a level from the sent / queued table
 pub async fn unsend(ctx: Context<'_>, level_id: i32) -> Result<(), BotError> {
-    let user = check_linked_and_roles(ctx, |r| r.can_rate_features).await?;
+    check_linked_and_roles(ctx, |r| r.can_rate_features).await?;
 
     let server = ctx.data().server()?;
     let features = server.handler().module::<FeaturesModule>();
