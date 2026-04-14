@@ -13,7 +13,7 @@ edition = "2024"
 [profile.release]
 lto = "thin"
 codegen-units = 1
-debug = true
+# debug = true
 
 [dependencies]
 users_migration = { path = "src/users/database/migration" }
