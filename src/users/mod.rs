@@ -286,6 +286,32 @@ impl UsersModule {
         self.db.unlink_discord_inverse(discord_id).await
     }
 
+    #[cfg(feature = "discord")]
+    pub async fn try_unlink_discord(&self, account_id: i32) -> anyhow::Result<()> {
+        let Some(user) = self.get_user(account_id).await? else {
+            anyhow::bail!("User not found in database");
+        };
+
+        if user.is_banned() || user.is_muted() || user.is_room_banned() {
+            anyhow::bail!("Cannot unlink due to active punishments");
+        }
+
+        // otherwise, allow unlinking
+
+        self.db.unlink_discord(account_id).await?;
+
+        if let Some(d) = self.discord.as_ref() {
+            d.send_alert(DiscordMessage::new().content(format!(
+                "User {} ({}) has unlinked their Discord account ({})",
+                user.username(),
+                account_id,
+                user.discord_id.map_or(0, |id| id.get())
+            )));
+        }
+
+        Ok(())
+    }
+
     /// Query a user by account ID or username
     pub async fn query_user(&self, query: &str) -> DatabaseResult<Option<DbUser>> {
         self.db.query_user(query).await

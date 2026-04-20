@@ -267,6 +267,32 @@ impl ConnectionHandler {
         Ok(())
     }
 
+    pub async fn handle_discord_unlink(&self, client: &ClientStateHandle) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        #[cfg(feature = "discord")]
+        {
+            let users = self.module::<UsersModule>();
+
+            let res = users.try_unlink_discord(client.account_id()).await;
+            if res.is_ok() {
+                client.set_discord_linked(false);
+            }
+
+            let buf = data::encode_message!(self, 512, msg => {
+                let mut r = msg.init_discord_unlink_result();
+                r.set_success(res.is_ok());
+                if let Err(e) = res {
+                    r.set_error(e.to_string());
+                }
+            })?;
+
+            client.send_data_bufkind(buf);
+        }
+
+        Ok(())
+    }
+
     // Used in the discord module
     pub fn send_discord_link_attempt(
         &self,

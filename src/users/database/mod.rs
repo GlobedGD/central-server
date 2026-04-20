@@ -140,6 +140,20 @@ impl UsersDb {
         Ok(())
     }
 
+    pub async fn unlink_discord(&self, account_id: i32) -> DatabaseResult<()> {
+        let res = User::update_many()
+            .filter(user::Column::AccountId.eq(account_id))
+            .col_expr(user::Column::DiscordId, Expr::value(None::<i64>))
+            .exec(&self.conn)
+            .await?;
+
+        if res.rows_affected == 0 {
+            return Err(DatabaseError::NotFound);
+        }
+
+        Ok(())
+    }
+
     pub async fn link_discord_account(
         &self,
         account_id: i32,
