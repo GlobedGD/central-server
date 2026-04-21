@@ -37,6 +37,8 @@ pub enum DatabaseError {
     InvalidPunishmentType,
     #[error("User not found")]
     NotFound,
+    #[error("Attempting to link a Discord account that is already linked to another account")]
+    AlreadyLinked,
 }
 
 #[derive(DerivePartialModel)]
@@ -159,6 +161,21 @@ impl UsersDb {
         account_id: i32,
         discord_id: u64,
     ) -> DatabaseResult<()> {
+        // check if this discord id is already linked to another account
+        let existing = User::find()
+            .filter(user::Column::DiscordId.eq(discord_id as i64))
+            .one(&self.conn)
+            .await?;
+
+        if let Some(existing) = existing {
+            if existing.account_id != account_id {
+                return Err(DatabaseError::AlreadyLinked);
+            } else {
+                // already linked to the same account, nothing to do
+                return Ok(());
+            }
+        }
+
         let res = User::update_many()
             .filter(user::Column::AccountId.eq(account_id))
             .col_expr(user::Column::DiscordId, Expr::value(discord_id as i64))
