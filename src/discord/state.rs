@@ -590,13 +590,12 @@ impl BotState {
 
     /// Clears all roles that require linking
     async fn clear_roles_for_dbuser(&self, db_user: &DbUser) -> Result<(), BotError> {
-        // TODO: for now we just remove all roles
         let server = self.server().unwrap();
         let users = server.handler().module::<UsersModule>();
 
-        info!("Syncing roles for {} ({}): <none>", db_user.username(), db_user.account_id);
+        info!("Removing all linked roles for {} ({})", db_user.username(), db_user.account_id);
 
-        users.system_set_roles(db_user.account_id, &[]).await?;
+        users.system_clear_linked_roles(db_user.account_id).await?;
         Ok(())
     }
 

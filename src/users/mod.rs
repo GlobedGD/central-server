@@ -286,6 +286,7 @@ impl UsersModule {
         self.db.unlink_discord_inverse(discord_id).await
     }
 
+    /// Tries to unlink discord account, removes all roles and returns Ok on success.
     #[cfg(feature = "discord")]
     pub async fn try_unlink_discord(&self, account_id: i32) -> anyhow::Result<()> {
         let Some(user) = self.get_user(account_id).await? else {
@@ -308,6 +309,8 @@ impl UsersModule {
                 user.discord_id.map_or(0, |id| id.get())
             )));
         }
+
+        self.system_clear_linked_roles(account_id).await?;
 
         Ok(())
     }
@@ -593,6 +596,17 @@ impl UsersModule {
         }
 
         Ok(())
+    }
+
+    pub async fn system_clear_linked_roles(&self, account_id: i32) -> Result<(), Error> {
+        let user = self.get_user(account_id).await?.ok_or(Error::NotFound)?;
+        let role = self.compute_from_user(&user);
+        let mut role_ids = role.roles.clone();
+
+        // keep roles that do not have discord_id set, also remove invalid roles
+        role_ids.retain(|id| self.roles.get(*id as usize).is_some_and(|r| r.discord_id == 0));
+
+        self.system_set_roles(account_id, &role_ids).await
     }
 
     async fn compute_role_diff(&self, account_id: i32, new_roles: &[u8]) -> DatabaseResult<String> {

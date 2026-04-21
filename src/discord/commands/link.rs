@@ -165,7 +165,7 @@ pub async fn unlink(ctx: Context<'_>, user: serenity::Member) -> Result<(), BotE
     let linked_acc = linked_acc.unwrap();
 
     users.unlink_discord_inverse(user.user.id.get()).await?;
-    users.system_set_roles(linked_acc.account_id, &[]).await?; // clear all roles
+    users.system_clear_linked_roles(linked_acc.account_id).await?;
 
     ctx.reply(format!(
         "✅ Successfully unlinked. Previously linked account: {} ({})",

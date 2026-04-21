@@ -279,7 +279,7 @@ impl ConnectionHandler {
                 client.set_discord_linked(false);
             }
 
-            let buf = data::encode_message!(self, 512, msg => {
+            let buf = data::encode_message_dyn!(self, msg => {
                 let mut r = msg.init_discord_unlink_result();
                 r.set_success(res.is_ok());
                 if let Err(e) = res {
