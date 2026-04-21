@@ -8,7 +8,7 @@ use anyhow::{anyhow, bail};
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use poise::serenity_prelude::{GetMessages, GuildChannel, GuildId, Member, RoleId, User};
-use serde::Deserialize;
+use serde::{Deserialize, de::DeserializeOwned};
 use server_shared::qunet::server::{ServerHandle, WeakServerHandle};
 use thiserror::Error;
 use tokio::{
@@ -247,31 +247,25 @@ impl BotState {
         let this = server.handler().module::<DiscordModule>().state.clone();
         let config = this.config.load();
 
-        let response = this
-            .http_client
-            .post("https://discord.com/api/v10/oauth2/token")
-            .form(&[
+        let response = json_request::<DiscordOAuthAuthorizeResponse>(
+            this.http_client.post("https://discord.com/api/v10/oauth2/token").form(&[
                 ("client_id", config.oauth.client_id.as_str()),
                 ("client_secret", config.oauth.client_secret.as_str()),
                 ("grant_type", "authorization_code"),
                 ("redirect_uri", config.oauth.redirect_uri.as_str()),
                 ("code", code.as_str()),
-            ])
-            .send()
-            .await
-            .map_err(|e| anyhow!("failed to get discord access token: {e}"))?
-            .json::<DiscordOAuthAuthorizeResponse>()
-            .await?;
+            ]),
+            "oauth2/token",
+        )
+        .await?;
 
-        let response = this
-            .http_client
-            .get("https://discord.com/api/v10/users/@me")
-            .header("Authorization", format!("Bearer {}", response.access_token).as_str())
-            .send()
-            .await
-            .map_err(|e| anyhow!("failed to get discord user data: {e}"))?
-            .json::<DiscordOAuthUserResponse>()
-            .await?;
+        let response = json_request::<DiscordOAuthUserResponse>(
+            this.http_client
+                .get("https://discord.com/api/v10/users/@me")
+                .header("Authorization", format!("Bearer {}", response.access_token).as_str()),
+            "users/@me",
+        )
+        .await?;
 
         let user_id = response
             .id
@@ -628,4 +622,24 @@ struct DiscordOAuthAuthorizeResponse {
 #[derive(Deserialize)]
 struct DiscordOAuthUserResponse {
     id: String,
+}
+
+async fn json_request<T: DeserializeOwned>(
+    request: reqwest::RequestBuilder,
+    name: &str,
+) -> Result<T, anyhow::Error> {
+    let result = request
+        .send()
+        .await
+        .map_err(|e| anyhow!("request {name} failed to send: {e}"))?
+        .error_for_status()
+        .map_err(|e| anyhow!("request {name} returned error: {e}"))?;
+
+    let text =
+        result.text().await.map_err(|e| anyhow!("request {name} failed to read text: {e}"))?;
+
+    let data: T = serde_json::from_str(&text)
+        .map_err(|e| anyhow!("request {name} failed to parse json: {e}, text was: {text}"))?;
+
+    Ok(data)
 }
