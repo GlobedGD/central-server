@@ -1260,7 +1260,9 @@ impl UsersModule {
 impl ServerModule for UsersModule {
     async fn new(config: Arc<Config>, handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         let db = UsersDb::new(&config.database_url, config.database_pool_size).await?;
+
         db.run_migrations().await?;
+        db.truncate_unimportant_logs(Duration::from_days(180)).await?;
 
         let mut roles = Vec::new();
         for role in config.roles.iter() {

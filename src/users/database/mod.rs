@@ -655,6 +655,19 @@ impl UsersDb {
         Ok(results)
     }
 
+    pub async fn truncate_unimportant_logs(&self, cutoff: Duration) -> DatabaseResult<()> {
+        let cutoff = timestamp().get() - cutoff.as_secs() as i64;
+
+        AuditLog::delete_many()
+            .filter(
+                audit_log::Column::Timestamp.lt(cutoff).and(audit_log::Column::Type.eq("setroles")),
+            )
+            .exec(&self.conn)
+            .await?;
+
+        Ok(())
+    }
+
     pub async fn check_actions_over_period(
         &self,
         account_id: i32,
