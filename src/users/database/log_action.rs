@@ -80,6 +80,11 @@ pub enum LogAction<'a> {
         rolediff: &'a str,
     },
 
+    SetRoles {
+        account_id: i32,
+        new_roles: &'a str,
+    },
+
     EditPassword {
         account_id: i32,
     },
@@ -103,6 +108,7 @@ impl LogAction<'_> {
             LogAction::EditRoomBan { .. } => "editroomban",
             LogAction::RoomUnban { .. } => "roomunban",
             LogAction::EditRoles { .. } => "editroles",
+            LogAction::SetRoles { .. } => "setroles",
             LogAction::EditPassword { .. } => "editpassword",
         }
     }
@@ -122,6 +128,7 @@ impl LogAction<'_> {
             LogAction::EditRoomBan { account_id, .. } => *account_id,
             LogAction::RoomUnban { account_id } => *account_id,
             LogAction::EditRoles { account_id, .. } => *account_id,
+            LogAction::SetRoles { account_id, .. } => *account_id,
             LogAction::EditPassword { account_id, .. } => *account_id,
             _ => 0,
         }

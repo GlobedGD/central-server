@@ -571,7 +571,7 @@ impl UsersModule {
         }
 
         let rolediff = self.compute_role_diff(account_id, new_roles).await?;
-        self.system_set_roles(account_id, new_roles).await?;
+        self.inner_set_roles(account_id, new_roles).await?;
 
         // log to db and discord
         self.perform_log(
@@ -587,6 +587,22 @@ impl UsersModule {
     }
 
     pub async fn system_set_roles(&self, account_id: i32, new_roles: &[u8]) -> Result<(), Error> {
+        self.inner_set_roles(account_id, new_roles).await?;
+
+        let rolestr = self.make_role_string(new_roles);
+        self.perform_log(
+            0,
+            LogAction::SetRoles {
+                account_id,
+                new_roles: &rolestr,
+            },
+        )
+        .await;
+
+        Ok(())
+    }
+
+    async fn inner_set_roles(&self, account_id: i32, new_roles: &[u8]) -> Result<(), Error> {
         // construct the new role string
         let new_role_string = self.make_role_string(new_roles);
 
@@ -1108,6 +1124,10 @@ impl UsersModule {
                         .field("Added roles", itertools::join(added.iter(), ", "), true)
                         .field("Removed roles", itertools::join(removed.iter(), ", "), true),
                 )
+            }
+
+            LogAction::SetRoles { .. } => {
+                // too noisy
             }
 
             LogAction::EditPassword { .. } => {

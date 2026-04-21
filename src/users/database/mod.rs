@@ -741,11 +741,19 @@ impl UsersDb {
                 entry.message = Set(Some(rolediff.to_owned()));
             }
 
+            LogAction::SetRoles { new_roles, .. } => {
+                entry.message = Set(Some(new_roles.to_owned()));
+            }
+
             LogAction::EditPassword { .. } => {
                 // no extra fields
             }
 
-            _ => unreachable!(),
+            LogAction::NoticeEveryone { .. }
+            | LogAction::NoticeGroup { .. }
+            | LogAction::NoticeReply { .. } => {
+                unreachable!()
+            }
         }
 
         entry.insert(&self.conn).await?;
