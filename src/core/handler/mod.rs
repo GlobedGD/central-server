@@ -1064,19 +1064,19 @@ impl ConnectionHandler {
     }
 
     #[cfg(feature = "word-filter")]
-    async fn is_disallowed(&self, string: &str) -> bool {
+    async fn has_bad_word(&self, string: &str) -> Option<String> {
         use crate::word_filter::WordFilterModule;
 
         let module = self.opt_module::<WordFilterModule>();
         if let Some(module) = module {
-            !module.is_allowed(string).await
+            module.has_bad_word(string).await
         } else {
-            false
+            None
         }
     }
 
     #[cfg(not(feature = "word-filter"))]
-    async fn is_disallowed(&self, _string: &str) -> bool {
+    async fn has_bad_word(&self, _string: &str) -> bool {
         false
     }
 }

@@ -50,7 +50,13 @@ impl ConnectionHandler {
 
         // check if the name is a-ok
 
-        if self.is_disallowed(name).await {
+        if let Some(word) = self.has_bad_word(name).await {
+            warn!(
+                "({}) disallowing room name '{}' due to banned word: '{}'",
+                client.account_id(),
+                name,
+                word
+            );
             return self
                 .send_room_create_failed(client, data::RoomCreateFailedReason::InappropriateName);
         }

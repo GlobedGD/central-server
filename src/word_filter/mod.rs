@@ -51,10 +51,9 @@ impl ConfigurableModule for WordFilterModule {
 }
 
 impl WordFilterModule {
-    pub async fn is_allowed(&self, content: &str) -> bool {
+    pub async fn has_bad_word(&self, content: &str) -> Option<String> {
         let filter = self.filter.load();
-
-        (**filter).as_ref().is_none_or(|wf| !wf.is_bad(content))
+        (**filter).as_ref().and_then(|wf| wf.is_bad(content).map(|x| x.to_owned()))
     }
 
     pub async fn do_reload(&self, config: &Config) {

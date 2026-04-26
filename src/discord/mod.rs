@@ -151,15 +151,14 @@ impl DiscordModule {
         self.send_alert(DiscordMessage::new().content(alert_str));
     }
 
-    pub fn send_username_alert(&self, username: &str, id: i32) {
+    pub fn send_username_alert(&self, username: &str, id: i32, bad_term: &str) {
         // don't repeat alerts
         let new_alert = self.sent_alerts.lock().insert(id);
 
         if new_alert {
-            self.send_alert(
-                DiscordMessage::new()
-                    .content(format!("⚠️ Potentially bad username: {username} ({id})")),
-            );
+            self.send_alert(DiscordMessage::new().content(format!(
+                "⚠️ Potentially bad username: {username} ({id}), contains term '{bad_term}'"
+            )));
         }
     }
 

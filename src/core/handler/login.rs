@@ -269,10 +269,10 @@ impl ConnectionHandler {
         // if the username has disallowed words, send a discord notification
         #[cfg(feature = "discord")]
         if users.check_usernames()
-            && self.is_disallowed(&data.username).await
+            && let Some(bad_term) = self.has_bad_word(&data.username).await
             && let Some(discord) = discord
         {
-            discord.send_username_alert(&data.username, data.account_id);
+            discord.send_username_alert(&data.username, data.account_id, &bad_term);
         }
 
         // if analytics is enabled, log the login

@@ -44,7 +44,7 @@ tokio-tungstenite = { version = "0.28.0", features = [
 ] }
 toml = "1.0.3"
 tracing = "0.1.44"
-arc-swap = "1.8.2"
+arc-swap = "1.9.1"
 rustc-hash = "2.1.1"
 sea-orm = { version = "2.0.0-rc.38", default-features = false, features = [
     "macros",
