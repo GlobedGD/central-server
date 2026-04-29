@@ -64,6 +64,7 @@ pub mod web;
 pub mod word_filter;
 
 fn setup_logger(config: &CoreConfig) -> (WorkerGuard, WorkerGuard) {
+    server_shared::logging::setup_panic_hook();
     server_shared::logging::setup_logger(&config.logging, config.memory_usage)
 }
 
