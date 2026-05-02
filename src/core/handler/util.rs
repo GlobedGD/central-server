@@ -5,7 +5,10 @@ pub use server_shared::qunet::server::client::ClientState;
 pub use tracing::{debug, error, info, warn};
 
 use super::ConnectionHandler;
-use server_shared::encoding::EncodeMessageError;
+use server_shared::{
+    encoding::EncodeMessageError,
+    events::{EventDecodingError, EventDictionaryBuildError},
+};
 use thiserror::Error;
 
 pub type ClientStateHandle = Arc<ClientState<ConnectionHandler>>;
@@ -23,6 +26,10 @@ pub enum HandlerError {
     NotInCustomRoom,
     #[error("expected client to be a room owner to handle message")]
     NotRoomOwner,
+    #[error("Failed to decode event dictionary: {0}")]
+    EventDict(#[from] EventDictionaryBuildError),
+    #[error("Failed to decode events: {0}")]
+    EventDecodingError(#[from] EventDecodingError),
 }
 
 pub type HandlerResult<T> = Result<T, HandlerError>;

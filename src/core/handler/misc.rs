@@ -1,14 +1,23 @@
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashSet;
-use server_shared::{UserSettings, data::PlayerIconData};
+use server_shared::{
+    UserSettings,
+    data::PlayerIconData,
+    events::{EventOptions, OwnedEvent},
+};
 
 use crate::{
     credits::CreditsModule,
-    rooms::Room,
+    rooms::{Room, RoomModule},
     users::{LinkedDiscordAccount, UsersModule},
 };
 
 use super::{ConnectionHandler, util::*};
+
+pub enum HandleEventError {
+    RateLimit,
+    UnscopedGlobalEvent,
+}
 
 impl ConnectionHandler {
     pub fn handle_update_own_data(
@@ -376,6 +385,120 @@ impl ConnectionHandler {
         })?;
 
         client.send_data_bufkind(buf);
+
+        Ok(())
+    }
+
+    pub async fn handle_events(
+        &self,
+        client: &ClientStateHandle,
+        events: Vec<OwnedEvent>,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let rooms = self.module::<RoomModule>();
+        let room = client.get_room().unwrap_or_else(|| rooms.global_room());
+
+        for event in events {
+            match self.handle_event(client, event, &room).await {
+                Ok(()) => {}
+
+                Err(HandleEventError::RateLimit) => {
+                    warn!(
+                        "[{} @ {}] event rate limit exceeded, disconnecting client",
+                        client.account_id(),
+                        client.address
+                    );
+
+                    client.disconnect("Event rate limit exceeded");
+                    return Ok(());
+                }
+
+                Err(HandleEventError::UnscopedGlobalEvent) => {
+                    warn!(
+                        "[{} @ {}] rejecting unscoped event in global room!",
+                        client.account_id(),
+                        client.address
+                    );
+
+                    self.send_warn(client, "rejecting unscoped event in the global room")?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_event(
+        &self,
+        client: &ClientStateHandle,
+        event: OwnedEvent,
+        room: &Room,
+    ) -> Result<(), HandleEventError> {
+        debug!(
+            "[{} @ {}] handling event {} ({} bytes)",
+            client.account_id(),
+            client.address,
+            event.id,
+            event.data.len()
+        );
+
+        let out_event = OwnedEvent {
+            id: event.id,
+            data: event.data,
+            options: EventOptions {
+                target_players: Vec::new(),
+                sent_by_player: client.account_id_nz(),
+                send_back: false,
+                ..event.options
+            },
+        };
+
+        // calculate how many targets in total there are, to check the rate limits
+        let targets = if event.options.target_players.is_empty() {
+            if room.is_global() {
+                // disallow sending events to everybody when in the global room
+                return Err(HandleEventError::UnscopedGlobalEvent);
+            }
+
+            room.player_count()
+        } else {
+            event.options.target_players.len()
+        };
+
+        if !client.try_event(targets, out_event.data.len(), out_event.options.reliable) {
+            return Err(HandleEventError::RateLimit);
+        }
+
+        let targets: Vec<_> = if event.options.target_players.is_empty() {
+            room.get_players_filtered(|p| {
+                if event.options.send_back {
+                    true
+                } else {
+                    p.handle.account_id() != client.account_id()
+                }
+            })
+            .into_iter()
+            .map(|p| p.handle)
+            .collect()
+        } else {
+            event
+                .options
+                .target_players
+                .iter()
+                .filter_map(|id| self.find_client(*id))
+                .filter(|target| target.is_in_room(room))
+                .collect()
+        };
+
+        debug!("dispatching event to {} targets", targets.len());
+
+        for target in targets {
+            let account_id = target.account_id();
+            if !self.event_worker.enqueue(out_event.clone(), target).await {
+                debug!("could not enqueue event for {}", account_id);
+            }
+        }
 
         Ok(())
     }

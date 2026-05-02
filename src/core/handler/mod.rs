@@ -16,6 +16,7 @@ use rustc_hash::FxHashSet;
 use server_shared::{
     SessionId,
     data::SRVC_MAGIC,
+    events::EventStringCache,
     qunet::{
         buffers::{BufPool, ByteWriter},
         message::{BufferKind, MsgData},
@@ -39,6 +40,7 @@ use crate::{
         client_data::ClientData,
         config::Config,
         data::{self, decode_message_match},
+        event_worker::EventWorker,
         game_server::{GameServerHandler, GameServerManager, StoredGameServer},
         handler::client_store::{ClientStore, normalize_username},
         module::{ConfigurableModule, ServerModule},
@@ -80,6 +82,9 @@ pub struct ConnectionHandler {
     clients: ClientStore,
     all_levels: DashMap<u64, LevelEntry>,
     refuse_connections: AtomicBool,
+
+    event_string_cache: EventStringCache,
+    event_worker: EventWorker,
 }
 
 impl AppHandler for ConnectionHandler {
@@ -143,6 +148,8 @@ impl AppHandler for ConnectionHandler {
             module.on_launch(&server);
         }
 
+        self.event_worker.set_server(server);
+
         Ok(())
     }
 
@@ -184,8 +191,11 @@ impl AppHandler for ConnectionHandler {
     async fn post_shutdown(&self, _server: &QunetServer<Self>) -> AppResult<()> {
         // by this point all connections have been dropped, we should clean up any resources
         info!("Cleaning up resources");
+
         let rooms = self.module::<RoomModule>();
         rooms.cleanup_everything();
+
+        self.event_worker.abort();
 
         Ok(())
     }
@@ -650,6 +660,17 @@ impl AppHandler for ConnectionHandler {
 
                 self.handle_notice_reply(client, target_user, message).await
             },
+
+            Events(message) => {
+                let Some(encoder) = client.event_encoder() else {
+                    return Ok(Ok(()));
+                };
+
+                try {
+                    let events = encoder.decode_events_owned(message).map_err(|e| e.into())?;
+                    self.handle_events(client, events).await?;
+                }
+            }
         });
 
         match result {
@@ -693,6 +714,9 @@ impl ConnectionHandler {
             clients: ClientStore::new(),
             all_levels: DashMap::new(),
             refuse_connections: AtomicBool::new(false),
+
+            event_string_cache: EventStringCache::new(),
+            event_worker: EventWorker::new(),
         }
     }
 
@@ -1091,6 +1115,7 @@ pub struct LoginData<'a> {
     geode_version: &'a str,
     platform: &'a str,
     platform_desc: Option<&'a str>,
+    event_dict: Option<&'a [u8]>,
 }
 
 fn decode_login_data<'a>(
@@ -1136,6 +1161,12 @@ fn decode_login_data<'a>(
         None
     };
 
+    let event_dict = if message.has_event_dictionary() {
+        Some(message.get_event_dictionary()?)
+    } else {
+        None
+    };
+
     Ok(LoginData {
         kind,
         icons,
@@ -1145,6 +1176,7 @@ fn decode_login_data<'a>(
         geode_version,
         platform,
         platform_desc,
+        event_dict,
     })
 }
 

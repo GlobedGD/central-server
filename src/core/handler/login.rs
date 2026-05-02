@@ -1,6 +1,7 @@
 use std::{borrow::Cow, sync::atomic::Ordering};
 
 use crypto_secretbox::{KeyInit, aead::AeadMutInPlace};
+use server_shared::events::EventEncoder;
 use server_shared::qunet::buffers::{ByteReader, ByteReaderError, ByteWriter};
 use server_shared::schema::main::LoginFailedReason;
 use thiserror::Error;
@@ -163,6 +164,15 @@ impl ConnectionHandler {
         client.set_settings(login_data.settings);
 
         let uident = uident.map(hex::encode);
+
+        // create an event encoder
+        if let Some(dict) = login_data.event_dict {
+            client.set_event_encoder(EventEncoder::create_with_dictionary(
+                dict,
+                &self.event_string_cache,
+                false,
+            )?);
+        }
 
         if let Some(user) = user {
             // do some checks

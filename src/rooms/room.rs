@@ -486,6 +486,15 @@ impl Room {
         }
     }
 
+    pub fn get_players_filtered<F>(&self, f: F) -> Vec<RoomPlayer>
+    where
+        F: Fn(&RoomPlayer) -> bool,
+    {
+        self.run_read_action(|players| {
+            players.iter().filter_map(|(_, p)| if f(p) { Some(p.clone()) } else { None }).collect()
+        })
+    }
+
     pub fn with_teams<F, R>(&self, f: F) -> R
     where
         F: FnOnce(usize, std::slice::Iter<'_, RoomTeam>) -> R,

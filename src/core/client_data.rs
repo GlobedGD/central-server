@@ -1,12 +1,19 @@
-use std::sync::{
-    Arc, OnceLock,
-    atomic::{AtomicBool, AtomicI32, AtomicU16, AtomicU32, AtomicU64, Ordering},
+use std::{
+    num::NonZero,
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicBool, AtomicI32, AtomicU16, AtomicU32, AtomicU64, Ordering},
+    },
 };
 
 use nohash_hasher::IntSet;
 use parking_lot::{Mutex, MutexGuard};
 use rustc_hash::FxHashSet;
-use server_shared::{SessionId, UserSettings, data::PlayerIconData};
+use server_shared::{
+    SessionId, UserSettings,
+    data::PlayerIconData,
+    events::{EventEncoder, EventRateLimiter, EventRateLimiterOptions},
+};
 
 use crate::{
     auth::ClientAccountData,
@@ -14,7 +21,6 @@ use crate::{
     users::{ComputedRole, UserPunishment},
 };
 
-#[derive(Default)]
 pub struct ClientData {
     account_data: OnceLock<ClientAccountData>,
     account_id: AtomicI32, // redundant, for faster access
@@ -37,6 +43,9 @@ pub struct ClientData {
     role: Mutex<Option<ComputedRole>>,
     uident: OnceLock<[u8; 32]>,
     settings: Mutex<UserSettings>,
+
+    event_encoder: OnceLock<EventEncoder>,
+    event_limiter: Mutex<EventRateLimiter>,
 }
 
 impl ClientData {
@@ -66,6 +75,10 @@ impl ClientData {
     /// Returns the account ID if the client is authorized, otherwise returns 0.
     pub fn account_id(&self) -> i32 {
         self.account_id.load(Ordering::Relaxed)
+    }
+
+    pub fn account_id_nz(&self) -> Option<NonZero<i32>> {
+        NonZero::new(self.account_id())
     }
 
     /// Returns the account ID if the client is authorized, otherwise returns 0.
@@ -102,7 +115,8 @@ impl ClientData {
 
     /// Returns whether the client is connected to the given room
     pub fn is_in_room(&self, room: &Room) -> bool {
-        self.room.lock().as_ref().is_some_and(|r| r.id == room.id)
+        // self.room.lock().as_ref().is_some_and(|r| r.id == room.id)
+        self.room_id.load(Ordering::Relaxed) == room.id
     }
 
     /// Sets the room the client is in.
@@ -233,5 +247,55 @@ impl ClientData {
 
     pub fn add_awaiting_notice_reply(&self, user_id: i32) {
         self.awaiting_notice_reply_from.lock().insert(user_id);
+    }
+
+    pub fn event_encoder(&self) -> Option<&EventEncoder> {
+        self.event_encoder.get()
+    }
+
+    pub fn set_event_encoder(&self, encoder: EventEncoder) {
+        let _ = self.event_encoder.set(encoder);
+    }
+
+    pub fn try_event(&self, targets: usize, data_size: usize, reliable: bool) -> bool {
+        self.event_limiter.lock().tick(targets, data_size, reliable)
+    }
+
+    pub fn knows_event(&self, id: &str) -> bool {
+        self.event_encoder().is_some_and(|e| e.knows_event(id))
+    }
+}
+
+impl Default for ClientData {
+    fn default() -> Self {
+        Self {
+            account_data: OnceLock::new(),
+            account_id: AtomicI32::new(0),
+            icons: Mutex::new(PlayerIconData::default()),
+            friend_list: Mutex::new(FxHashSet::default()),
+
+            room: Mutex::new(None),
+            room_id: AtomicU32::new(0),
+            session_id: AtomicU64::new(0),
+            authorized_admin: AtomicBool::new(false),
+            deauthorized: AtomicBool::new(false),
+            team_id: AtomicU16::new(0),
+            discord_pairing_on: AtomicBool::new(false),
+            discord_linked: AtomicBool::new(false),
+            awaiting_notice_reply_from: Mutex::new(IntSet::default()),
+
+            active_mute: Mutex::new(None),
+            active_room_ban: Mutex::new(None),
+            admin_password_hash: Mutex::new(None),
+            role: Mutex::new(None),
+            uident: OnceLock::new(),
+            settings: Mutex::new(UserSettings::default()),
+
+            event_encoder: OnceLock::new(),
+            event_limiter: Mutex::new(EventRateLimiter::new(EventRateLimiterOptions {
+                events_per_sec: 60,
+                max_burst: 600,
+            })),
+        }
     }
 }
