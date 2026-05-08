@@ -586,7 +586,7 @@ impl UsersDb {
         &self,
         account_id: i32,
         r#type: UserPunishmentType,
-    ) -> DatabaseResult<()> {
+    ) -> DatabaseResult<bool> {
         self.update_active_punishment(account_id, r#type, None).await
     }
 
@@ -629,26 +629,26 @@ impl UsersDb {
         account_id: i32,
         punishment_type: UserPunishmentType,
         punishment_id: Option<i32>,
-    ) -> DatabaseResult<()> {
+    ) -> DatabaseResult<bool> {
         let stmt = User::update_many().filter(user::Column::AccountId.eq(account_id));
 
         let stmt = match punishment_type {
-            UserPunishmentType::Mute => {
-                stmt.col_expr(user::Column::ActiveMute, Expr::value(punishment_id))
-            }
+            UserPunishmentType::Mute => stmt
+                .col_expr(user::Column::ActiveMute, Expr::value(punishment_id))
+                .filter(user::Column::ActiveMute.ne(punishment_id)),
 
-            UserPunishmentType::Ban => {
-                stmt.col_expr(user::Column::ActiveBan, Expr::value(punishment_id))
-            }
+            UserPunishmentType::Ban => stmt
+                .col_expr(user::Column::ActiveBan, Expr::value(punishment_id))
+                .filter(user::Column::ActiveBan.ne(punishment_id)),
 
-            UserPunishmentType::RoomBan => {
-                stmt.col_expr(user::Column::ActiveRoomBan, Expr::value(punishment_id))
-            }
+            UserPunishmentType::RoomBan => stmt
+                .col_expr(user::Column::ActiveRoomBan, Expr::value(punishment_id))
+                .filter(user::Column::ActiveRoomBan.ne(punishment_id)),
         };
 
-        stmt.exec(&self.conn).await?;
+        let result = stmt.exec(&self.conn).await?;
 
-        Ok(())
+        Ok(result.rows_affected > 0)
     }
 
     pub async fn update_roles(&self, account_id: i32, roles: &str) -> DatabaseResult<bool> {

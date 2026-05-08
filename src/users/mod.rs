@@ -66,6 +66,8 @@ pub enum PunishUserError {
     NotFound,
     #[error("Insufficient permissions")]
     Permissions,
+    #[error("Specified punishment is not active")]
+    NotPunished,
 }
 
 #[derive(Error, Debug)]
@@ -825,7 +827,11 @@ impl UsersModule {
         account_id: i32,
         r#type: UserPunishmentType,
     ) -> Result<(), PunishUserError> {
-        self.db.unpunish_user(account_id, r#type).await?;
+        let did_unpunish = self.db.unpunish_user(account_id, r#type).await?;
+        if !did_unpunish {
+            return Err(PunishUserError::NotPunished);
+        }
+
         self.perform_log(issuer_id, self.log_for_unpunish(account_id, r#type)).await;
 
         Ok(())
