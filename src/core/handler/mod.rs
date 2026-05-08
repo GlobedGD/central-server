@@ -818,6 +818,10 @@ impl ConnectionHandler {
             func(&self.server(), self.config());
         }
 
+        if let Err(e) = self.game_server_manager.notify_reload_config().await {
+            error!("Failed to notify game servers about config reload: {e}");
+        }
+
         info!("Reloaded server configuration!");
     }
 

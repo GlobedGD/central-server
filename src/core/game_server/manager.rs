@@ -250,6 +250,14 @@ impl GameServerManager {
         self.notify_all_servers(buf)
     }
 
+    pub async fn notify_reload_config(&self) -> Result<(), GameServerError> {
+        let buf = data::encode_message_unsafe!(self, 64, msg => {
+            msg.init_reload_config();
+        })?;
+
+        self.notify_all_servers(buf)
+    }
+
     fn notify_all_servers_data(&self, data: SrvUserData) -> Result<(), GameServerError> {
         let buf = data::encode_message_unsafe!(self, 128, msg => {
             let notif = msg.init_notify_user_data();
