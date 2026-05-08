@@ -627,26 +627,21 @@ impl BotState {
             return Err(BotError::NoPermission);
         }
 
-        let message_id = c_interaction.message.id.get();
-        let Some((_, interaction)) = self.name_alerts.remove(&message_id) else {
-            self.respond_to_interaction(
-                ctx,
-                c_interaction,
-                ":x: Alert has expired or user could not be found.",
-            )
-            .await?;
-            return Ok(());
-        };
+        let interaction = self.find_username_alert_interaction(ctx, &c_interaction.message);
 
         info!(
             ban,
             issuer_id = member.user.id.get(),
             "Completing username alert interaction by {} for {}",
             db_user,
-            interaction.account_id
+            interaction.as_ref().map_or(0, |i| i.account_id)
         );
 
-        if ban {
+        // if ban and interaction is found - then perform the ban and reply success
+        // if ban and interaction is not found nor could be parsed - reply with failure and return
+        // in any non error case, delete the message
+
+        if ban && let Some(interaction) = interaction {
             // ban the user
             if let Err(e) = server
                 .handler()
@@ -671,12 +666,50 @@ impl BotState {
                 ),
             )
             .await?;
+        } else if ban {
+            self.respond_to_interaction(
+                ctx,
+                c_interaction,
+                ":x: Alert has expired and I could not parse the user.",
+            )
+            .await?;
+            return Ok(());
         }
 
         // delete message
         c_interaction.message.delete(ctx).await?;
 
         Ok(())
+    }
+
+    fn find_username_alert_interaction(
+        &self,
+        ctx: &Context,
+        message: &Message,
+    ) -> Option<NameAlertInteraction> {
+        if let Some((_, x)) = self.name_alerts.remove(&message.id.get()) {
+            return Some(x);
+        }
+
+        // try to parse from the message
+        if message.author.id != ctx.cache.current_user().id {
+            return None;
+        }
+
+        let mut content = message.content.as_str();
+        (_, content) = content.split_once("bad username: ")?;
+        (content, _) = content.split_once("),")?;
+
+        let (username, account_id_str) = content.rsplit_once(" (")?;
+        let username = username.try_into().ok()?;
+        let account_id = account_id_str.parse::<i32>().ok()?;
+
+        Some(NameAlertInteraction {
+            message_id: message.id.get(),
+            account_id,
+            username,
+            began_at: Instant::now(),
+        })
     }
 
     async fn respond_to_interaction(
