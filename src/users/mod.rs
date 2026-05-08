@@ -778,6 +778,9 @@ impl UsersModule {
         Ok(())
     }
 
+    /// Punishes the user in the database.
+    /// Note: this does not refresh the punishment live, the user will continue playing on the server if currently connected.
+    /// Use `ConnectionHandler::do_punish_user` for live punishing.
     pub async fn admin_punish_user(
         &self,
         issuer_id: i32,

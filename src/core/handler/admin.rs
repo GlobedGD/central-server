@@ -7,10 +7,7 @@ use crate::{
     auth::AuthModule,
     credits::CreditsModule,
     rooms::RoomModule,
-    users::{
-        DatabaseError, DatabaseResult, PunishUserError, UserPunishment, UserPunishmentType,
-        UsersModule,
-    },
+    users::{DatabaseError, PunishUserError, UserPunishment, UserPunishmentType, UsersModule},
 };
 
 use super::{ConnectionHandler, util::*};
@@ -602,14 +599,11 @@ impl ConnectionHandler {
         reason: &str,
         expires_at: i64,
         r#type: UserPunishmentType,
-    ) -> DatabaseResult<()> {
+    ) -> Result<(), PunishUserError> {
         let users = self.module::<UsersModule>();
+        users.admin_punish_user(issuer, target, reason, expires_at, r#type).await?;
 
-        let result = users.admin_punish_user(issuer, target, reason, expires_at, r#type).await;
-
-        if result.is_ok()
-            && let Some(user) = self.find_client(target)
-        {
+        if let Some(user) = self.find_client(target) {
             self.try_save_uident(&user).await;
 
             if let Err(e) = self.refresh_live_punishments(&user, r#type).await {

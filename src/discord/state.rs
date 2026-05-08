@@ -7,9 +7,15 @@ use super::serenity::{self, ChannelId, Context, CreateMessage, UserId};
 use anyhow::{anyhow, bail};
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
-use poise::serenity_prelude::{GetMessages, GuildChannel, GuildId, Member, RoleId, User};
+use poise::serenity_prelude::{
+    ComponentInteraction, CreateInteractionResponse, CreateInteractionResponseMessage, GetMessages,
+    GuildChannel, GuildId, Member, Message, RoleId, User,
+};
 use serde::{Deserialize, de::DeserializeOwned};
-use server_shared::qunet::server::{ServerHandle, WeakServerHandle};
+use server_shared::{
+    UsernameString,
+    qunet::server::{ServerHandle, WeakServerHandle},
+};
 use thiserror::Error;
 use tokio::{
     sync::{RwLock, oneshot},
@@ -20,7 +26,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     core::handler::{ClientStateHandle, ConnectionHandler, WeakClientStateHandle},
     discord::{DiscordMessage, DiscordModule, DiscordUserData, commands::util::ParseDurationError},
-    users::{DatabaseError, DbUser, Error as UsersError, UsersModule},
+    users::{DatabaseError, DbUser, Error as UsersError, UserPunishmentType, UsersModule},
 };
 
 struct LinkAttempt {
@@ -55,6 +61,13 @@ impl OauthAttempt {
     }
 }
 
+pub struct NameAlertInteraction {
+    pub message_id: u64,
+    pub account_id: i32,
+    pub username: UsernameString,
+    pub began_at: Instant,
+}
+
 pub struct DiscordMemberData {
     #[allow(unused)]
     id: UserId,
@@ -80,6 +93,8 @@ pub struct BotState {
 
     link_attempts: DashMap<u64, LinkAttempt>,
     oauth_attempts: DashMap<i32, OauthAttempt>,
+
+    name_alerts: DashMap<u64, NameAlertInteraction>,
 }
 
 #[derive(Error, Debug)]
@@ -130,6 +145,7 @@ impl BotState {
             http_client,
             link_attempts: DashMap::new(),
             oauth_attempts: DashMap::new(),
+            name_alerts: DashMap::new(),
         }
     }
 
@@ -341,16 +357,9 @@ impl BotState {
         &self,
         channel_id: u64,
         msg: DiscordMessage<'_>,
-    ) -> Result<(), BotError> {
+    ) -> Result<Message, BotError> {
         if channel_id == 0 {
             return Err(BotError::InvalidChannel);
-        }
-
-        let channel = ChannelId::new(channel_id);
-
-        if msg.embeds.is_empty() {
-            self.with_ctx(async |c| channel.say(c, msg.content.unwrap_or_default()).await).await?;
-            return Ok(());
         }
 
         let mut message = CreateMessage::new();
@@ -359,11 +368,10 @@ impl BotState {
             message = message.content(c);
         }
 
-        message = message.embeds(msg.embeds);
+        message = message.embeds(msg.embeds).components(msg.components);
 
-        self.with_ctx(async |c| channel.send_message(c, message).await).await?;
-
-        Ok(())
+        let channel = ChannelId::new(channel_id);
+        self.with_ctx(async |c| channel.send_message(c, message).await).await
     }
 
     pub async fn get_user_data(&self, id: u64) -> Result<DiscordUserData, BotError> {
@@ -599,6 +607,98 @@ impl BotState {
         Ok(())
     }
 
+    pub fn add_pending_username_alert_interaction(&self, interaction: NameAlertInteraction) {
+        self.name_alerts.insert(interaction.message_id, interaction);
+    }
+
+    pub async fn complete_username_alert_interaction(
+        &self,
+        ctx: &Context,
+        c_interaction: &ComponentInteraction,
+        member: &Member,
+        ban: bool,
+    ) -> Result<(), BotError> {
+        let server = self.server().unwrap();
+        let users = server.handler().module::<UsersModule>();
+        let db_user = self.dbuser_from_discord_id(member.user.id.get()).await?;
+        let role = users.compute_from_user(&db_user);
+
+        if !role.can_ban {
+            return Err(BotError::NoPermission);
+        }
+
+        let message_id = c_interaction.message.id.get();
+        let Some((_, interaction)) = self.name_alerts.remove(&message_id) else {
+            self.respond_to_interaction(
+                ctx,
+                c_interaction,
+                ":x: Alert has expired or user could not be found.",
+            )
+            .await?;
+            return Ok(());
+        };
+
+        info!(
+            ban,
+            issuer_id = member.user.id.get(),
+            "Completing username alert interaction by {} for {}",
+            db_user,
+            interaction.account_id
+        );
+
+        if ban {
+            // ban the user
+            if let Err(e) = server
+                .handler()
+                .do_punish_user(
+                    db_user.account_id,
+                    interaction.account_id,
+                    "Inappropriate username",
+                    0,
+                    UserPunishmentType::Ban,
+                )
+                .await
+            {
+                return Err(BotError::custom(format!("Failed to ban user: {e}")));
+            }
+
+            self.respond_to_interaction(
+                ctx,
+                c_interaction,
+                format!(
+                    "✅ User {} ({}) successfully banned.",
+                    interaction.username, interaction.account_id
+                ),
+            )
+            .await?;
+        }
+
+        // delete message
+        c_interaction.message.delete(ctx).await?;
+
+        Ok(())
+    }
+
+    async fn respond_to_interaction(
+        &self,
+        ctx: &Context,
+        interaction: &ComponentInteraction,
+        content: impl Into<String>,
+    ) -> Result<(), BotError> {
+        interaction
+            .create_response(
+                ctx,
+                CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::default()
+                        .ephemeral(true)
+                        .content(content.into()),
+                ),
+            )
+            .await?;
+
+        Ok(())
+    }
+
     fn cleanup_link_attempts(&self) {
         self.link_attempts.retain(|_, la| la.started_at.elapsed() < Duration::from_mins(1));
     }
@@ -607,9 +707,14 @@ impl BotState {
         self.oauth_attempts.retain(|_, oa| oa.started_at.elapsed() < Duration::from_mins(10));
     }
 
+    fn cleanup_old_interactions(&self) {
+        self.name_alerts.retain(|_, ia| ia.began_at.elapsed() < Duration::from_days(7));
+    }
+
     pub fn cleanup(&self) {
         self.cleanup_link_attempts();
         self.cleanup_oauth_flows();
+        self.cleanup_old_interactions();
     }
 }
 

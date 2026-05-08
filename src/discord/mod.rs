@@ -1,11 +1,16 @@
-use std::{collections::HashSet, fmt::Write, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    fmt::Write,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use arc_swap::ArcSwap;
 use parking_lot::Mutex;
 use plotters::style::FontStyle;
-use poise::serenity_prelude as serenity;
+use poise::serenity_prelude::{self as serenity, ButtonStyle, CreateActionRow, CreateButton};
 use serde::{Deserialize, Serialize};
-use server_shared::qunet::server::ServerHandle;
+use server_shared::{UsernameString, qunet::server::ServerHandle};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
@@ -24,7 +29,10 @@ use crate::{
         handler::{ClientStateHandle, ConnectionHandler},
         module::{ConfigurableModule, ModuleInitResult, ServerModule},
     },
-    discord::{bot::DiscordBot, state::BotState},
+    discord::{
+        bot::DiscordBot,
+        state::{BotState, NameAlertInteraction},
+    },
     users::UsersModule,
 };
 
@@ -69,7 +77,7 @@ impl DiscordModule {
 
         tokio::spawn(async move {
             match state.send_message(channel_id, msg).await {
-                Ok(()) => {}
+                Ok(_) => {}
                 Err(e) => warn!("Failed to send message ({channel_id}): {e}"),
             }
         });
@@ -153,13 +161,46 @@ impl DiscordModule {
 
     pub fn send_username_alert(&self, username: &str, id: i32, bad_term: &str) {
         // don't repeat alerts
+        let config = self.config.load();
         let new_alert = self.sent_alerts.lock().insert(id);
 
-        if new_alert {
-            self.send_alert(DiscordMessage::new().content(format!(
-                "⚠️ Potentially bad username: {username} ({id}), contains term '{bad_term}'"
-            )));
+        if !new_alert || config.alert_channel == 0 {
+            return;
         }
+
+        // interactions handled in event_handler.rs
+        let buttons = vec![
+            CreateButton::new("ualert_ban_user").style(ButtonStyle::Danger).label("Ban user"),
+            CreateButton::new("ualert_dismiss").style(ButtonStyle::Secondary).label("Dismiss"),
+        ];
+
+        let msg = DiscordMessage::new()
+            .content(format!(
+                "⚠️ Potentially bad username: {username} ({id}), contains term '{bad_term}'"
+            ))
+            .add_component(CreateActionRow::Buttons(buttons))
+            .into_owned();
+
+        let state = self.state.clone();
+        let channel = config.alert_channel;
+        let username = UsernameString::try_from(username).unwrap();
+
+        tokio::spawn(async move {
+            let msg = match state.send_message(channel, msg).await {
+                Ok(msg) => msg,
+                Err(e) => {
+                    warn!("Failed to send username alert message: {e}");
+                    return;
+                }
+            };
+
+            state.add_pending_username_alert_interaction(NameAlertInteraction {
+                message_id: msg.id.get(),
+                account_id: id,
+                username,
+                began_at: Instant::now(),
+            })
+        });
     }
 
     pub async fn get_user_data(&self, account_id: u64) -> Result<DiscordUserData, BotError> {

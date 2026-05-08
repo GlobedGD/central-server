@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+use poise::serenity_prelude::CreateActionRow;
+
 pub use super::serenity::CreateEmbed;
 
 type Str<'a> = Cow<'a, str>;
@@ -151,6 +153,7 @@ type Str<'a> = Cow<'a, str>;
 pub struct DiscordMessage<'a> {
     pub content: Option<Str<'a>>,
     pub embeds: Vec<CreateEmbed>,
+    pub components: Vec<CreateActionRow>,
 }
 
 impl<'a> DiscordMessage<'a> {
@@ -168,10 +171,16 @@ impl<'a> DiscordMessage<'a> {
         self
     }
 
+    pub fn add_component(mut self, component: CreateActionRow) -> Self {
+        self.components.push(component);
+        self
+    }
+
     pub fn into_owned(self) -> DiscordMessage<'static> {
         DiscordMessage {
             content: self.content.map(|c| c.into_owned().into()),
             embeds: self.embeds,
+            components: self.components,
         }
     }
 }

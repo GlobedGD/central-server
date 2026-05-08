@@ -6,7 +6,7 @@ use tracing::{debug, warn};
 use crate::discord::{BotError, state::BotState};
 
 pub async fn event_handler(
-    _ctx: &Context,
+    ctx: &Context,
     event: &FullEvent,
     _framework: poise::FrameworkContext<'_, Arc<BotState>, BotError>,
     state: &Arc<BotState>,
@@ -25,6 +25,28 @@ pub async fn event_handler(
         FullEvent::ChannelCreate { channel } => {
             if channel.name().starts_with("ticket-") {
                 state.on_ticket_channel_created(channel.clone()).await?;
+            }
+        }
+
+        // this is funny but handle button interactions for username alerts and such
+        FullEvent::InteractionCreate {
+            interaction:
+                Interaction::Component(
+                    interaction @ ComponentInteraction {
+                        data:
+                            ComponentInteractionData {
+                                custom_id,
+                                kind: ComponentInteractionDataKind::Button,
+                                ..
+                            },
+                        member: Some(member),
+                        ..
+                    },
+                ),
+        } => {
+            if custom_id.starts_with("ualert_") {
+                let is_ban = custom_id == "ualert_ban_user";
+                state.complete_username_alert_interaction(ctx, interaction, member, is_ban).await?;
             }
         }
 
