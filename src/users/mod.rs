@@ -320,6 +320,15 @@ impl UsersModule {
         self.db.query_user(query).await
     }
 
+    /// Queries users with a similar username
+    pub async fn query_matching_users(
+        &self,
+        query: &str,
+        max_users: usize,
+    ) -> DatabaseResult<Vec<DbUser>> {
+        self.db.query_matching_users(query, max_users).await
+    }
+
     /// Query a user by account ID or username, creating them if they don't exist
     /// If the user does not exist, this will fetch the data from GD servers
     pub async fn query_or_create_user(&self, query: &str) -> Result<Option<DbUser>, Error> {

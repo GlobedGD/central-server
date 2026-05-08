@@ -1,5 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{cmp::Reverse, sync::Arc, time::Duration};
 
+use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
+use itertools::Itertools;
 use poise::{
     CreateReply, ReplyHandle,
     serenity_prelude::{self as serenity, AutocompleteChoice},
@@ -8,7 +10,7 @@ use server_shared::qunet::server::Server;
 use thiserror::Error;
 
 use crate::{
-    core::handler::ConnectionHandler,
+    core::handler::{ClientStateHandle, ConnectionHandler},
     discord::{BotError, state::BotState},
     users::{ComputedRole, DbUser, UserPunishmentType, UsersModule},
 };
@@ -131,24 +133,75 @@ pub fn parse_duration_str(s: &str) -> Result<Duration, ParseDurationError> {
     Ok(Duration::from_secs(number * modifier))
 }
 
-pub async fn online_user_autocomplete(ctx: Context<'_>, partial: &str) -> Vec<AutocompleteChoice> {
-    let server = ctx.data().server().unwrap();
-    let clients = server.handler().get_n_clients_matching(partial, 5);
-
-    clients
-        .into_iter()
-        .map(|c| AutocompleteChoice::new(c.username().to_string(), c.account_id().to_string()))
-        .collect()
+fn fuzzy_match(target: &str, candidate: &str) -> i64 {
+    let matcher = SkimMatcherV2::default();
+    matcher.fuzzy_match(target, candidate).unwrap_or(-1)
 }
 
-// async fn db_user_autocomplete(ctx: Context<'_>, partial: &str) -> Vec<AutocompleteChoice> {
-//     let server = ctx.data().server().unwrap();
-//     let users = server.handler().module::<UsersModule>();
+fn wrap_user_autocomplete<'a>(
+    query: &str,
+    iter: impl Iterator<Item = (&'a str, i32)>,
+) -> Vec<AutocompleteChoice> {
+    iter.sorted_by_key(|(username, id)| {
+        if let Ok(query_id) = query.parse::<i32>() {
+            if *id == query_id {
+                return Reverse(i64::MAX); // highest priority if ID matches
+            }
+        }
 
-//     users.query_user();
+        if username.eq_ignore_ascii_case(query) {
+            return Reverse(i64::MAX - 1); // second highest priority if username matches
+        }
 
-//     clients
-//         .into_iter()
-//         .map(|c| AutocompleteChoice::new(c.username().to_string(), c.account_id().to_string()))
-//         .collect()
-// }
+        // fuzzy match on username
+        Reverse(fuzzy_match(username, query))
+    })
+    .map(|(username, id)| AutocompleteChoice::new(username.to_owned(), id.to_string()))
+    .take(10)
+    .collect()
+}
+
+fn get_online_users_matching(ctx: Context<'_>, partial: &str) -> Vec<ClientStateHandle> {
+    let server = ctx.data().server().unwrap();
+    let mut clients = server.handler().get_n_clients_matching(partial, 10);
+
+    if let Ok(query_id) = partial.parse::<i32>() {
+        if let Some(client) = server.handler().find_client(query_id) {
+            clients.push(client);
+        }
+    }
+
+    clients
+}
+
+async fn get_db_users_matching(ctx: Context<'_>, partial: &str) -> Vec<DbUser> {
+    let server = ctx.data().server().unwrap();
+    let users = server.handler().module::<UsersModule>();
+
+    users.query_matching_users(partial, 50).await.unwrap_or_default()
+}
+
+pub async fn online_user_autocomplete(ctx: Context<'_>, partial: &str) -> Vec<AutocompleteChoice> {
+    let clients = get_online_users_matching(ctx, partial);
+    wrap_user_autocomplete(partial, clients.iter().map(|c| (c.username(), c.account_id())))
+}
+
+pub async fn db_user_autocomplete(ctx: Context<'_>, partial: &str) -> Vec<AutocompleteChoice> {
+    let users = get_db_users_matching(ctx, partial).await;
+    wrap_user_autocomplete(partial, users.iter().map(|u| (u.username(), u.account_id)))
+}
+
+pub async fn online_and_db_user_autocomplete(
+    ctx: Context<'_>,
+    partial: &str,
+) -> Vec<AutocompleteChoice> {
+    let mut vec = Vec::new();
+
+    let first = get_online_users_matching(ctx, partial);
+    vec.extend(first.iter().map(|c| (c.username(), c.account_id())));
+
+    let second = get_db_users_matching(ctx, partial).await;
+    vec.extend(second.iter().map(|u| (u.username(), u.account_id)));
+
+    wrap_user_autocomplete(partial, vec.into_iter())
+}

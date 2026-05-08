@@ -227,6 +227,34 @@ impl UsersDb {
         }
     }
 
+    pub async fn query_matching_users(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> DatabaseResult<Vec<DbUser>> {
+        let mut out = Vec::new();
+
+        // similar logic as query_user
+
+        if let Ok(id) = query.parse::<i32>() {
+            if let Some(user) = User::find_by_id(id).one(&self.conn).await? {
+                out.push(self.post_user_fetch(user).await?);
+            }
+        };
+
+        let users = User::find()
+            .filter(user::Column::Username.contains(query))
+            .limit(limit as u64)
+            .all(&self.conn)
+            .await?;
+
+        for user in users {
+            out.push(self.post_user_fetch(user).await?);
+        }
+
+        Ok(out)
+    }
+
     pub async fn query_user_with_role(&self, role_id: &str) -> DatabaseResult<Vec<DbUser>> {
         let users =
             User::find().filter(user::Column::Roles.contains(role_id)).all(&self.conn).await?;
@@ -894,7 +922,10 @@ impl DbUser {
     }
 
     pub fn username(&self) -> &str {
-        self.username.as_deref().unwrap_or("<unknown>")
+        match self.username.as_deref() {
+            Some(name) if !name.is_empty() => name,
+            _ => "Unknown",
+        }
     }
 }
 

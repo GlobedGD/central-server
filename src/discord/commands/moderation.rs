@@ -39,7 +39,7 @@ pub async fn punish(
     #[description = "Punishment type"]
     punishment_type: String,
 
-    #[autocomplete = "online_user_autocomplete"]
+    #[autocomplete = "online_and_db_user_autocomplete"]
     #[description = "Geometry Dash username or ID"]
     target_user: String,
 
@@ -88,7 +88,7 @@ pub async fn unpunish(
     #[autocomplete = "punish_autocomplete"]
     #[description = "Punishment type"]
     punishment_type: String,
-    #[autocomplete = "online_user_autocomplete"]
+    #[autocomplete = "online_and_db_user_autocomplete"]
     #[description = "Geometry Dash username or ID"]
     target_user: String,
 ) -> Result<(), BotError> {
@@ -300,7 +300,9 @@ pub async fn check_actions(
 #[poise::command(slash_command, guild_only = true)]
 pub async fn check_alts(
     ctx: Context<'_>,
-    #[description = "GD username or account ID of the target user"] user: String,
+    #[autocomplete = "db_user_autocomplete"]
+    #[description = "GD username or account ID of the target user"]
+    user: String,
 ) -> Result<(), BotError> {
     check_moderator(ctx).await?;
 
