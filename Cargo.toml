@@ -95,6 +95,7 @@ reqwest = { version = "0.13.2", default-features = false, features = [
     "rustls",
     "form",
 ] }
+urlencoding = { version = "2.1.3", optional = true }
 
 [features]
 all = [
@@ -117,4 +118,4 @@ quic = ["server-shared/quic"]
 websocket = ["server-shared/websocket"]
 mimalloc = ["dep:mimalloc"]
 analytics = ["dep:clickhouse", "dep:include_dir", "dep:chrono"]
-web = ["dep:axum"]
+web = ["dep:axum", "dep:urlencoding"]

@@ -45,18 +45,30 @@
             text-decoration: none;
             border-radius: 6px;
         }
+
+        #error-message {
+            color: #fbd723;
+        }
     </style>
 </head>
 
 <body>
     <div class="card">
         <h1>❌ Failed!</h1>
-        <p>An error occurred while linking your Discord account.
-            <br>
-            Please try again or make a bug report on our Discord server if the issue persists.
-        </p>
+        <div class="content">
+            <p>An error occurred while linking your Discord account.</p>
+            <p>Please try again or make a bug report on our Discord server if the issue persists.</p>
+
+            <p>Error message: <span id="error-message"></span></p>
+        </div>
         <a href="https://discord.gg/d56q5Dkdm3">Join Discord</a>
     </div>
 </body>
+
+<script>
+    const params = new URLSearchParams(window.location.search);
+    const message = params.get('message') || 'An unknown error occurred';
+    document.getElementById('error-message').innerText = message;
+</script>
 
 </html>

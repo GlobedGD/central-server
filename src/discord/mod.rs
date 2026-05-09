@@ -216,8 +216,8 @@ impl DiscordModule {
         self.state.begin_oauth_flow(Arc::downgrade(client), gd_account)
     }
 
-    pub fn finish_oauth_flow(&self, code: String, state: String) -> anyhow::Result<()> {
-        self.state.finish_oauth_flow(code, state)
+    pub async fn finish_oauth_flow(&self, code: String, state: String) -> anyhow::Result<()> {
+        self.state.finish_oauth_flow(code, state).await
     }
 }
 
@@ -356,11 +356,14 @@ async fn oauth_handler(
     let server = wstate.server();
     let module = server.handler().module::<DiscordModule>();
 
-    match module.finish_oauth_flow(code, state) {
+    match module.finish_oauth_flow(code, state).await {
         Ok(()) => Redirect::to("/discord-oauth/success").into_response(),
         Err(e) => {
-            error!("Failed to finish OAuth flow: {e}");
-            Redirect::to("/discord-oauth/failure").into_response()
+            let msg = e.to_string();
+            warn!("Failed to finish OAuth flow: {msg}");
+
+            let err_msg = urlencoding::encode(&msg);
+            Redirect::to(&format!("/discord-oauth/failure?message={err_msg}")).into_response()
         }
     }
 }

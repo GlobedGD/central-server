@@ -222,7 +222,7 @@ impl BotState {
         )
     }
 
-    pub fn finish_oauth_flow(&self, code: String, state: String) -> anyhow::Result<()> {
+    pub async fn finish_oauth_flow(&self, code: String, state: String) -> anyhow::Result<()> {
         let Some((id_str, secret_str)) = state.split_once('-') else {
             bail!("invalid OAuth state: '{state}'");
         };
@@ -236,15 +236,11 @@ impl BotState {
                 debug!("Finished OAuth flow for user {id}");
 
                 let server = self.server().unwrap();
-                tokio::spawn(async move {
-                    let Some(client) = attempt.client.upgrade() else {
-                        return;
-                    };
+                let Some(client) = attempt.client.upgrade() else {
+                    bail!("invalid OAuth state: Client handle was dropped");
+                };
 
-                    if let Err(e) = Self::finish_oauth_link(server, client, code).await {
-                        warn!("Failed to finish OAuth for user {id}: {e}");
-                    }
-                });
+                Self::finish_oauth_link(server, client, code).await?;
             } else {
                 bail!("invalid OAuth state: secret mismatch for user {id}");
             }
