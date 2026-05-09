@@ -196,12 +196,12 @@ impl Db {
             }
 
             let queued = queued_level::ActiveModel {
-                id: Set(level_id),
+                id: Set(level_id as i64),
                 priority: Set(0),
                 name: Set(level_name.to_string()),
-                author: Set(author_id),
+                author: Set(author_id as i64),
                 author_name: Set(author_name.to_string()),
-                rate_tier: Set(rate_tier as i32),
+                rate_tier: Set(rate_tier as i64),
                 feature_duration: Set(None),
                 queued_at: Set(Some(timestamp().get())),
             };
@@ -212,13 +212,13 @@ impl Db {
         } else {
             let model = sent_level::ActiveModel {
                 id: NotSet,
-                level_id: Set(level_id),
+                level_id: Set(level_id as i64),
                 name: Set(level_name.to_string()),
-                author: Set(author_id),
+                author: Set(author_id as i64),
                 author_name: Set(author_name.to_string()),
                 note: Set(note.to_string()),
-                rate_tier: Set(rate_tier as i32),
-                sent_by: Set(sender_id),
+                rate_tier: Set(rate_tier as i64),
+                sent_by: Set(sender_id as i64),
             };
 
             model.insert(&self.conn).await?;
@@ -243,12 +243,12 @@ impl Db {
             .await?
         {
             let mut model = level.into_active_model();
-            model.feature_duration = Set(Some(duration));
+            model.feature_duration = Set(Some(duration as i64));
             model.update(&self.conn).await?;
             Ok(())
         } else if let Some(level) = QueuedLevel::find_by_id(level_id).one(&self.conn).await? {
             let mut model = level.into_active_model();
-            model.feature_duration = Set(Some(duration));
+            model.feature_duration = Set(Some(duration as i64));
             model.update(&self.conn).await?;
             Ok(())
         } else {
@@ -259,7 +259,7 @@ impl Db {
     pub async fn set_feature_priority(&self, level_id: i32, priority: i32) -> DatabaseResult<()> {
         if let Some(level) = QueuedLevel::find_by_id(level_id).one(&self.conn).await? {
             let mut model = level.into_active_model();
-            model.priority = Set(priority);
+            model.priority = Set(priority as i64);
             model.update(&self.conn).await?;
             Ok(())
         } else {
@@ -274,12 +274,12 @@ impl Db {
             .await?
         {
             let mut model = level.into_active_model();
-            model.rate_tier = Set(tier as i32);
+            model.rate_tier = Set(tier as i64);
             model.update(&self.conn).await?;
             Ok(())
         } else if let Some(level) = QueuedLevel::find_by_id(level_id).one(&self.conn).await? {
             let mut model = level.into_active_model();
-            model.rate_tier = Set(tier as i32);
+            model.rate_tier = Set(tier as i64);
             model.update(&self.conn).await?;
             Ok(())
         } else {

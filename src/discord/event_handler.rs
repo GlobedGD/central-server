@@ -3,7 +3,10 @@ use std::sync::Arc;
 use super::serenity::*;
 use tracing::{debug, warn};
 
-use crate::discord::{BotError, state::BotState};
+use crate::discord::{
+    BotError,
+    state::{AltAlertAction, BotState},
+};
 
 pub async fn event_handler(
     ctx: &Context,
@@ -47,6 +50,16 @@ pub async fn event_handler(
             if custom_id.starts_with("ualert_") {
                 let is_ban = custom_id == "ualert_ban_user";
                 state.complete_username_alert_interaction(ctx, interaction, member, is_ban).await?;
+            } else if custom_id.starts_with("altalrt_") {
+                let action = match custom_id.as_str() {
+                    "altalrt_ban" => AltAlertAction::Ban,
+                    "altalrt_dismiss" => AltAlertAction::Dismiss,
+                    "altalrt_keep" => AltAlertAction::Keep,
+                    "altalrt_wl" => AltAlertAction::Whitelist,
+                    _ => AltAlertAction::Keep,
+                };
+
+                state.complete_alt_alert_interaction(ctx, interaction, member, action).await?;
             }
         }
 

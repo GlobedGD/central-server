@@ -614,6 +614,48 @@ impl ConnectionHandler {
         Ok(())
     }
 
+    /// Specialized routine for banning multiple accounts for ban evasion.
+    /// Accounts that have already been banned will have their bans changed to permanent with ban evasion appended to the reason.
+    /// Accounts that are not currently banned will be permanently banned for ban evasion.
+    pub async fn ban_accounts_for_evasion(
+        &self,
+        issuer: i32,
+        ids: &[i32],
+    ) -> Result<usize, crate::users::Error> {
+        let users = self.module::<UsersModule>();
+
+        let mut banned = 0;
+
+        for id in ids {
+            let Some(user) = users.get_or_create_user(*id).await? else {
+                warn!("failed to fetch user {id} when banning alt accounts!");
+                continue;
+            };
+
+            let reason = match user.active_ban {
+                Some(p) if p.reason.contains("evasion") || p.reason.contains("Evasion") => {
+                    banned += 1;
+                    continue; // already banned for evasion, skip
+                }
+
+                Some(p) => format!("{} + Ban evasion", p.reason),
+
+                None => "Ban evasion".to_owned(),
+            };
+
+            if let Err(e) =
+                self.do_punish_user(issuer, *id, &reason, 0, UserPunishmentType::Ban).await
+            {
+                warn!("failed to ban user {id} for evasion: {e}");
+                continue;
+            }
+
+            banned += 1;
+        }
+
+        Ok(banned)
+    }
+
     async fn wrap_unpunish(
         &self,
         client: &ClientStateHandle,
@@ -760,9 +802,9 @@ impl ConnectionHandler {
                 let mut out_logs = msg.init_logs(logs.len() as u32);
                 for (i, log) in logs.iter().enumerate() {
                     let mut out = out_logs.reborrow().get(i as u32);
-                    out.set_id(log.id);
-                    out.set_account_id(log.account_id);
-                    out.set_target_account_id(log.target_account_id.unwrap_or(0));
+                    out.set_id(log.id as i32);
+                    out.set_account_id(log.account_id as i32);
+                    out.set_target_account_id(log.target_account_id.unwrap_or(0) as i32);
                     out.set_type(&log.r#type);
                     out.set_timestamp(log.timestamp);
                     out.set_expires_at(log.expires_at.unwrap_or(0));

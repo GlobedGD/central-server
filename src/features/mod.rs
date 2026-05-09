@@ -159,7 +159,7 @@ impl FeaturesModule {
     }
 
     fn set_active_from(&self, level: &FeaturedLevelModel) {
-        self.active_level.store(level.level_id, Ordering::Relaxed);
+        self.active_level.store(level.level_id as i32, Ordering::Relaxed);
         self.active_level_edition.store(level.id as u32, Ordering::Relaxed);
         self.active_level_tier.store(level.rate_tier as u8, Ordering::Relaxed);
     }
@@ -295,8 +295,8 @@ impl FeaturesModule {
 
             // build a map of all usernames .. lol
             for level in &sent {
-                if let Entry::Vacant(e) = username_map.entry(level.sent_by) {
-                    if let Some(user) = self.users_module.get_user(level.sent_by).await? {
+                if let Entry::Vacant(e) = username_map.entry(level.sent_by as i32) {
+                    if let Some(user) = self.users_module.get_user(level.sent_by as i32).await? {
                         e.insert(
                             user.username
                                 .as_deref()
@@ -326,7 +326,7 @@ impl FeaturesModule {
 
         let difficulty = self
             .gd_client
-            .fetch_level(level.level_id)
+            .fetch_level(level.level_id as i32)
             .await?
             .map_or(GDDifficulty::NA, |l| l.difficulty);
 
@@ -339,7 +339,7 @@ impl FeaturesModule {
                         .author(CreateEmbedAuthor::new("New Featured Level"))
                         .title(format!("{} by {}", level.name, level.author_name))
                         .field("Level ID", level.level_id.to_string(), true)
-                        .thumbnail(rate_tier_to_image(difficulty, level.rate_tier))
+                        .thumbnail(rate_tier_to_image(difficulty, level.rate_tier as i32))
                         .color(hex_color_to_decimal("#4dace8")),
                 ),
         );

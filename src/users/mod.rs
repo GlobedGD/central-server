@@ -360,6 +360,30 @@ impl UsersModule {
         Ok(self.db.get_user(user.account_id).await?)
     }
 
+    /// Get a user by account ID, creating them if they don't exist
+    /// If the user does not exist, this will fetch the data from GD servers
+    pub async fn get_or_create_user(&self, account_id: i32) -> Result<Option<DbUser>, Error> {
+        if let Some(user) = self.db.get_user(account_id).await? {
+            return Ok(Some(user));
+        }
+
+        let Some(user) = self.gd_client.fetch_user(account_id).await? else {
+            return Ok(None);
+        };
+
+        self.admin_update_user(
+            user.account_id,
+            &user.username,
+            user.cube,
+            user.color1,
+            user.color2,
+            user.glow_color,
+        )
+        .await?;
+
+        Ok(self.db.get_user(user.account_id).await?)
+    }
+
     pub async fn update_username(&self, account_id: i32, new_username: &str) -> DatabaseResult<()> {
         self.db.update_username(account_id, new_username).await
     }
@@ -372,8 +396,13 @@ impl UsersModule {
         Ok(r)
     }
 
-    pub async fn get_accounts_for_uident(&self, ident: &str) -> DatabaseResult<SmallVec<[i32; 8]>> {
-        if self.db.get_account_count_for_uident(ident).await? == 0 {
+    /// If `force` is true, returns accounts even if the ident is whitelisted
+    pub async fn get_accounts_for_uident(
+        &self,
+        ident: &str,
+        force: bool,
+    ) -> DatabaseResult<SmallVec<[i32; 8]>> {
+        if self.db.get_account_count_for_uident(ident, force).await? == 0 {
             Ok(SmallVec::new())
         } else {
             self.db.get_accounts_for_uident(ident).await
@@ -386,6 +415,14 @@ impl UsersModule {
 
     pub async fn get_user_uident(&self, account_id: i32) -> DatabaseResult<Option<String>> {
         self.db.get_user_uident(account_id).await
+    }
+
+    pub async fn get_user_uidents(&self, account_id: i32) -> DatabaseResult<Vec<String>> {
+        self.db.get_user_uidents(account_id).await
+    }
+
+    pub async fn whitelist_uident(&self, ident: &str) -> DatabaseResult<()> {
+        self.db.whitelist_uident(ident).await
     }
 
     pub async fn get_punishment_count(&self, account_id: i32) -> DatabaseResult<u32> {
@@ -712,14 +749,14 @@ impl UsersModule {
         let mut users = self.db.fetch_all_with_roles().await?;
 
         users.retain(|user| {
-            let role =
-                self.compute_from_rolestr(user.account_id, user.roles.as_deref().unwrap_or(""));
+            let role = self
+                .compute_from_rolestr(user.account_id as i32, user.roles.as_deref().unwrap_or(""));
             role.can_moderate()
         });
 
         for user in users {
             out.push(FetchedMod {
-                account_id: user.account_id,
+                account_id: user.account_id as i32,
                 username: user.username.unwrap_or_else(|| "Unknown".to_owned()),
                 cube: user.cube.try_into().unwrap_or(0),
                 color1: user.color1.try_into().unwrap_or(0),
@@ -871,10 +908,10 @@ impl UsersModule {
         };
 
         for model in logs.iter() {
-            push_user(model.account_id).await?;
+            push_user(model.account_id as i32).await?;
 
             if let Some(target_id) = model.target_account_id {
-                push_user(target_id).await?;
+                push_user(target_id as i32).await?;
             }
         }
 
@@ -895,7 +932,7 @@ impl UsersModule {
         self.db.check_actions_over_period(account_id, period).await
     }
 
-    pub async fn get_punishment(&self, pun_id: i32) -> DatabaseResult<Option<UserPunishment>> {
+    pub async fn get_punishment(&self, pun_id: i64) -> DatabaseResult<Option<UserPunishment>> {
         self.db.get_punishment(pun_id).await
     }
 

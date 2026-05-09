@@ -305,7 +305,11 @@ impl LevelToRow for SentLevelModel {
             Value::String(self.author_name),
             Value::Number(self.author.into()),
             Value::String(
-                username_map.unwrap().get(&self.sent_by).map_or("Unknown", |x| &**x).to_owned(),
+                username_map
+                    .unwrap()
+                    .get(&(self.sent_by as i32))
+                    .map_or("Unknown", |x| &**x)
+                    .to_owned(),
             ),
             Value::String(format_rate_tier(self.rate_tier)),
             Value::String(self.note),
@@ -329,7 +333,7 @@ fn format_timestamp(ts: i64) -> String {
     time_format::strftime_utc("%Y-%m-%d %H:%M:%S", ts).unwrap()
 }
 
-fn format_dur_seconds(secs: i32) -> String {
+fn format_dur_seconds(secs: i64) -> String {
     use std::fmt::Write;
 
     if secs == 0 {
@@ -356,7 +360,7 @@ fn format_dur_seconds(secs: i32) -> String {
     out
 }
 
-fn format_rate_tier(tier: i32) -> String {
+fn format_rate_tier(tier: i64) -> String {
     match tier {
         0 => "Featured",
         1 => "Epic",

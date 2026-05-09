@@ -31,7 +31,7 @@ use crate::{
     },
     discord::{
         bot::DiscordBot,
-        state::{BotState, NameAlertInteraction},
+        state::{AltAlertInteraction, BotState, NameAlertInteraction},
     },
     users::UsersModule,
 };
@@ -115,6 +115,11 @@ impl DiscordModule {
         uident: &str,
         users: &UsersModule,
     ) {
+        let config = self.config.load();
+        if config.alert_channel == 0 {
+            return;
+        }
+
         let mut alert_str = format!(
             "⚠️ Potential alt account logged in: {} ({}), uident: {}. Other (suspected) accounts:\n",
             username,
@@ -156,7 +161,42 @@ impl DiscordModule {
             }
         }
 
-        self.send_alert(DiscordMessage::new().content(alert_str));
+        // interactions handled in event_handler.rs
+        let buttons = vec![
+            CreateButton::new("altalrt_ban").style(ButtonStyle::Danger).label("Ban all accounts"),
+            CreateButton::new("altalrt_dismiss").style(ButtonStyle::Secondary).label("Dismiss"),
+            CreateButton::new("altalrt_keep").style(ButtonStyle::Secondary).label("Keep"),
+            CreateButton::new("altalrt_wl").style(ButtonStyle::Success).label("Whitelist"),
+        ];
+
+        let msg = DiscordMessage::new()
+            .content(alert_str)
+            .add_component(CreateActionRow::Buttons(buttons))
+            .into_owned();
+
+        let state = self.state.clone();
+        let channel = config.alert_channel;
+
+        let mut alts = alts.to_vec();
+        if !alts.contains(&account_id) {
+            alts.push(account_id);
+        }
+
+        tokio::spawn(async move {
+            let msg = match state.send_message(channel, msg).await {
+                Ok(msg) => msg,
+                Err(e) => {
+                    warn!("Failed to send alt alert message: {e}");
+                    return;
+                }
+            };
+
+            state.add_pending_alt_alert_interaction(AltAlertInteraction {
+                message_id: msg.id.get(),
+                accounts: alts,
+                began_at: Instant::now(),
+            })
+        });
     }
 
     pub fn send_username_alert(&self, username: &str, id: i32, bad_term: &str) {

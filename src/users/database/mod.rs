@@ -168,7 +168,7 @@ impl UsersDb {
             .await?;
 
         if let Some(existing) = existing {
-            if existing.account_id != account_id {
+            if existing.account_id as i32 != account_id {
                 return Err(DatabaseError::AlreadyLinked);
             } else {
                 // already linked to the same account, nothing to do
@@ -283,7 +283,7 @@ impl UsersDb {
         });
 
         let mut user = DbUser {
-            account_id: model.account_id,
+            account_id: model.account_id as i32,
             username: model.username.clone(),
             name_color,
             is_whitelisted: model.is_whitelisted,
@@ -320,14 +320,14 @@ impl UsersDb {
         Ok(user)
     }
 
-    pub async fn get_punishment(&self, id: i32) -> DatabaseResult<Option<UserPunishment>> {
+    pub async fn get_punishment(&self, id: i64) -> DatabaseResult<Option<UserPunishment>> {
         let punishment = Punishment::find_by_id(id).one(&self.conn).await?;
 
         Ok(match punishment {
             None => None,
             Some(p) => Some(UserPunishment {
                 id: p.id,
-                account_id: p.account_id,
+                account_id: p.account_id as i32,
                 r#type: match p.r#type.as_deref().unwrap_or_default() {
                     "mute" => UserPunishmentType::Mute,
                     "ban" => UserPunishmentType::Ban,
@@ -336,7 +336,7 @@ impl UsersDb {
                 },
                 reason: p.reason,
                 expires_at: NonZeroI64::new(p.expires_at.unwrap_or_default()),
-                issued_by: p.issued_by,
+                issued_by: p.issued_by as i32,
                 issued_at: NonZeroI64::new(p.issued_at.unwrap_or_default()),
             }),
         })
@@ -364,11 +364,12 @@ impl UsersDb {
             > 0;
 
         if existing {
-            return Ok(false);
+            // TODO: test
+            return Ok(true);
         }
 
         let model = uident::ActiveModel {
-            account_id: Set(account_id),
+            account_id: Set(account_id as i64),
             ident: Set(ident.to_owned()),
             ..Default::default()
         };
@@ -378,8 +379,19 @@ impl UsersDb {
         Ok(true)
     }
 
-    pub async fn get_account_count_for_uident(&self, ident: &str) -> DatabaseResult<u64> {
-        Ok(Uident::find().filter(uident::Column::Ident.eq(ident)).count(&self.conn).await?)
+    /// Gets how many accounts have this ident, returns 0 if the ident is whitelisted
+    pub async fn get_account_count_for_uident(
+        &self,
+        ident: &str,
+        force: bool,
+    ) -> DatabaseResult<u64> {
+        let mut query = Uident::find().filter(uident::Column::Ident.eq(ident));
+
+        if !force {
+            query = query.filter(uident::Column::Whitelisted.eq(false));
+        }
+
+        Ok(query.count(&self.conn).await?)
     }
 
     pub async fn any_active_punishments_for_uident(&self, ident: &str) -> DatabaseResult<bool> {
@@ -436,6 +448,23 @@ impl UsersDb {
         Ok(uident.map(|x| x.ident))
     }
 
+    pub async fn get_user_uidents(&self, account_id: i32) -> DatabaseResult<Vec<String>> {
+        let uidents =
+            Uident::find().filter(uident::Column::AccountId.eq(account_id)).all(&self.conn).await?;
+
+        Ok(uidents.into_iter().map(|x| x.ident).collect())
+    }
+
+    pub async fn whitelist_uident(&self, ident: &str) -> DatabaseResult<()> {
+        Uident::update_many()
+            .filter(uident::Column::Ident.eq(ident))
+            .col_expr(uident::Column::Whitelisted, Expr::value(true))
+            .exec(&self.conn)
+            .await?;
+
+        Ok(())
+    }
+
     pub async fn update_user(
         &self,
         account_id: i32,
@@ -458,13 +487,13 @@ impl UsersDb {
             tracing::debug!("inserting new user {} ({})", username, account_id);
             // user does not exist, insert a new one
             let new_user = user::ActiveModel {
-                account_id: Set(account_id),
+                account_id: Set(account_id as i64),
                 username: Set(Some(username.to_owned())),
                 is_whitelisted: Set(false),
-                cube: Set(cube as i32),
-                color1: Set(color1 as i32),
-                color2: Set(color2 as i32),
-                glow_color: Set(glow_color as i32),
+                cube: Set(cube as i64),
+                color1: Set(color1 as i64),
+                color2: Set(color2 as i64),
+                glow_color: Set(glow_color as i64),
                 ..Default::default()
             };
 
@@ -597,7 +626,7 @@ impl UsersDb {
     ) -> DatabaseResult<()> {
         let pun = punishment::ActiveModel {
             id: if updating { Set(p.id) } else { NotSet },
-            account_id: Set(p.account_id),
+            account_id: Set(p.account_id as i64),
             r#type: Set(Some(
                 match p.r#type {
                     UserPunishmentType::Mute => "mute",
@@ -608,7 +637,7 @@ impl UsersDb {
             )),
             reason: Set(p.reason),
             expires_at: Set(p.expires_at.map(|x| x.get())),
-            issued_by: Set(p.issued_by),
+            issued_by: Set(p.issued_by as i64),
             issued_at: Set(p.issued_at.map(|x| x.get())),
         };
 
@@ -628,22 +657,32 @@ impl UsersDb {
         &self,
         account_id: i32,
         punishment_type: UserPunishmentType,
-        punishment_id: Option<i32>,
+        punishment_id: Option<i64>,
     ) -> DatabaseResult<bool> {
         let stmt = User::update_many().filter(user::Column::AccountId.eq(account_id));
 
         let stmt = match punishment_type {
-            UserPunishmentType::Mute => stmt
-                .col_expr(user::Column::ActiveMute, Expr::value(punishment_id))
-                .filter(user::Column::ActiveMute.ne(punishment_id)),
+            UserPunishmentType::Mute => {
+                stmt.col_expr(user::Column::ActiveMute, Expr::value(punishment_id)).filter(
+                    user::Column::ActiveMute
+                        .is_null()
+                        .or(user::Column::ActiveMute.ne(punishment_id)),
+                )
+            }
 
-            UserPunishmentType::Ban => stmt
-                .col_expr(user::Column::ActiveBan, Expr::value(punishment_id))
-                .filter(user::Column::ActiveBan.ne(punishment_id)),
+            UserPunishmentType::Ban => {
+                stmt.col_expr(user::Column::ActiveBan, Expr::value(punishment_id)).filter(
+                    user::Column::ActiveBan.is_null().or(user::Column::ActiveBan.ne(punishment_id)),
+                )
+            }
 
-            UserPunishmentType::RoomBan => stmt
-                .col_expr(user::Column::ActiveRoomBan, Expr::value(punishment_id))
-                .filter(user::Column::ActiveRoomBan.ne(punishment_id)),
+            UserPunishmentType::RoomBan => {
+                stmt.col_expr(user::Column::ActiveRoomBan, Expr::value(punishment_id)).filter(
+                    user::Column::ActiveRoomBan
+                        .is_null()
+                        .or(user::Column::ActiveRoomBan.ne(punishment_id)),
+                )
+            }
         };
 
         let result = stmt.exec(&self.conn).await?;
@@ -765,10 +804,10 @@ impl UsersDb {
         let timestamp = timestamp().get();
 
         let mut entry = audit_log::ActiveModel {
-            account_id: Set(account_id),
+            account_id: Set(account_id as i64),
             r#type: Set(action.type_str().to_owned()),
             timestamp: Set(timestamp),
-            target_account_id: Set(Some(action.account_id())),
+            target_account_id: Set(Some(action.account_id() as i64)),
             ..Default::default()
         };
 
@@ -820,16 +859,26 @@ impl UsersDb {
     }
 
     pub async fn fetch_blacklisted_levels(&self) -> DatabaseResult<Vec<i32>> {
-        Ok(BlacklistedLevel::find().all(&self.conn).await?.into_iter().map(|x| x.id).collect())
+        Ok(BlacklistedLevel::find()
+            .all(&self.conn)
+            .await?
+            .into_iter()
+            .map(|x| x.id as i32)
+            .collect())
     }
 
     pub async fn fetch_blacklisted_authors(&self) -> DatabaseResult<Vec<i32>> {
-        Ok(BlacklistedAuthor::find().all(&self.conn).await?.into_iter().map(|x| x.id).collect())
+        Ok(BlacklistedAuthor::find()
+            .all(&self.conn)
+            .await?
+            .into_iter()
+            .map(|x| x.id as i32)
+            .collect())
     }
 
     pub async fn record_player_count(&self, count: u32) -> DatabaseResult<()> {
         let entry = player_count_log::ActiveModel {
-            count: Set(count as i32),
+            count: Set(count as i64),
             timestamp: Set(timestamp().get()),
         };
 
@@ -873,7 +922,7 @@ pub enum UserPunishmentType {
 }
 
 pub struct UserPunishment {
-    pub id: i32,
+    pub id: i64,
     pub account_id: i32,
     pub r#type: UserPunishmentType,
     pub reason: String,

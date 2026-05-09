@@ -216,7 +216,7 @@ impl ConnectionHandler {
 
         // check potential alt account
         if let Some(uident) = uident.as_ref() {
-            let accounts = match users.get_accounts_for_uident(uident).await {
+            let accounts = match users.get_accounts_for_uident(uident, false).await {
                 Ok(x) => x,
                 Err(e) => {
                     warn!("[{}] failed to get alt accounts: {}", client.address, e);
@@ -233,6 +233,7 @@ impl ConnectionHandler {
                             && users
                                 .any_active_punishments_for_uident(uident)
                                 .await
+                                .inspect_err(|e| warn!("error checking active punishments: {e}"))
                                 .unwrap_or(false)
                         {
                             discord

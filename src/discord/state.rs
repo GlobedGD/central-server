@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
@@ -8,8 +9,8 @@ use anyhow::{anyhow, bail};
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use poise::serenity_prelude::{
-    ComponentInteraction, CreateInteractionResponse, CreateInteractionResponseMessage, GetMessages,
-    GuildChannel, GuildId, Member, Message, RoleId, User,
+    ComponentInteraction, CreateInteractionResponse, CreateInteractionResponseMessage, EditMessage,
+    GetMessages, GuildChannel, GuildId, Member, Message, RoleId, User,
 };
 use serde::{Deserialize, de::DeserializeOwned};
 use server_shared::{
@@ -68,6 +69,20 @@ pub struct NameAlertInteraction {
     pub began_at: Instant,
 }
 
+pub struct AltAlertInteraction {
+    pub message_id: u64,
+    pub accounts: Vec<i32>,
+    pub began_at: Instant,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum AltAlertAction {
+    Ban,
+    Dismiss,
+    Keep,
+    Whitelist,
+}
+
 pub struct DiscordMemberData {
     #[allow(unused)]
     id: UserId,
@@ -95,6 +110,7 @@ pub struct BotState {
     oauth_attempts: DashMap<i32, OauthAttempt>,
 
     name_alerts: DashMap<u64, NameAlertInteraction>,
+    alt_alerts: DashMap<u64, AltAlertInteraction>,
 }
 
 #[derive(Error, Debug)]
@@ -146,6 +162,7 @@ impl BotState {
             link_attempts: DashMap::new(),
             oauth_attempts: DashMap::new(),
             name_alerts: DashMap::new(),
+            alt_alerts: DashMap::new(),
         }
     }
 
@@ -607,6 +624,10 @@ impl BotState {
         self.name_alerts.insert(interaction.message_id, interaction);
     }
 
+    pub fn add_pending_alt_alert_interaction(&self, interaction: AltAlertInteraction) {
+        self.alt_alerts.insert(interaction.message_id, interaction);
+    }
+
     pub async fn complete_username_alert_interaction(
         &self,
         ctx: &Context,
@@ -696,9 +717,7 @@ impl BotState {
         (_, content) = content.split_once("bad username: ")?;
         (content, _) = content.split_once("),")?;
 
-        let (username, account_id_str) = content.rsplit_once(" (")?;
-        let username = username.try_into().ok()?;
-        let account_id = account_id_str.parse::<i32>().ok()?;
+        let (username, account_id) = Self::parse_username_and_id_pair(content)?;
 
         Some(NameAlertInteraction {
             message_id: message.id.get(),
@@ -706,6 +725,168 @@ impl BotState {
             username,
             began_at: Instant::now(),
         })
+    }
+
+    pub async fn complete_alt_alert_interaction(
+        &self,
+        ctx: &Context,
+        c_interaction: &ComponentInteraction,
+        member: &Member,
+        action: AltAlertAction,
+    ) -> Result<(), BotError> {
+        let server = self.server().unwrap();
+        let users = server.handler().module::<UsersModule>();
+        let db_user = self.dbuser_from_discord_id(member.user.id.get()).await?;
+        let role = users.compute_from_user(&db_user);
+
+        if !role.can_ban {
+            return Err(BotError::NoPermission);
+        }
+
+        let interaction = self.find_alt_alert_interaction(ctx, &c_interaction.message);
+
+        info!(
+            ?action,
+            issuer_id = member.user.id.get(),
+            "Completing alt alert interaction by {} for {:?}",
+            db_user,
+            interaction.as_ref().map_or_default(|x| &x.accounts[..])
+        );
+
+        // return an error if we could not find the interaction
+        let interaction = match interaction {
+            Some(i) if !i.accounts.is_empty() => i,
+            _ => {
+                self.respond_to_interaction(
+                    ctx,
+                    c_interaction,
+                    ":x: Alert has expired and I could not parse the accounts.",
+                )
+                .await?;
+                return Ok(());
+            }
+        };
+
+        let mut message = (*c_interaction.message).clone();
+
+        match action {
+            AltAlertAction::Keep => {
+                // keep the message, remove buttons
+                message.edit(ctx, EditMessage::new().components(vec![])).await?;
+                return Ok(());
+            }
+
+            AltAlertAction::Dismiss => {}
+
+            AltAlertAction::Ban => {
+                // c_interaction.defer(ctx).await?;
+
+                let banned = server
+                    .handler()
+                    .ban_accounts_for_evasion(db_user.account_id, &interaction.accounts)
+                    .await
+                    .map_err(|e| BotError::custom(format!("Failed to ban accounts: {e}")))?;
+
+                self.respond_to_interaction(
+                    ctx,
+                    c_interaction,
+                    if banned == interaction.accounts.len() {
+                        format!(
+                            "✅ Successfully banned all {} accounts for ban evasion: {:?}",
+                            banned, interaction.accounts
+                        )
+                    } else {
+                        format!(
+                            "⚠️ Banned only {} accounts for ban evasion. Some accounts could not be banned, please manually review those. All accounts: {:?}",
+                            banned, interaction.accounts
+                        )
+                    },
+                )
+                .await?;
+            }
+
+            AltAlertAction::Whitelist => {
+                let mut uidents = HashSet::new();
+
+                for acc in interaction.accounts {
+                    let idents = users.get_user_uidents(acc).await?;
+                    for ident in idents {
+                        uidents.insert(ident);
+                    }
+                }
+
+                for uident in &uidents {
+                    users.whitelist_uident(uident).await?;
+                }
+
+                self.respond_to_interaction(
+                    ctx,
+                    c_interaction,
+                    format!(
+                        "✅ Whitelisted these uidents. Other users with this uident will no longer appear in logs.\n\nAll whitelisted uidents: {:?}",
+                        uidents
+                    ),
+                )
+                .await?;
+            }
+        }
+
+        // delete message
+        message.delete(ctx).await?;
+
+        Ok(())
+    }
+
+    fn find_alt_alert_interaction(
+        &self,
+        ctx: &Context,
+        message: &Message,
+    ) -> Option<AltAlertInteraction> {
+        if let Some((_, x)) = self.alt_alerts.remove(&message.id.get()) {
+            return Some(x);
+        }
+
+        // try to parse from the message
+        if message.author.id != ctx.cache.current_user().id {
+            return None;
+        }
+
+        let mut accounts = HashSet::new();
+
+        let mut content = message.content.as_str();
+        (_, content) = content.split_once("alt account logged in: ")?;
+        let (first_user, remainder) = content.split_once("),")?;
+
+        let (_, account_id) = Self::parse_username_and_id_pair(first_user)?;
+        accounts.insert(account_id);
+
+        // parse the other lines
+        for line in remainder.lines() {
+            let line = line.trim();
+            if !line.starts_with("-") {
+                continue;
+            }
+
+            let line = line.trim_start_matches('-').trim();
+            let (line, _) = line.split_once(')')?;
+            let (_, account_id) = Self::parse_username_and_id_pair(line)?;
+            accounts.insert(account_id);
+        }
+
+        Some(AltAlertInteraction {
+            message_id: message.id.get(),
+            accounts: accounts.into_iter().collect(),
+            began_at: Instant::now(),
+        })
+    }
+
+    fn parse_username_and_id_pair(content: &str) -> Option<(UsernameString, i32)> {
+        let content = content.trim();
+        let (username, account_id_str) = content.rsplit_once(" (")?;
+        let username = username.trim().try_into().ok()?;
+        let account_id = account_id_str.trim_end_matches(')').parse::<i32>().ok()?;
+
+        Some((username, account_id))
     }
 
     async fn respond_to_interaction(
@@ -738,6 +919,7 @@ impl BotState {
 
     fn cleanup_old_interactions(&self) {
         self.name_alerts.retain(|_, ia| ia.began_at.elapsed() < Duration::from_days(7));
+        self.alt_alerts.retain(|_, ia| ia.began_at.elapsed() < Duration::from_days(7));
     }
 
     pub fn cleanup(&self) {

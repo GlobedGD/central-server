@@ -128,12 +128,12 @@ async fn audit_log_embed(
     res.title = Some(format!("Audit Log (page {})", num + 1));
 
     for log in logs {
-        let target_user = users.get_user(log.target_account_id.unwrap_or(0)).await;
+        let target_user = users.get_user(log.target_account_id.unwrap_or(0) as i32).await;
         let Ok(Some(target_user)) = target_user else {
             return res;
         };
 
-        let issuer_user = users.get_user(log.account_id).await;
+        let issuer_user = users.get_user(log.account_id as i32).await;
         let Ok(Some(issuer_user)) = issuer_user else {
             return res;
         };
@@ -315,7 +315,7 @@ pub async fn check_alts(
     };
 
     let alts = match uident {
-        Some(uid) => users.get_accounts_for_uident(&uid).await?,
+        Some(uid) => users.get_accounts_for_uident(&uid, true).await?,
         None => {
             ctx.reply(":x: Failed to find the user or their uident. This means the user likely hasn't tried logging in since their punishment.").await?;
             return Ok(());
