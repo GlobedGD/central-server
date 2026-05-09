@@ -1,4 +1,4 @@
-use std::{cmp::Reverse, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
 use itertools::Itertools;
@@ -142,28 +142,62 @@ fn wrap_user_autocomplete<'a>(
     query: &str,
     iter: impl Iterator<Item = (&'a str, i32)>,
 ) -> Vec<AutocompleteChoice> {
-    iter.sorted_by_key(|(username, id)| {
-        if let Ok(query_id) = query.parse::<i32>() {
-            if *id == query_id {
-                return Reverse(i64::MAX); // highest priority if ID matches
+    let query_id = query.parse::<i32>().ok();
+
+    let mut choices = iter
+        .sorted_by(|a, b| {
+            let (a_name, a_id) = a;
+            let (b_name, b_id) = b;
+
+            let mut a_score = 0;
+            let mut b_score = 0;
+
+            if let Some(qid) = query_id {
+                if *a_id == qid {
+                    a_score = i64::MAX - 1;
+                }
+                if *b_id == qid {
+                    b_score = i64::MAX - 1;
+                }
             }
-        }
 
-        if username.eq_ignore_ascii_case(query) {
-            return Reverse(i64::MAX - 1); // second highest priority if username matches
-        }
+            // check for exact username match
+            if a_name.eq_ignore_ascii_case(query) {
+                a_score = i64::MAX - 2;
+            }
+            if b_name.eq_ignore_ascii_case(query) {
+                b_score = i64::MAX - 2;
+            }
 
-        // fuzzy match on username
-        Reverse(fuzzy_match(username, query))
-    })
-    .map(|(username, id)| AutocompleteChoice::new(username.to_owned(), id.to_string()))
-    .take(10)
-    .collect()
+            // fuzzy match on the username
+            if a_score == 0 {
+                a_score = fuzzy_match(query, a_name);
+            }
+            if b_score == 0 {
+                b_score = fuzzy_match(query, b_name);
+            }
+
+            if a_score != b_score {
+                b_score.cmp(&a_score)
+            } else {
+                // score by id as tiebreaker
+                a_id.cmp(b_id)
+            }
+        })
+        .collect::<Vec<_>>();
+
+    choices.dedup();
+
+    choices
+        .into_iter()
+        .map(|(username, id)| AutocompleteChoice::new(username.to_owned(), id.to_string()))
+        .take(10)
+        .collect()
 }
 
 fn get_online_users_matching(ctx: Context<'_>, partial: &str) -> Vec<ClientStateHandle> {
     let server = ctx.data().server().unwrap();
-    let mut clients = server.handler().get_n_clients_matching(partial, 10);
+    let mut clients = server.handler().get_n_clients_matching(partial, 25);
 
     if let Ok(query_id) = partial.parse::<i32>() {
         if let Some(client) = server.handler().find_client(query_id) {
