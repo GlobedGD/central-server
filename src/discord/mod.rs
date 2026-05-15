@@ -163,7 +163,8 @@ impl DiscordModule {
 
         // interactions handled in event_handler.rs
         let buttons = vec![
-            CreateButton::new("altalrt_ban").style(ButtonStyle::Danger).label("Ban all accounts"),
+            // TODO: readd this when we add a confirmation prompt
+            // CreateButton::new("altalrt_ban").style(ButtonStyle::Danger).label("Ban all accounts"),
             CreateButton::new("altalrt_dismiss").style(ButtonStyle::Secondary).label("Dismiss"),
             CreateButton::new("altalrt_keep").style(ButtonStyle::Secondary).label("Keep"),
             CreateButton::new("altalrt_wl").style(ButtonStyle::Success).label("Whitelist"),

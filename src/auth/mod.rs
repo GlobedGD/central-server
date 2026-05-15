@@ -85,7 +85,6 @@ impl AuthModule {
                 AuthVerdict::Success(ClientAccountData {
                     account_id: token_data.account_id,
                     user_id: token_data.user_id,
-                    // this unwrap is ok, since we are converting 16 -> 24
                     username: token_data.username,
                 })
             }
