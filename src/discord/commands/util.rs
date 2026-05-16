@@ -51,7 +51,7 @@ pub async fn check_linked_and(
     let state = ctx.data();
     let server = state.server()?;
 
-    match get_linked_gd_user(ctx, &server).await? {
+    match get_linked_gd_user(ctx, &server, true).await? {
         Some(user) => f(&user).then_some(user).ok_or(BotError::NoPermission),
         None => Err(BotError::NoPermission),
     }
@@ -84,6 +84,7 @@ pub async fn check_linked_and_can_punish(
 pub async fn get_linked_gd_user(
     ctx: Context<'_>,
     server: &Server<ConnectionHandler>,
+    silent: bool,
 ) -> Result<Option<DbUser>, BotError> {
     let author = ctx.author();
     let users = server.handler().module::<UsersModule>();
@@ -92,7 +93,9 @@ pub async fn get_linked_gd_user(
     match users.get_linked_discord_inverse(author.id.get()).await? {
         Some(user) => Ok(Some(user)),
         None => {
-            ctx.reply(":x: Not linked to a GD account! Please use the /link command and the Discord Linking option in game to link.").await?;
+            if !silent {
+                ctx.reply(":x: Not linked to a GD account! Please use the Discord Linking option in game to link.").await?;
+            }
             Ok(None)
         }
     }
