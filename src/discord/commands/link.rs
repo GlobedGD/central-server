@@ -4,7 +4,10 @@ use poise::serenity_prelude as serenity;
 use tracing::warn;
 
 use super::util::*;
-use crate::{discord::BotError, users::UsersModule};
+use crate::{
+    discord::BotError,
+    users::{DbUser, LinkedDiscordAccount, UsersModule},
+};
 
 #[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Link your Discord account to your GD account
@@ -149,28 +152,34 @@ pub async fn adminlink(
 
 #[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Unlink a GD account, admin only command
-pub async fn unlink(ctx: Context<'_>, user: serenity::User) -> Result<(), BotError> {
+pub async fn unlink(
+    ctx: Context<'_>,
+    discord_user: Option<serenity::Member>,
+    gd_user: Option<String>,
+) -> Result<(), BotError> {
     check_moderator(ctx).await?;
 
     let state = ctx.data();
     let server = state.server()?;
     let users = server.handler().module::<UsersModule>();
 
-    let linked_acc = users.get_linked_discord_inverse(user.id.get()).await?;
-    if linked_acc.is_none() {
-        ctx.reply(":x: User is not linked to any GD account.").await?;
+    let Some((user, linked)) =
+        get_linked_user(ctx, discord_user.as_ref(), gd_user.as_deref()).await?
+    else {
+        ctx.reply(":x: Could not find the account in the database or the user is not linked.")
+            .await?;
         return Ok(());
-    }
+    };
 
-    let linked_acc = linked_acc.unwrap();
-
-    users.unlink_discord_inverse(user.id.get()).await?;
-    users.system_clear_linked_roles(linked_acc.account_id).await?;
+    users.unlink_discord_inverse(linked.id).await?;
+    users.system_clear_linked_roles(user.account_id).await?;
 
     ctx.reply(format!(
-        "✅ Successfully unlinked. Previously linked account: {} ({})",
-        linked_acc.username.as_deref().unwrap_or("Unknown"),
-        linked_acc.account_id
+        "✅ Successfully unlinked. Previously linked account: {} ({}) linked to `@{}` ({})",
+        user.username(),
+        user.account_id,
+        linked.username,
+        linked.id
     ))
     .await?;
 
@@ -223,50 +232,26 @@ pub async fn linkinfo(
 ) -> Result<(), BotError> {
     check_moderator(ctx).await?;
 
-    let server = ctx.data().server()?;
-    let users = server.handler().module::<UsersModule>();
+    match get_linked_user(ctx, discord_user.as_ref(), gd_user.as_deref()).await? {
+        Some((dbuser, linked)) => {
+            ctx.reply(format!(
+                "✅ `@{}` (`{}`) is linked to GD account `{}` (`{}`)",
+                linked.username,
+                linked.id,
+                dbuser.username(),
+                dbuser.account_id
+            ))
+            .await?;
+        }
 
-    if let Some(u) = discord_user {
-        let linked = users.get_linked_discord_inverse(u.user.id.get()).await?;
-
-        match linked {
-            Some(acc) => {
-                ctx.reply(format!(
-                    "✅ `@{}` (`{}`) is linked to GD account `{}` (`{}`)",
-                    u.user.name,
-                    u.user.id,
-                    acc.username.as_deref().unwrap_or("Unknown"),
-                    acc.account_id
-                ))
-                .await?;
-            }
-
-            None => {
+        None => match (discord_user, gd_user) {
+            (Some(u), None) => {
                 ctx.reply(format!(":x: `@{}` is not linked to any GD account.", u.user.name))
                     .await?;
             }
-        }
 
-        return Ok(());
-    }
-
-    if let Some(gdu) = gd_user {
-        let db_user = users.query_user(&gdu).await?;
-        let linked = match &db_user {
-            Some(x) => users.get_linked_discord(x.account_id).await?,
-            None => None,
-        };
-
-        match (db_user, linked) {
-            (Some(dbu), Some(link)) => {
-                ctx.reply(format!(
-                    "✅ GD account `{}` (`{}`) is linked to `@{}` (`{}`)",
-                    dbu.username(),
-                    dbu.account_id,
-                    link.username,
-                    link.id
-                ))
-                .await?;
+            (None, None) => {
+                ctx.reply(":x: Please provide either a Discord user or a GD username/ID.").await?;
             }
 
             _ => {
@@ -275,8 +260,39 @@ pub async fn linkinfo(
                 )
                 .await?;
             }
-        }
+        },
     }
 
     Ok(())
+}
+
+async fn get_linked_user(
+    ctx: Context<'_>,
+    discord_user: Option<&serenity::Member>,
+    gd_user: Option<&str>,
+) -> Result<Option<(DbUser, LinkedDiscordAccount)>, BotError> {
+    let server = ctx.data().server()?;
+    let users = server.handler().module::<UsersModule>();
+
+    if let Some(u) = discord_user {
+        let dbu = users.get_linked_discord_inverse(u.user.id.get()).await?;
+        let data = LinkedDiscordAccount::from_discord(u);
+
+        return Ok(dbu.map(|u| (u, data)));
+    }
+
+    if let Some(gdu) = gd_user {
+        let db_user = users.query_user(gdu).await?;
+        let linked = match &db_user {
+            Some(x) => users.get_linked_discord(x.account_id).await?,
+            None => None,
+        };
+
+        return Ok(match (db_user, linked) {
+            (Some(dbu), Some(link)) => Some((dbu, link)),
+            _ => None,
+        });
+    };
+
+    Ok(None)
 }
