@@ -149,14 +149,14 @@ pub async fn adminlink(
 
 #[poise::command(slash_command, ephemeral = true, guild_only = true)]
 /// Unlink a GD account, admin only command
-pub async fn unlink(ctx: Context<'_>, user: serenity::Member) -> Result<(), BotError> {
+pub async fn unlink(ctx: Context<'_>, user: serenity::User) -> Result<(), BotError> {
     check_moderator(ctx).await?;
 
     let state = ctx.data();
     let server = state.server()?;
     let users = server.handler().module::<UsersModule>();
 
-    let linked_acc = users.get_linked_discord_inverse(user.user.id.get()).await?;
+    let linked_acc = users.get_linked_discord_inverse(user.id.get()).await?;
     if linked_acc.is_none() {
         ctx.reply(":x: User is not linked to any GD account.").await?;
         return Ok(());
@@ -164,7 +164,7 @@ pub async fn unlink(ctx: Context<'_>, user: serenity::Member) -> Result<(), BotE
 
     let linked_acc = linked_acc.unwrap();
 
-    users.unlink_discord_inverse(user.user.id.get()).await?;
+    users.unlink_discord_inverse(user.id.get()).await?;
     users.system_clear_linked_roles(linked_acc.account_id).await?;
 
     ctx.reply(format!(
