@@ -197,6 +197,8 @@ impl AppHandler for ConnectionHandler {
 
         self.event_worker.abort();
 
+        info!("Post-shutdown cleanup complete");
+
         Ok(())
     }
 

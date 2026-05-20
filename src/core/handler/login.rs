@@ -305,13 +305,25 @@ impl ConnectionHandler {
         let client_role_lock = client.role();
         let client_role = client_role_lock.as_ref().unwrap();
         let roles_str = users.make_role_string(&client_role.roles);
-        let token = auth.generate_user_token(
-            data.account_id,
-            data.user_id,
-            &data.username,
-            &roles_str,
-            client_role.name_color.as_ref(),
-        );
+
+        let token = match login_data.kind {
+            LoginKind::UserToken(_, token) => auth
+                .refresh_user_token(
+                    token,
+                    &data.username,
+                    &roles_str,
+                    client_role.name_color.as_ref(),
+                )
+                .unwrap_or_else(|_| token.to_owned()),
+
+            _ => auth.generate_user_token(
+                data.account_id,
+                data.user_id,
+                &data.username,
+                &roles_str,
+                client_role.name_color.as_ref(),
+            ),
+        };
 
         // send login success message with all servers
         let servers = self.game_server_manager.servers();

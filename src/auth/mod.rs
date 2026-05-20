@@ -63,6 +63,17 @@ impl AuthModule {
         self.token_issuer.generate(account_id, user_id, username, roles_str, name_color)
     }
 
+    /// Generates a new token, keeping some of the data: account/user ID, expiry date.
+    pub fn refresh_user_token(
+        &self,
+        old_token: &str,
+        username: &str,
+        roles_str: &str,
+        name_color: Option<&MultiColor>,
+    ) -> Result<String, TokenValidationError> {
+        self.token_issuer.refresh(old_token, username, roles_str, name_color)
+    }
+
     pub async fn handle_login(&self, kind: LoginKind<'_>) -> AuthVerdict {
         match kind {
             LoginKind::Plain(data) => {

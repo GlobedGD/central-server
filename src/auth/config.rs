@@ -7,7 +7,7 @@ fn default_secret_key() -> String {
 }
 
 fn default_token_expiry() -> i64 {
-    60 * 60 * 24 * 7 // 7 days
+    60 * 60 * 24 // 1 day
 }
 
 fn default_enable_argon() -> bool {
