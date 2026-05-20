@@ -8,6 +8,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use anyhow::anyhow;
 use arc_swap::ArcSwap;
 use server_shared::qunet::server::ServerHandle;
 use tracing::{debug, error, info};
@@ -380,7 +381,9 @@ impl ServerModule for FeaturesModule {
         let sheets = if let Some(creds) = config.google_credentials_path.as_ref()
             && let Some(id) = config.spreadsheet_id.as_ref()
         {
-            let creds = std::fs::read_to_string(creds)?;
+            let creds = std::fs::read_to_string(creds).map_err(|e| {
+                anyhow!("failed to read google credentials file from {creds:?}: {e}")
+            })?;
 
             Some(SheetsClient::new(&creds, id.clone()).await)
         } else {
