@@ -201,6 +201,10 @@ impl ClientData {
         self.role().as_ref().is_some_and(|x| x.can_moderate())
     }
 
+    pub fn can_manage_rooms(&self) -> bool {
+        self.role().as_ref().is_some_and(|x| x.can_manage_rooms())
+    }
+
     pub fn authorized_mod(&self) -> bool {
         self.authorized_admin.load(Ordering::Relaxed)
     }

@@ -162,6 +162,10 @@ impl RoomModule {
         id: u32,
         gsm: &GameServerManager,
     ) -> Option<Vec<ClientStateHandle>> {
+        if id == 0 {
+            return None;
+        }
+
         self.close_room_arc(self.get_room(id)?, gsm).await
     }
 

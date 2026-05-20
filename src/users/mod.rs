@@ -124,6 +124,11 @@ impl ComputedRole {
             || self.can_notice_everyone
     }
 
+    // people who at least have the kick permission are considered moderators that are able to do anything with rooms
+    pub fn can_manage_rooms(&self) -> bool {
+        self.can_kick
+    }
+
     pub fn is_special(&self) -> bool {
         !self.roles.is_empty() || self.name_color.is_some()
     }

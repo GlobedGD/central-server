@@ -866,7 +866,7 @@ fn get_custom_room(c: &ClientStateHandle) -> HandlerResult<Arc<Room>> {
 fn get_custom_room_as_owner(c: &ClientStateHandle) -> HandlerResult<Arc<Room>> {
     match c.get_room() {
         Some(r) if !r.is_global() => {
-            if r.owner() == c.account_id() {
+            if r.owner() == c.account_id() || c.can_manage_rooms() {
                 Ok(r)
             } else {
                 Err(HandlerError::NotRoomOwner)
