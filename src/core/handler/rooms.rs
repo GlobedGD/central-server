@@ -700,6 +700,14 @@ impl ConnectionHandler {
         }
 
         debug!("{} is creating invite for {} (room {})", client.account_id(), player, room.id);
+        if !client.try_invite() {
+            warn!("{} has exceeded the invite limit, disconnecting", client.account_id());
+            client.disconnect(
+                "Too many invites sent in a short period, please stop spamming invites",
+            );
+
+            return Ok(());
+        }
 
         // if player is 0, create the invite token and send back to the same person
         if player == 0 {

@@ -4,6 +4,7 @@ use std::{
         Arc, OnceLock,
         atomic::{AtomicBool, AtomicI32, AtomicU16, AtomicU32, AtomicU64, Ordering},
     },
+    time::Duration,
 };
 
 use nohash_hasher::IntSet;
@@ -13,6 +14,7 @@ use server_shared::{
     SessionId, UserSettings,
     data::PlayerIconData,
     events::{EventEncoder, EventRateLimiter, EventRateLimiterOptions},
+    qunet::transport::RateLimiter,
 };
 
 use crate::{
@@ -43,6 +45,8 @@ pub struct ClientData {
     role: Mutex<Option<ComputedRole>>,
     uident: OnceLock<[u8; 32]>,
     settings: Mutex<UserSettings>,
+
+    invite_limiter: Mutex<RateLimiter>,
 
     event_encoder: OnceLock<EventEncoder>,
     event_limiter: Mutex<EventRateLimiter>,
@@ -268,6 +272,10 @@ impl ClientData {
     pub fn knows_event(&self, id: &str) -> bool {
         self.event_encoder().is_some_and(|e| e.knows_event(id))
     }
+
+    pub fn try_invite(&self) -> bool {
+        self.invite_limiter.lock().consume()
+    }
 }
 
 impl Default for ClientData {
@@ -294,6 +302,17 @@ impl Default for ClientData {
             role: Mutex::new(None),
             uident: OnceLock::new(),
             settings: Mutex::new(UserSettings::default()),
+
+            // the client limiter is max 5 with 3 sec refill,
+            // here we use a higher max but with a slower refill.
+            // this limiter will be more harsh and will activate when the client actually spams invites for a prolonged period,
+            // and will be used to disconnect the client or take any other action
+            //
+            // the math comes around to, if someone does ~100 requests without stopping with 3 sec intervals, they will finally get blocked
+            invite_limiter: Mutex::new(RateLimiter::new_precise(
+                Duration::from_secs(4).as_nanos() as u64,
+                25,
+            )),
 
             event_encoder: OnceLock::new(),
             event_limiter: Mutex::new(EventRateLimiter::new(EventRateLimiterOptions {
