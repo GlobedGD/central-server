@@ -43,7 +43,7 @@ pub fn must_auth(client: &ClientState<ConnectionHandler>) -> HandlerResult<()> {
 }
 
 pub fn must_admin_auth(client: &ClientState<ConnectionHandler>) -> HandlerResult<()> {
-    if client.data().authorized_mod() {
+    if client.data().authorized_mod() && client.data().can_moderate() {
         Ok(())
     } else {
         Err(HandlerError::NotAdmin)
