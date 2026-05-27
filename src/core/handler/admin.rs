@@ -7,7 +7,9 @@ use crate::{
     auth::AuthModule,
     credits::CreditsModule,
     rooms::RoomModule,
-    users::{DatabaseError, PunishUserError, UserPunishment, UserPunishmentType, UsersModule},
+    users::{
+        self, DatabaseError, PunishUserError, UserPunishment, UserPunishmentType, UsersModule,
+    },
 };
 
 use super::{ConnectionHandler, util::*};
@@ -592,6 +594,7 @@ impl ConnectionHandler {
 
     /// Punishes the given user, inserting uident and audit log into the database, and applying the punishment live if applicable.
     /// Does not check if the user has permission to ban - only checks if the user has a stronger role than the person being punished.
+    /// Does not require the user to exist in the database - will insert an empty entry if necessary.
     pub async fn do_punish_user(
         &self,
         issuer: i32,
@@ -599,8 +602,10 @@ impl ConnectionHandler {
         reason: &str,
         expires_at: i64,
         r#type: UserPunishmentType,
-    ) -> Result<(), PunishUserError> {
+    ) -> Result<(), users::Error> {
         let users = self.module::<UsersModule>();
+
+        users.query_or_create_user(&format!("{target}")).await?;
         users.admin_punish_user(issuer, target, reason, expires_at, r#type).await?;
 
         if let Some(user) = self.find_client(target) {
