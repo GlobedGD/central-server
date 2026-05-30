@@ -190,9 +190,12 @@ impl UsersDb {
     }
 
     #[cfg(feature = "discord")]
-    pub async fn get_all_linked_users(&self) -> DatabaseResult<Vec<DbUser>> {
-        let users =
-            User::find().filter(user::Column::DiscordId.is_not_null()).all(&self.conn).await?;
+    pub async fn get_all_linked_users_with_roles(&self) -> DatabaseResult<Vec<DbUser>> {
+        let users = User::find()
+            .filter(user::Column::DiscordId.is_not_null())
+            .filter(user::Column::Roles.is_not_null().and(user::Column::Roles.ne("")))
+            .all(&self.conn)
+            .await?;
 
         let mut out = Vec::with_capacity(users.len());
         for user in users {

@@ -244,12 +244,12 @@ impl UsersModule {
     }
 
     #[cfg(feature = "discord")]
-    pub async fn get_all_linked_users(&self) -> DatabaseResult<Vec<DbUser>> {
-        self.db.get_all_linked_users().await
+    pub async fn get_all_linked_users_with_roles(&self) -> DatabaseResult<Vec<DbUser>> {
+        self.db.get_all_linked_users_with_roles().await
     }
 
     #[cfg(not(feature = "discord"))]
-    pub async fn get_all_linked_users(&self) -> DatabaseResult<Vec<DbUser>> {
+    pub async fn get_all_linked_users_with_roles(&self) -> DatabaseResult<Vec<DbUser>> {
         Ok(Vec::new())
     }
 

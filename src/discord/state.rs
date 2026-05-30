@@ -312,7 +312,12 @@ impl BotState {
 
     /// Sync all linked users' roles. This will be slow and block for a while.
     pub async fn slow_sync_all(&self) -> anyhow::Result<()> {
-        let users = self.server()?.handler().module::<UsersModule>().get_all_linked_users().await?;
+        let users = self
+            .server()?
+            .handler()
+            .module::<UsersModule>()
+            .get_all_linked_users_with_roles()
+            .await?;
 
         info!("Beginning to sync roles for all ({}) linked users", users.len());
 

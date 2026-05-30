@@ -362,7 +362,9 @@ impl ServerModule for DiscordModule {
         });
 
         server.schedule(Duration::from_hours(24), async |server| {
-            if let Err(e) = server.handler().module::<Self>().state.slow_sync_all().await {
+            let module = server.handler().module::<Self>();
+
+            if let Err(e) = module.state.slow_sync_all().await {
                 error!("Failed to run Discord sync-all: {e}");
             }
         });
