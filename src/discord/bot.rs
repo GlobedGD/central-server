@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
+use poise::serenity_prelude::Settings;
 use tracing::info;
 
 use super::serenity::{self, Client, GatewayIntents};
@@ -63,7 +64,11 @@ impl DiscordBot {
             })
             .build();
 
-        let client = Client::builder(token, intents).framework(framework).await?;
+        let mut s = Settings::default();
+        s.max_messages = 50;
+        s.time_to_live = Duration::from_hours(1);
+
+        let client = Client::builder(token, intents).cache_settings(s).framework(framework).await?;
 
         Ok(Self { client })
     }
