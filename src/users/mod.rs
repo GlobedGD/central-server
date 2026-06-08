@@ -13,7 +13,7 @@ use {
         discord::{DiscordMessage, DiscordModule, hex_color_to_decimal},
         users::database::ActionsBreakdown,
     },
-    poise::serenity_prelude::{CreateEmbed, CreateEmbedAuthor},
+    poise::serenity_prelude::{CreateEmbed, CreateEmbedAuthor, Member},
 };
 
 #[cfg(feature = "web")]
@@ -38,7 +38,6 @@ use crate::{
 use arc_swap::ArcSwap;
 #[cfg(feature = "web")]
 use axum::http::StatusCode;
-use poise::serenity_prelude::Member;
 use rustc_hash::FxHashSet;
 use server_shared::{
     MultiColor,
@@ -146,6 +145,7 @@ impl LinkedDiscordAccount {
         Self { id, username, avatar_url }
     }
 
+    #[cfg(feature = "discord")]
     pub fn from_discord(member: &Member) -> Self {
         Self {
             id: member.user.id.get(),
