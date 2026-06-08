@@ -125,15 +125,6 @@ impl AppHandler for ConnectionHandler {
             }
         });
 
-        server.schedule(Duration::from_hours(12), |server| async move {
-            let pool = server.get_buffer_pool();
-            let prev_usage = pool.stats().total_heap_usage;
-            pool.shrink();
-            let new_usage = pool.stats().total_heap_usage;
-
-            info!("Shrinking buffer pool to reclaim memory: {} -> {} bytes", prev_usage, new_usage);
-        });
-
         // periodically clean up stat tracker stuff if enabled
         if server.stat_tracker().is_some() {
             server.schedule(Duration::from_mins(30), |server| async move {
@@ -1106,8 +1097,8 @@ impl ConnectionHandler {
     }
 
     #[cfg(not(feature = "word-filter"))]
-    async fn has_bad_word(&self, _string: &str) -> bool {
-        false
+    async fn has_bad_word(&self, _string: &str) -> Option<String> {
+        None
     }
 }
 
