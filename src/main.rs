@@ -13,7 +13,7 @@
 )]
 #![allow(clippy::new_without_default, clippy::collapsible_if, clippy::too_many_arguments)]
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use server_shared::qunet::{
     message::CompressionType,
@@ -200,8 +200,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let handler = GameServerHandler::new(server.make_weak(), core.gs_password.clone());
 
-    let mut builder =
-        QunetServer::builder().with_memory_options(make_memory_limits(3)).with_app_handler(handler);
+    // set limits to be fairly low, we want to quickly detect dead connections to game servers
+    let mut builder = QunetServer::builder()
+        .with_memory_options(make_memory_limits(3))
+        .with_app_handler(handler)
+        .with_handshake_timeout(Duration::from_secs(3))
+        .with_idle_timeout(Duration::from_secs(15))
+        .with_max_suspend_time(Duration::from_secs(30));
 
     if let Some(addr) = &core.gs_tcp_address
         && !addr.is_empty()
