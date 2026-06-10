@@ -3823,7 +3823,6 @@ dependencies = [
 [[package]]
 name = "qunet"
 version = "0.1.0"
-source = "git+https://github.com/dankmeme01/qunet?rev=afd8b7f#afd8b7fba968852f7eaa9181ff78e92643f58a18"
 dependencies = [
  "bitpiece",
  "blake3",
