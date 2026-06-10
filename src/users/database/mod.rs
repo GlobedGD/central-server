@@ -358,6 +358,8 @@ impl UsersDb {
 
         Ok(())
     }
+
+    /// Inserts a new uident association, returns 'false' if the uident is already associated with the account ID
     pub async fn insert_uident(&self, account_id: i32, ident: &str) -> DatabaseResult<bool> {
         let existing = Uident::find()
             .filter(uident::Column::AccountId.eq(account_id))
@@ -367,8 +369,7 @@ impl UsersDb {
             > 0;
 
         if existing {
-            // TODO: test
-            return Ok(true);
+            return Ok(false);
         }
 
         let model = uident::ActiveModel {
