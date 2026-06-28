@@ -389,6 +389,32 @@ impl ConnectionHandler {
         Ok(())
     }
 
+    pub async fn handle_fetch_user(
+        &self,
+        client: &ClientStateHandle,
+        account_id: i32,
+    ) -> HandlerResult<()> {
+        must_auth(client)?;
+
+        let users = self.module::<UsersModule>();
+        let user = users.get_user(account_id).await.ok().flatten();
+
+        let buf = data::encode_message_dyn!(self, msg => {
+            let mut out = msg.init_fetch_user_response();
+
+            if let Some(u) = user {
+                out.set_found(true);
+                out.set_account_id(u.account_id);
+                let role_ids = users.role_str_to_ids(u.roles.as_deref().unwrap_or_default());
+                let _ = out.set_roles(&role_ids[..]);
+            } else {
+                out.set_found(false);
+            }
+        })?;
+        client.send_data_bufkind(buf);
+        Ok(())
+    }
+
     pub async fn handle_events(
         &self,
         client: &ClientStateHandle,

@@ -18,7 +18,7 @@ use server_shared::{
     data::SRVC_MAGIC,
     events::EventStringCache,
     qunet::{
-        buffers::{BufPool, ByteWriter},
+        buffers::ByteWriter,
         message::{BufferKind, MsgData},
         server::{
             Server as QunetServer, ServerHandle as QunetServerHandle, WeakServerHandle,
@@ -652,6 +652,11 @@ impl AppHandler for ConnectionHandler {
                 let message = message.get_message()?.to_str()?;
 
                 self.handle_notice_reply(client, target_user, message).await
+            },
+
+            FetchUser(message) => {
+                let account_id = message.get_account_id();
+                self.handle_fetch_user(client, account_id).await
             },
 
             Events(message) => {

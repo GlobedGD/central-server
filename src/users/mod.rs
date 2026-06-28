@@ -37,7 +37,7 @@ use crate::{
 
 use arc_swap::ArcSwap;
 #[cfg(feature = "web")]
-use axum::http::StatusCode;
+use axum::{extract::Path, http::StatusCode};
 use rustc_hash::FxHashSet;
 use server_shared::{
     MultiColor,
@@ -1374,6 +1374,8 @@ impl ServerModule for UsersModule {
                     .layer(CorsLayer::new().allow_methods(Any).allow_origin(Any)),
             )
             .await;
+
+            web.add_route("/players/{id}", axum::routing::get(get_user_handler)).await;
         }
 
         Ok(Self {
@@ -1473,6 +1475,49 @@ async fn player_count_handler(
         Err(e) => {
             warn!("Failed to get player counts: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "".to_owned())
+        }
+    }
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct GetUserResponse {
+    pub account_id: i32,
+    pub username: String,
+    pub roles: Vec<String>,
+}
+
+#[cfg(feature = "web")]
+async fn get_user_handler(
+    Path(id): Path<i32>,
+    State(state): State<Arc<WebState>>,
+) -> impl IntoResponse {
+    let server = state.server();
+    let users = server.handler().module::<UsersModule>();
+
+    match users.get_user(id).await {
+        Ok(Some(u)) => {
+            let roles = u
+                .roles
+                .as_deref()
+                .unwrap_or_default()
+                .split(",")
+                .filter(|x| !x.is_empty())
+                .map(|x| x.to_owned())
+                .collect::<Vec<_>>();
+
+            let resp = GetUserResponse {
+                account_id: u.account_id,
+                username: u.username().to_owned(),
+                roles,
+            };
+            (StatusCode::OK, serde_json::to_string(&resp).unwrap())
+        }
+
+        Ok(None) => (StatusCode::NOT_FOUND, "User not found".to_owned()),
+
+        Err(e) => {
+            error!("/players/{id} failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Unexpected database error".to_owned())
         }
     }
 }
