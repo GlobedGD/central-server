@@ -31,11 +31,10 @@ enum WorkerRequest {
 struct WorkerState {
     hub: Sheets<HttpsConnector<HttpConnector>>,
     id: String,
-    tx: Sender<WorkerRequest>,
 }
 
 pub struct SheetsClient {
-    state: Arc<WorkerState>,
+    tx: Sender<WorkerRequest>,
 }
 
 impl WorkerState {
@@ -201,24 +200,22 @@ impl SheetsClient {
         let hub = Sheets::new(client, auth);
         let (tx, rx) = tokio::sync::mpsc::channel(8);
 
-        let state = Arc::new(WorkerState { hub, id: spreadsheet_id, tx });
-
-        let wstate = state.clone();
+        let state = Arc::new(WorkerState { hub, id: spreadsheet_id });
 
         tokio::spawn(async move {
-            if let Err(e) = wstate.run_worker_loop(rx).await {
+            if let Err(e) = state.run_worker_loop(rx).await {
                 error!("Sheets worker failed: {e}");
             }
         });
 
-        Self { state }
+        Self { tx }
     }
 
     pub async fn update_featured_sheet(
         &self,
         levels: Vec<FeaturedLevelModel>,
     ) -> Result<(), Box<dyn Error>> {
-        self.state.tx.try_send(WorkerRequest::Featured(levels))?;
+        self.tx.try_send(WorkerRequest::Featured(levels))?;
         Ok(())
     }
 
@@ -226,7 +223,7 @@ impl SheetsClient {
         &self,
         levels: Vec<QueuedLevelModel>,
     ) -> Result<(), Box<dyn Error>> {
-        self.state.tx.try_send(WorkerRequest::Queued(levels))?;
+        self.tx.try_send(WorkerRequest::Queued(levels))?;
         Ok(())
     }
 
@@ -235,7 +232,7 @@ impl SheetsClient {
         levels: Vec<SentLevelModel>,
         username_map: UsernameMap,
     ) -> Result<(), Box<dyn Error>> {
-        self.state.tx.try_send(WorkerRequest::Sent(levels, username_map))?;
+        self.tx.try_send(WorkerRequest::Sent(levels, username_map))?;
         Ok(())
     }
 }
