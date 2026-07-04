@@ -68,7 +68,7 @@ impl ConnectionHandler {
             ActionType::RoomBan => role.can_ban,
             ActionType::Mute => role.can_mute,
             ActionType::SetPassword => role.can_set_password,
-            ActionType::EditRoles => true,
+            ActionType::EditRoles => role.can_edit_roles,
             ActionType::SendFeatures => role.can_send_features,
             ActionType::RateFeatures => role.can_rate_features,
         };
