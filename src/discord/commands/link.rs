@@ -122,7 +122,7 @@ pub async fn adminlink(
     user: serenity::Member,
     #[description = "Geometry Dash username"] gd_user: String,
 ) -> Result<(), BotError> {
-    check_moderator(ctx).await?;
+    check_admin(ctx).await?;
 
     let state = ctx.data();
     let server = state.server()?;
