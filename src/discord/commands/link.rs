@@ -157,7 +157,7 @@ pub async fn unlink(
     discord_user: Option<serenity::Member>,
     gd_user: Option<String>,
 ) -> Result<(), BotError> {
-    check_moderator(ctx).await?;
+    check_admin(ctx).await?;
 
     let state = ctx.data();
     let server = state.server()?;
