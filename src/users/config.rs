@@ -55,6 +55,8 @@ pub struct Role {
     pub discord_id: u64,
 
     #[serde(default)]
+    pub is_staff: Option<bool>,
+    #[serde(default)]
     pub can_kick: Option<bool>,
     #[serde(default)]
     pub can_mute: Option<bool>,
@@ -76,11 +78,7 @@ pub struct Role {
 
 impl Role {
     pub fn can_moderate(&self) -> bool {
-        self.can_kick.unwrap_or(false)
-            || self.can_mute.unwrap_or(false)
-            || self.can_ban.unwrap_or(false)
-            || self.can_set_password.unwrap_or(false)
-            || self.can_notice_everyone.unwrap_or(false)
+        self.is_staff.unwrap_or(false)
     }
 }
 

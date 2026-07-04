@@ -103,6 +103,8 @@ pub struct ComputedRole {
     pub roles: heapless::Vec<u8, 32>,
     pub name_color: Option<MultiColor>,
 
+    /// Controls base permissions: sending notices, editing roles, and just determines if the user is a moderator at all.
+    pub is_staff: bool,
     pub can_kick: bool,
     pub can_mute: bool,
     pub can_ban: bool,
@@ -116,16 +118,11 @@ pub struct ComputedRole {
 
 impl ComputedRole {
     pub fn can_moderate(&self) -> bool {
-        self.can_kick
-            || self.can_mute
-            || self.can_ban
-            || self.can_set_password
-            || self.can_notice_everyone
+        self.is_staff
     }
 
-    // people who at least have the kick permission are considered moderators that are able to do anything with rooms
     pub fn can_manage_rooms(&self) -> bool {
-        self.can_kick
+        self.can_moderate()
     }
 
     pub fn is_special(&self) -> bool {
@@ -494,6 +491,7 @@ impl UsersModule {
             ..Default::default()
         };
 
+        let mut is_staff = None;
         let mut can_mute = None;
         let mut can_kick = None;
         let mut can_ban = None;
@@ -519,6 +517,7 @@ impl UsersModule {
                 }
             };
 
+            apply_permission(&mut is_staff, role.is_staff);
             apply_permission(&mut can_mute, role.can_mute);
             apply_permission(&mut can_kick, role.can_kick);
             apply_permission(&mut can_ban, role.can_ban);
@@ -549,6 +548,7 @@ impl UsersModule {
             default = true;
         }
 
+        out_role.is_staff = is_staff.unwrap_or(default);
         out_role.can_mute = can_mute.unwrap_or(default);
         out_role.can_kick = can_kick.unwrap_or(default);
         out_role.can_ban = can_ban.unwrap_or(default);
