@@ -79,6 +79,16 @@ impl ConnectionHandler {
             }
         };
 
+        #[cfg(debug_assertions)]
+        debug!(
+            "[{}] handling login: id = {}, uident = {:?}, platform = {}, globed version = {}",
+            client.address,
+            login_data.kind.account_id(),
+            uident.map(hex::encode),
+            login_data.platform,
+            login_data.globed_version
+        );
+
         match auth.handle_login(login_data.kind.clone()).await {
             AuthVerdict::Success(data) => {
                 // verify that the data is absoultely valid
