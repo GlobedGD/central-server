@@ -6,9 +6,9 @@ use server_shared::qunet::buffers::{ByteReader, ByteReaderError, ByteWriter};
 use server_shared::schema::main::LoginFailedReason;
 use thiserror::Error;
 
-use crate::core::handler::LoginData;
 use crate::{
     auth::{AuthModule, AuthVerdict, ClientAccountData, LoginKind},
+    core::handler::LoginData,
     rooms::RoomModule,
     users::UsersModule,
 };

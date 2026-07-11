@@ -1,4 +1,5 @@
 use futures_util::{SinkExt, StreamExt};
+use parking_lot::Mutex;
 use server_shared::qunet::{
     buffers::{ByteReader, ByteReaderError, ByteWriter},
     message::channel,
@@ -98,6 +99,14 @@ impl ArgonClient {
         &self.inner.url
     }
 
+    pub fn connected_for(&self) -> Option<Duration> {
+        if self.inner.connected.load(Ordering::Relaxed) {
+            Some(self.inner.connected_at.lock().elapsed())
+        } else {
+            None
+        }
+    }
+
     pub fn validate(
         &self,
         account_id: i32,
@@ -173,6 +182,7 @@ struct InnerState {
     url: String,
     api_token: String,
     connected: AtomicBool,
+    connected_at: Mutex<Instant>,
     ping_interval: Duration,
     disconnect_timeout: Duration,
 
@@ -193,6 +203,7 @@ impl InnerState {
             url,
             api_token,
             connected: AtomicBool::new(false),
+            connected_at: Mutex::new(Instant::now()),
             req_tx,
             req_rx,
             ping_interval,
@@ -313,6 +324,7 @@ impl InnerState {
         in_flight: &mut VecDeque<ArgonValidateRequest>,
     ) -> Result<(), ArgonClientError> {
         self.connected.store(true, Ordering::SeqCst);
+        *self.connected_at.lock() = Instant::now();
 
         info!("Argon client successfully connected to {}", self.url);
 

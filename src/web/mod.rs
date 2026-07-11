@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use anyhow::anyhow;
 use arc_swap::ArcSwap;
-use axum::routing::MethodRouter;
+use axum::{extract::State, response::IntoResponse, routing::MethodRouter};
 use server_shared::qunet::server::{ServerHandle, WeakServerHandle};
 use tokio::{net::TcpListener, sync::Mutex};
 use tracing::info;
@@ -81,6 +81,8 @@ impl ServerModule for WebModule {
         this.state.server.set(server.make_weak()).ok();
 
         tokio::spawn(async move {
+            this.add_route("/status", axum::routing::get(status_handler)).await;
+
             let listener = this.listener.lock().await.take().unwrap();
             let router = this.router.lock().await.take().unwrap().with_state(this.state.clone());
 
@@ -92,4 +94,10 @@ impl ServerModule for WebModule {
 
 impl ConfigurableModule for WebModule {
     type Config = Config;
+}
+
+async fn status_handler(State(wstate): State<Arc<WebState>>) -> impl IntoResponse {
+    let server = wstate.server();
+    let health = server.handler().get_server_health();
+    axum::Json(health)
 }

@@ -21,6 +21,12 @@ pub struct AuthModule {
     trust_token_key: String,
 }
 
+pub enum ArgonConnectionState {
+    Disabled,
+    Connected,
+    Disconnected,
+}
+
 pub enum AuthVerdict {
     Success(ClientAccountData),
     Failed(LoginFailedReason),
@@ -42,6 +48,22 @@ impl AuthModule {
 
     pub fn trust_token_key(&self) -> &str {
         self.trust_token_key.as_ref()
+    }
+
+    pub fn argon_state(&self) -> ArgonConnectionState {
+        let Some(client) = &self.argon_client else {
+            return ArgonConnectionState::Disabled;
+        };
+
+        let Some(_) = client.connected_for() else {
+            return ArgonConnectionState::Disconnected;
+        };
+
+        ArgonConnectionState::Connected
+    }
+
+    pub fn argon_connected_for(&self) -> Option<Duration> {
+        self.argon_client.as_ref().and_then(|client| client.connected_for())
     }
 
     pub fn validate_user_token(
