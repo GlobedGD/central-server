@@ -189,8 +189,6 @@ impl GameServerHandler {
     async fn handle_logout(&self, client: &ClientStateHandle) {
         debug_assert!(client.authorized());
 
-        warn!("[{}] Game server disconnected", client.address);
-
         self.main_server().handler().handle_game_server_disconnect(client.clone()).await;
     }
 

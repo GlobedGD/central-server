@@ -901,12 +901,33 @@ impl ConnectionHandler {
             return;
         };
 
+        warn!(
+            "[{}] Game server '{}' disconnected, was connected for {:?}",
+            client.address,
+            srv.data.string_id,
+            srv.uptime()
+        );
+
         // close all rooms that are hosted on this server
         let module = self.module::<RoomModule>();
         module.close_all_rooms_on_server(srv.data.id, &self.game_server_manager).await;
 
         // notify clients about the disconnect
         self.notify_servers_changed().await;
+
+        // log on discord
+        #[cfg(feature = "discord")]
+        {
+            use crate::discord::{DiscordMessage, DiscordModule};
+
+            if let Some(discord) = self.opt_module::<DiscordModule>() {
+                discord.send_server_alert(DiscordMessage::new().content(format!(
+                    "⚠️ Game server '{}' disconnected, was connected for {:?}",
+                    srv.data.string_id,
+                    srv.uptime()
+                )));
+            }
+        }
     }
 
     pub async fn notify_servers_changed(&self) {
