@@ -142,8 +142,10 @@ impl Drop for ArgonClient {
 pub enum ArgonClientError {
     #[error("Failed to connect to argon server: {0}")]
     ConnectionError(#[from] Box<tokio_tungstenite::tungstenite::Error>),
-    #[error("Auth attempt timed out")]
-    AuthTimeout,
+    #[error("Connection timed out")]
+    Timeout,
+    #[error("Server unexpectedly closed the connection")]
+    ConnectionClosed,
     #[error("Server sent an invalid message")]
     InvalidMessage,
     #[error("Unexpected account ID in response")]
@@ -259,6 +261,14 @@ impl InnerState {
     async fn _try_connect(
         &self,
     ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, ArgonClientError> {
+        tokio::time::timeout(Duration::from_secs(10), self._try_connect_inner())
+            .await
+            .map_err(|_| ArgonClientError::Timeout)?
+    }
+
+    async fn _try_connect_inner(
+        &self,
+    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, ArgonClientError> {
         let (mut socket, _) = tokio_tungstenite::connect_async(to_ws_url(&self.url)).await?;
 
         // Send auth message
@@ -270,18 +280,7 @@ impl InnerState {
         socket.send(msg).await?;
 
         // wait for ack
-        let msg = match tokio::time::timeout(Duration::from_secs(5), socket.next()).await {
-            Ok(Some(msg)) => msg?,
-            Ok(None) => {
-                error!("ws connection closed before receiving auth ack");
-                return Err(ArgonClientError::AuthTimeout);
-            }
-
-            Err(_) => {
-                error!("argon auth attempt timed out");
-                return Err(ArgonClientError::AuthTimeout);
-            }
-        };
+        let msg = socket.next().await.ok_or(ArgonClientError::ConnectionClosed)??;
 
         match msg {
             Message::Text(text) => {
