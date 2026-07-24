@@ -92,6 +92,15 @@ impl DiscordModule {
         self.send_message(config.alert_channel, msg)
     }
 
+    pub fn send_server_alert(&self, msg: DiscordMessage<'_>) {
+        let config = self.config.load();
+        if config.server_alert_channel == 0 {
+            return;
+        }
+
+        self.send_message(config.server_alert_channel, msg)
+    }
+
     pub fn send_ticket_ping(&self, ticket_channel: u64, moderator_id: u64) {
         let config = self.config.load();
         if config.ticket_ping_channel == 0 {
@@ -296,6 +305,8 @@ pub struct Config {
     pub main_guild_id: u64,
     #[serde(default)]
     pub alert_channel: u64,
+    #[serde(default)]
+    pub server_alert_channel: u64,
     #[serde(default)]
     pub ticket_ping_channel: u64,
     #[serde(default)]
