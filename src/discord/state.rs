@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    ffi::c_int,
     sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
@@ -9,8 +10,9 @@ use anyhow::{anyhow, bail};
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use poise::serenity_prelude::{
-    ComponentInteraction, CreateInteractionResponse, CreateInteractionResponseMessage, EditMessage,
-    GetMessages, GuildChannel, GuildId, Member, Message, RoleId, User,
+    ComponentInteraction, CreateInteractionResponse, CreateInteractionResponseFollowup,
+    CreateInteractionResponseMessage, EditMessage, GetMessages, GuildChannel, GuildId, Member,
+    Message, RoleId, User,
 };
 use serde::{Deserialize, de::DeserializeOwned};
 use server_shared::{
@@ -784,7 +786,7 @@ impl BotState {
             AltAlertAction::Dismiss => {}
 
             AltAlertAction::Ban => {
-                // c_interaction.defer(ctx).await?;
+                c_interaction.create_response(ctx, CreateInteractionResponse::Acknowledge).await?;
 
                 let banned = server
                     .handler()
@@ -792,7 +794,7 @@ impl BotState {
                     .await
                     .map_err(|e| BotError::custom(format!("Failed to ban accounts: {e}")))?;
 
-                self.respond_to_interaction(
+                self.respond_to_interaction_followup(
                     ctx,
                     c_interaction,
                     if banned == interaction.accounts.len() {
@@ -900,14 +902,26 @@ impl BotState {
         interaction: &ComponentInteraction,
         content: impl Into<String>,
     ) -> Result<(), BotError> {
+        let msg =
+            CreateInteractionResponseMessage::default().ephemeral(true).content(content.into());
+
+        interaction.create_response(ctx, CreateInteractionResponse::Message(msg)).await?;
+
+        Ok(())
+    }
+
+    async fn respond_to_interaction_followup(
+        &self,
+        ctx: &Context,
+        interaction: &ComponentInteraction,
+        content: impl Into<String>,
+    ) -> Result<(), BotError> {
         interaction
-            .create_response(
+            .create_followup(
                 ctx,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::default()
-                        .ephemeral(true)
-                        .content(content.into()),
-                ),
+                CreateInteractionResponseFollowup::default()
+                    .ephemeral(true)
+                    .content(content.into()),
             )
             .await?;
 

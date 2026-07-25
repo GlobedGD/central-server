@@ -234,6 +234,11 @@ impl ConnectionHandler {
                 }
             };
 
+            debug!(
+                "[{} @ {}] uident {} has accounts: {:?}",
+                client.address, data.account_id, uident, accounts
+            );
+
             if accounts.iter().any(|&id| id != data.account_id) {
                 match users.insert_uident(data.account_id, uident).await {
                     Ok(true) => {

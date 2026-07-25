@@ -273,6 +273,14 @@ impl ConnectionHandler {
             client.send_data_bufkind(buf);
         }
 
+        #[cfg(not(feature = "discord"))]
+        {
+            warn!(
+                "{} requested discord oauth url, but discord support is disabled",
+                client.account_id()
+            );
+        }
+
         Ok(())
     }
 

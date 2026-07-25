@@ -170,13 +170,14 @@ impl DiscordModule {
             }
         }
 
+        alert_str.push_str("\n**Note: this can be a false positive. Only ban after confirming all accounts are actual alts.**");
+
         // interactions handled in event_handler.rs
         let buttons = vec![
-            // TODO: readd this when we add a confirmation prompt
-            // CreateButton::new("altalrt_ban").style(ButtonStyle::Danger).label("Ban all accounts"),
+            CreateButton::new("altalrt_ban").style(ButtonStyle::Danger).label("Ban all accounts"),
             CreateButton::new("altalrt_dismiss").style(ButtonStyle::Secondary).label("Dismiss"),
-            CreateButton::new("altalrt_keep").style(ButtonStyle::Secondary).label("Keep"),
-            CreateButton::new("altalrt_wl").style(ButtonStyle::Success).label("Whitelist"),
+            CreateButton::new("altalrt_keep").style(ButtonStyle::Secondary).label("Keep alert"),
+            CreateButton::new("altalrt_wl").style(ButtonStyle::Success).label("Whitelist uident"),
         ];
 
         let msg = DiscordMessage::new()
