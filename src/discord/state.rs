@@ -1,6 +1,5 @@
 use std::{
     collections::HashSet,
-    ffi::c_int,
     sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
