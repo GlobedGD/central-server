@@ -49,6 +49,13 @@ struct PartialDiscordUser {
 }
 
 #[derive(DerivePartialModel)]
+#[sea_orm(entity = "User")]
+struct PartialUserRoles {
+    #[sea_orm(from_col = "roles")]
+    pub roles: Option<String>,
+}
+
+#[derive(DerivePartialModel)]
 #[sea_orm(entity = "Uident")]
 struct PartialAccountUident {
     #[sea_orm(from_col = "account_id")]
@@ -75,6 +82,13 @@ pub struct UsersDb {
 fn timestamp() -> NonZeroI64 {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
     NonZeroI64::new(now).unwrap()
+}
+
+pub struct UpdateRolesResult {
+    /// The user was found and roles were set
+    pub found: bool,
+    /// The roles were updated and are not equal to the user's previous roles
+    pub updated: bool,
 }
 
 impl UsersDb {
@@ -694,14 +708,37 @@ impl UsersDb {
         Ok(result.rows_affected > 0)
     }
 
-    pub async fn update_roles(&self, account_id: i32, roles: &str) -> DatabaseResult<bool> {
-        let res = User::update_many()
+    /// Updates roles, returning whether the user was found and whether the roles were actually updated
+    pub async fn update_roles(
+        &self,
+        account_id: i32,
+        roles: &str,
+    ) -> DatabaseResult<UpdateRolesResult> {
+        // get user's roles before the update for comparison
+        let roles_before = User::find_by_id(account_id)
+            .select_only()
+            .column(user::Column::Roles)
+            .into_partial_model::<PartialUserRoles>()
+            .one(&self.conn)
+            .await?
+            .map(|x| x.roles.and_then(|r| nonempty_str(&r).map(|s| s.to_owned())));
+
+        let Some(roles_before) = roles_before else {
+            return Ok(UpdateRolesResult { found: false, updated: false });
+        };
+
+        let roles = nonempty_str(roles);
+
+        User::update_many()
             .filter(user::Column::AccountId.eq(account_id))
             .col_expr(user::Column::Roles, Expr::value(roles))
             .exec(&self.conn)
             .await?;
 
-        Ok(res.rows_affected > 0)
+        Ok(UpdateRolesResult {
+            found: true,
+            updated: roles != roles_before.as_deref(),
+        })
     }
 
     pub async fn fetch_logs(
@@ -986,4 +1023,8 @@ impl Display for DbUser {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} ({})", self.username(), self.account_id)
     }
+}
+
+fn nonempty_str(s: &str) -> Option<&str> {
+    if s.is_empty() { None } else { Some(s) }
 }

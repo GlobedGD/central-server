@@ -633,47 +633,53 @@ impl UsersModule {
         }
 
         let rolediff = self.compute_role_diff(account_id, new_roles).await?;
-        self.inner_set_roles(account_id, new_roles).await?;
+        let updated = self.inner_set_roles(account_id, new_roles).await?;
 
         // log to db and discord
-        self.perform_log(
-            issuer_id,
-            LogAction::EditRoles {
-                account_id,
-                rolediff: &rolediff,
-            },
-        )
-        .await;
+        if updated {
+            self.perform_log(
+                issuer_id,
+                LogAction::EditRoles {
+                    account_id,
+                    rolediff: &rolediff,
+                },
+            )
+            .await;
+        }
 
         Ok(())
     }
 
     pub async fn system_set_roles(&self, account_id: i32, new_roles: &[u8]) -> Result<(), Error> {
-        self.inner_set_roles(account_id, new_roles).await?;
-
+        let updated = self.inner_set_roles(account_id, new_roles).await?;
         let rolestr = self.make_role_string(new_roles);
-        self.perform_log(
-            0,
-            LogAction::SetRoles {
-                account_id,
-                new_roles: &rolestr,
-            },
-        )
-        .await;
+
+        if updated {
+            self.perform_log(
+                0,
+                LogAction::SetRoles {
+                    account_id,
+                    new_roles: &rolestr,
+                },
+            )
+            .await;
+        }
 
         Ok(())
     }
 
-    async fn inner_set_roles(&self, account_id: i32, new_roles: &[u8]) -> Result<(), Error> {
+    /// Sets roles, returns whether the roles were updated (not equal to previous roles). Does not log to db or discord.
+    async fn inner_set_roles(&self, account_id: i32, new_roles: &[u8]) -> Result<bool, Error> {
         // construct the new role string
         let new_role_string = self.make_role_string(new_roles);
 
         // update the user
-        if !self.db.update_roles(account_id, &new_role_string).await? {
+        let result = self.db.update_roles(account_id, &new_role_string).await?;
+        if !result.found {
             return Err(Error::NotFound);
         }
 
-        Ok(())
+        Ok(result.updated)
     }
 
     pub async fn system_clear_linked_roles(&self, account_id: i32) -> Result<(), Error> {
