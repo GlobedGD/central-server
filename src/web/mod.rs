@@ -53,7 +53,7 @@ impl WebModule {
 
 impl ServerModule for WebModule {
     async fn new(config: Arc<Config>, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
-        let listener = TcpListener::bind(format!("0.0.0.0:{}", config.port))
+        let listener = TcpListener::bind(format!("{}:{}", config.address, config.port))
             .await
             .map_err(|e| anyhow!("failed to bind web server port: {e}"))?;
 
