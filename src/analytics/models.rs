@@ -17,6 +17,13 @@ pub struct LoginEvent {
     pub platform_desc: heapless::String<64>,
 }
 
+#[derive(Serialize, Row)]
+pub struct PlayerCountLog {
+    #[serde(with = "clickhouse::serde::chrono::datetime")]
+    pub timestamp: DateTime<Utc>,
+    pub players: u32,
+}
+
 fn convert_str<const N: usize>(mut s: &str) -> heapless::String<N> {
     if s.len() > N {
         s = &s[..N];
@@ -50,5 +57,11 @@ impl LoginEvent {
             platform: convert_str(platform),
             platform_desc: convert_str(platform_desc),
         }
+    }
+}
+
+impl PlayerCountLog {
+    pub fn new(players: u32) -> Self {
+        Self { timestamp: Utc::now(), players }
     }
 }

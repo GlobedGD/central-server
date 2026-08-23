@@ -16,6 +16,8 @@ use crate::core::{
     module::{ConfigurableModule, ModuleInitResult, ServerModule},
 };
 
+pub use models::*;
+
 mod config;
 mod migrations;
 mod models;
@@ -29,6 +31,7 @@ const FLUSH_INTERVAL: Duration = Duration::from_secs(45);
 
 pub enum Event {
     Login(LoginEvent),
+    PlayerCountLog(PlayerCountLog),
 }
 
 pub struct AnalyticsModule {
@@ -48,6 +51,7 @@ impl AnalyticsModule {
 
         let mut last_flush = Instant::now();
         let mut pending_logins = Vec::new();
+        let mut pending_player_counts = Vec::new();
 
         loop {
             let deadline = last_flush + FLUSH_INTERVAL;
@@ -57,17 +61,25 @@ impl AnalyticsModule {
                         pending_logins.push(event);
                     }
 
+                    Some(Event::PlayerCountLog(event)) => {
+                        pending_player_counts.push(event);
+                    }
+
                     None => break,
                 }
             }
 
             // flush either when the interval has passed or when we have too many pending events
-            let should_flush = last_flush.elapsed() > FLUSH_INTERVAL || pending_logins.len() > 250;
+            let should_flush = last_flush.elapsed() > FLUSH_INTERVAL
+                || pending_logins.len() > 250
+                || pending_player_counts.len() > 250;
 
             if should_flush {
                 last_flush = Instant::now();
 
-                if let Err(e) = self.flush(client, &mut pending_logins).await {
+                if let Err(e) =
+                    self.flush(client, &mut pending_logins, &mut pending_player_counts).await
+                {
                     error!("{e}");
                 }
             }
@@ -76,12 +88,24 @@ impl AnalyticsModule {
         Ok(())
     }
 
-    async fn flush(&self, client: &clickhouse::Client, logins: &mut Vec<LoginEvent>) -> Result<()> {
+    async fn flush(
+        &self,
+        client: &clickhouse::Client,
+        logins: &mut Vec<LoginEvent>,
+        player_counts: &mut Vec<PlayerCountLog>,
+    ) -> Result<()> {
         if !logins.is_empty() {
             self.flush_pending_logins(client, logins)
                 .await
                 .map_err(|e| anyhow!("failed to flush login events: {e}"))?;
             logins.clear();
+        }
+
+        if !player_counts.is_empty() {
+            self.flush_pending_player_counts(client, player_counts)
+                .await
+                .map_err(|e| anyhow!("failed to flush player count logs: {e}"))?;
+            player_counts.clear();
         }
 
         Ok(())
@@ -96,6 +120,21 @@ impl AnalyticsModule {
         let mut insert = client.insert::<LoginEvent>("login_events").await?;
         for login in logins.drain(..) {
             insert.write(&login).await?;
+        }
+        insert.end().await?;
+
+        Ok(())
+    }
+
+    async fn flush_pending_player_counts(
+        &self,
+        client: &clickhouse::Client,
+        player_counts: &mut Vec<PlayerCountLog>,
+    ) -> Result<()> {
+        debug!("Writing {} player count logs", player_counts.len());
+        let mut insert = client.insert::<PlayerCountLog>("player_count_logs").await?;
+        for log in player_counts.drain(..) {
+            insert.write(&log).await?;
         }
         insert.end().await?;
 

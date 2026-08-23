@@ -1,9 +1,7 @@
 CREATE TABLE login_events (
-    timestamp DateTime64(3) DEFAULT now(),
-    -- since user ids are potentially identifiable info, we store them for a much shorter duration than the rest of the table
-    -- we still retain them temporarily to prevent abuse and stuff
-    user_id Int32 TTL timestamp + INTERVAL 7 DAY,
-    ip_address IPv6,
+    timestamp DateTime64(3) DEFAULT now64(3) CODEC(Delta(8), ZSTD(3)),
+    user_id Int32 CODEC(ZSTD(3)),
+    ip_address IPv6 CODEC(ZSTD(3)),
     connection_type LowCardinality(String),
     globed_version LowCardinality(String),
     geode_version LowCardinality(String),
@@ -12,4 +10,4 @@ CREATE TABLE login_events (
 ENGINE = MergeTree
 ORDER BY (timestamp, platform, globed_version, connection_type)
 PARTITION BY toYYYYMM(timestamp)
-TTL timestamp + INTERVAL 90 DAY;
+TTL timestamp + INTERVAL 7 DAY;

@@ -25,6 +25,9 @@ use {
     },
 };
 
+#[cfg(feature = "analytics")]
+use crate::analytics::{AnalyticsModule, Event as AnalyticsEvent, PlayerCountLog};
+
 use crate::{
     auth::ClientAccountData,
     core::{
@@ -38,6 +41,7 @@ use crate::{
 use arc_swap::ArcSwap;
 #[cfg(feature = "web")]
 use axum::{extract::Path, http::StatusCode};
+use parking_lot::Mutex;
 use rustc_hash::FxHashSet;
 use server_shared::{
     MultiColor,
@@ -169,6 +173,10 @@ pub struct UsersModule {
     blacklisted_levels: ArcSwap<FxHashSet<i32>>,
 
     player_counts_cache: RwLock<HashMap<Duration, CachedPlayerCounts>>,
+
+    last_recorded_player_count_db: Mutex<Instant>,
+    #[cfg(feature = "analytics")]
+    analytics: OnceLock<Arc<AnalyticsModule>>,
 }
 
 impl UsersModule {
@@ -1250,10 +1258,26 @@ impl UsersModule {
 
     async fn record_player_count(&self, count: u32) -> DatabaseResult<()> {
         trace!("Recording player count: {count}");
-        self.db.record_player_count(count).await?;
 
-        let secs = Duration::from_days(self.config().player_count_retention_days as u64).as_secs();
-        self.db.delete_old_player_counts(secs).await?;
+        // only record to db once a minute, record to clickhouse more often
+        let record_db = {
+            let mut last_recoreded = self.last_recorded_player_count_db.lock();
+            if last_recoreded.elapsed() > Duration::from_secs(60) {
+                *last_recoreded = Instant::now();
+                true
+            } else {
+                false
+            }
+        };
+
+        #[cfg(feature = "analytics")]
+        if let Some(analytics) = self.analytics.get() {
+            analytics.log_event(AnalyticsEvent::PlayerCountLog(PlayerCountLog::new(count)));
+        }
+
+        if record_db {
+            self.db.record_player_count(count).await?;
+        }
 
         Ok(())
     }
@@ -1397,11 +1421,19 @@ impl ServerModule for UsersModule {
             blacklisted_authors: ArcSwap::new(Arc::new(authors)),
             blacklisted_levels: ArcSwap::new(Arc::new(levels)),
             player_counts_cache: RwLock::new(HashMap::new()),
+            #[cfg(feature = "analytics")]
+            analytics: OnceLock::new(),
+            last_recorded_player_count_db: Mutex::new(Instant::now()),
         })
     }
 
     fn on_launch(&self, server: &ServerHandle<ConnectionHandler>) {
         let _ = self.server.set(server.make_weak());
+
+        #[cfg(feature = "analytics")]
+        if let Some(analytics) = server.handler().opt_module_owned::<AnalyticsModule>() {
+            let _ = self.analytics.set(analytics);
+        }
 
         server.schedule(Duration::from_hours(12), async move |server| {
             if let Err(e) = server.handler().module::<Self>().refresh_blacklist_cache().await {
@@ -1410,11 +1442,20 @@ impl ServerModule for UsersModule {
         });
 
         if self.config().record_player_counts {
-            server.schedule(Duration::from_mins(1), async move |server| {
+            server.schedule(Duration::from_secs(15), async move |server| {
                 let me = server.handler().module::<Self>();
                 if let Err(e) = me.record_player_count(server.handler().client_count() as u32).await
                 {
                     error!("Failed to record player count: {e}");
+                }
+            });
+
+            server.schedule(Duration::from_hours(1), async move |server| {
+                let me = server.handler().module::<Self>();
+                let secs =
+                    Duration::from_days(me.config().player_count_retention_days as u64).as_secs();
+                if let Err(e) = me.db.delete_old_player_counts(secs).await {
+                    error!("Failed to delete old player counts: {e}");
                 }
             });
         }
