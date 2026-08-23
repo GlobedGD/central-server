@@ -728,6 +728,9 @@ impl UsersDb {
         };
 
         let roles = nonempty_str(roles);
+        if roles_before.as_deref() == roles {
+            return Ok(UpdateRolesResult { found: true, updated: false });
+        }
 
         User::update_many()
             .filter(user::Column::AccountId.eq(account_id))
