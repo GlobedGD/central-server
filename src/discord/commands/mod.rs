@@ -29,6 +29,7 @@ pub fn all() -> Vec<poise::Command<Arc<BotState>, BotError>> {
         // misc user actions
         moderation::kick(),
         moderation::kick_all(),
+        moderation::set_name_whitelisted(),
         // checks and logs
         moderation::audit_log(),
         moderation::check_actions(),

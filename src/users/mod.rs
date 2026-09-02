@@ -1,6 +1,6 @@
 use std::{
     cmp::Reverse,
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     fmt::Write,
     num::NonZeroI64,
     sync::{Arc, OnceLock},
@@ -14,13 +14,15 @@ use {
         users::database::ActionsBreakdown,
     },
     poise::serenity_prelude::{CreateEmbed, CreateEmbedAuthor, Member},
+    std::collections::HashMap,
 };
 
 #[cfg(feature = "web")]
 use {
     crate::web::{WebModule, WebState},
     axum::{
-        extract::{Query, State},
+        extract::{Path, Query, State},
+        http::StatusCode,
         response::IntoResponse,
     },
 };
@@ -35,12 +37,11 @@ use crate::{
         handler::{ClientStateHandle, ConnectionHandler},
         module::{ConfigurableModule, ModuleInitResult, ServerModule},
     },
-    users::database::{AuditLogModel, LogAction},
+    users::database::{AuditLogModel, LogAction, UsersDb},
 };
 
 use arc_swap::ArcSwap;
-#[cfg(feature = "web")]
-use axum::{extract::Path, http::StatusCode};
+use moka::future::Cache;
 use parking_lot::Mutex;
 use rustc_hash::FxHashSet;
 use server_shared::{
@@ -53,13 +54,10 @@ mod config;
 pub mod database;
 mod pwhash;
 
-pub use config::Config;
-pub use config::Role;
-use database::UsersDb;
+pub use config::{Config, Role};
 pub use database::{DatabaseError, DatabaseResult, DbUser, UserPunishment, UserPunishmentType};
 use smallvec::SmallVec;
 use thiserror::Error;
-use tokio::sync::RwLock;
 use tracing::{debug, error, info, trace, warn};
 
 #[derive(Error, Debug)]
@@ -156,8 +154,6 @@ impl LinkedDiscordAccount {
     }
 }
 
-type CachedPlayerCounts = (Instant, Vec<PlayerCountHistoryEntry>);
-
 pub struct UsersModule {
     db: UsersDb,
     server: OnceLock<WeakServerHandle<ConnectionHandler>>,
@@ -172,7 +168,8 @@ pub struct UsersModule {
     blacklisted_authors: ArcSwap<FxHashSet<i32>>,
     blacklisted_levels: ArcSwap<FxHashSet<i32>>,
 
-    player_counts_cache: RwLock<HashMap<Duration, CachedPlayerCounts>>,
+    player_counts_cache: Cache<Duration, Vec<PlayerCountHistoryEntry>>,
+    whitelisted_name_cache: Cache<String, ()>,
 
     last_recorded_player_count_db: Mutex<Instant>,
     #[cfg(feature = "analytics")]
@@ -216,6 +213,45 @@ impl UsersModule {
             is_muted,
             ..Default::default()
         }
+    }
+
+    pub async fn is_whitelisted_username(&self, username: &str) -> bool {
+        let username = username.to_ascii_lowercase();
+
+        if self.whitelisted_name_cache.get(&username).await.is_some() {
+            return true;
+        }
+
+        match self.db.get_name_whitelisted(&username).await {
+            Ok(true) => {
+                // whitelist only positive responses, because whitelisted names are few and far in between
+                self.whitelisted_name_cache.insert(username, ()).await;
+                true
+            }
+            Ok(false) => false,
+            Err(e) => {
+                warn!("Failed to check if username is whitelisted: {e}");
+                false
+            }
+        }
+    }
+
+    pub async fn set_username_whitelisted(
+        &self,
+        username: &str,
+        whitelist: bool,
+    ) -> DatabaseResult<()> {
+        let username = username.to_ascii_lowercase();
+        if whitelist {
+            self.db.whitelist_name(username.clone()).await?;
+            // also add to cache
+            self.whitelisted_name_cache.insert(username, ()).await;
+        } else {
+            self.db.remove_whitelisted_name(&username).await?;
+            self.whitelisted_name_cache.invalidate(&username).await;
+        }
+
+        Ok(())
     }
 
     pub async fn get_user(&self, account_id: i32) -> DatabaseResult<Option<DbUser>> {
@@ -1290,32 +1326,14 @@ impl UsersModule {
         Ok(())
     }
 
-    fn player_cache_ttl(&self, period: Duration) -> Duration {
-        if period <= Duration::from_hours(1) {
-            Duration::from_mins(5)
-        } else if period <= Duration::from_days(1) {
-            Duration::from_mins(15)
-        } else {
-            Duration::from_mins(30)
-        }
-    }
-
     pub async fn get_player_counts_cached(
         &self,
         period: Duration,
     ) -> DatabaseResult<Vec<PlayerCountHistoryEntry>> {
         const MAX_POINTS: usize = 400;
 
-        let ttl = self.player_cache_ttl(period);
-        let now = Instant::now();
-
-        {
-            let cache = self.player_counts_cache.read().await;
-            if let Some(entry) = cache.get(&period) {
-                if now < entry.0 {
-                    return Ok(entry.1.clone());
-                }
-            }
+        if let Some(entry) = self.player_counts_cache.get(&period).await {
+            return Ok(entry);
         }
 
         let counts: Vec<PlayerCountHistoryEntry> = self
@@ -1349,7 +1367,7 @@ impl UsersModule {
             counts
         };
 
-        self.player_counts_cache.write().await.insert(period, (now + ttl, counts.clone()));
+        self.player_counts_cache.insert(period, counts.clone()).await;
 
         Ok(counts)
     }
@@ -1416,6 +1434,15 @@ impl ServerModule for UsersModule {
             web.add_route("/players/{id}", axum::routing::get(get_user_handler)).await;
         }
 
+        let player_counts_cache =
+            Cache::builder().expire_after(PlayerCountCacheExpiry).max_capacity(16).build();
+
+        let whitelisted_name_cache = Cache::builder()
+            .max_capacity(1024)
+            .time_to_idle(Duration::from_hours(1))
+            .time_to_live(Duration::from_days(1))
+            .build();
+
         Ok(Self {
             db,
             server: OnceLock::new(),
@@ -1428,7 +1455,8 @@ impl ServerModule for UsersModule {
             discord_role_map,
             blacklisted_authors: ArcSwap::new(Arc::new(authors)),
             blacklisted_levels: ArcSwap::new(Arc::new(levels)),
-            player_counts_cache: RwLock::new(HashMap::new()),
+            player_counts_cache,
+            whitelisted_name_cache,
             #[cfg(feature = "analytics")]
             analytics: OnceLock::new(),
             last_recorded_player_count_db: Mutex::new(Instant::now()),
@@ -1573,6 +1601,25 @@ async fn get_user_handler(
         Err(e) => {
             error!("/players/{id} failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "Unexpected database error".to_owned())
+        }
+    }
+}
+
+struct PlayerCountCacheExpiry;
+
+impl<V> moka::policy::Expiry<Duration, V> for PlayerCountCacheExpiry {
+    fn expire_after_create(
+        &self,
+        period: &Duration,
+        _value: &V,
+        _created_at: Instant,
+    ) -> Option<Duration> {
+        if *period <= Duration::from_hours(1) {
+            Some(Duration::from_mins(3))
+        } else if *period <= Duration::from_days(1) {
+            Some(Duration::from_mins(15))
+        } else {
+            Some(Duration::from_mins(30))
         }
     }
 }

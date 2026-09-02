@@ -297,6 +297,7 @@ impl ConnectionHandler {
         if users.check_usernames()
             && let Some(bad_term) = self.has_bad_word(&data.username).await
             && let Some(discord) = discord
+            && !users.is_whitelisted_username(&data.username).await
         {
             discord.send_username_alert(&data.username, data.account_id, &bad_term);
         }

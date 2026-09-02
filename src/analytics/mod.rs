@@ -9,7 +9,7 @@ use server_shared::qunet::{
     message::channel,
     server::{ServerHandle, WeakServerHandle},
 };
-use tracing::{debug, error};
+use tracing::{error, trace};
 
 use crate::core::{
     handler::ConnectionHandler,
@@ -116,7 +116,7 @@ impl AnalyticsModule {
         client: &clickhouse::Client,
         logins: &mut Vec<LoginEvent>,
     ) -> Result<()> {
-        debug!("Writing {} login events", logins.len());
+        trace!("Writing {} login events", logins.len());
         let mut insert = client.insert::<LoginEvent>("login_events").await?;
         for login in logins.drain(..) {
             insert.write(&login).await?;
@@ -131,7 +131,7 @@ impl AnalyticsModule {
         client: &clickhouse::Client,
         player_counts: &mut Vec<PlayerCountLog>,
     ) -> Result<()> {
-        debug!("Writing {} player count logs", player_counts.len());
+        trace!("Writing {} player count logs", player_counts.len());
         let mut insert = client.insert::<PlayerCountLog>("player_count_logs").await?;
         for log in player_counts.drain(..) {
             insert.write(&log).await?;

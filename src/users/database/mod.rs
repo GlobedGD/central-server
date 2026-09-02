@@ -956,6 +956,29 @@ impl UsersDb {
 
         Ok(counts)
     }
+
+    /// Checks whether a username is whitelisted, case sensitive!
+    pub async fn get_name_whitelisted(&self, name: &str) -> DatabaseResult<bool> {
+        Ok(WhitelistedName::find_by_id(name).one(&self.conn).await?.is_some())
+    }
+
+    /// Whitelists a username, case sensitive!
+    pub async fn whitelist_name(&self, name: String) -> DatabaseResult<()> {
+        let model = whitelisted_name::ActiveModel { name: Set(name) };
+
+        model.insert(&self.conn).await?;
+
+        Ok(())
+    }
+
+    /// Removes a username from the whitelist, case sensitive!
+    pub async fn remove_whitelisted_name(&self, name: &str) -> DatabaseResult<()> {
+        WhitelistedName::delete_many()
+            .filter(whitelisted_name::Column::Name.eq(name))
+            .exec(&self.conn)
+            .await?;
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

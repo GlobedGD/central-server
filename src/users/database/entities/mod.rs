@@ -9,3 +9,4 @@ pub mod player_count_log;
 pub mod punishment;
 pub mod uident;
 pub mod user;
+pub mod whitelisted_name;

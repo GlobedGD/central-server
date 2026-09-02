@@ -7,3 +7,4 @@ pub use super::player_count_log::Entity as PlayerCountLog;
 pub use super::punishment::Entity as Punishment;
 pub use super::uident::Entity as Uident;
 pub use super::user::Entity as User;
+pub use super::whitelisted_name::Entity as WhitelistedName;

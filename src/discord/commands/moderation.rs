@@ -395,3 +395,28 @@ pub async fn kick_all(
 
     Ok(())
 }
+
+#[poise::command(slash_command, ephemeral = true, guild_only = true)]
+/// Causes a username to never generate username alerts again.
+pub async fn set_name_whitelisted(
+    ctx: Context<'_>,
+    #[description = "Username, case insensitive"] username: String,
+
+    #[description = "Whether to add or remove the username from the whitelist"] whitelist: bool,
+) -> Result<(), BotError> {
+    check_moderator(ctx).await?;
+
+    let server = ctx.data().server()?;
+    let users = server.handler().module::<UsersModule>();
+
+    users.set_username_whitelisted(&username, whitelist).await?;
+
+    ctx.reply(format!(
+        ":white_check_mark: Successfully {}whitelisted the username \"{}\".",
+        if whitelist { "" } else { "un" },
+        username
+    ))
+    .await?;
+
+    Ok(())
+}
