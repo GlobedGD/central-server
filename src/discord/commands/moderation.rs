@@ -11,56 +11,29 @@ use crate::{
 
 use poise::{
     CreateReply,
-    serenity_prelude::{self as serenity, AutocompleteChoice, CreateEmbed, EmbedField},
+    serenity_prelude::{self as serenity, CreateEmbed, EmbedField},
 };
 use tracing::info;
 
-async fn punish_autocomplete(
-    _ctx: Context<'_>,
-    _partial: &str,
-) -> impl Iterator<Item = AutocompleteChoice> {
-    ["Ban", "Mute", "Room Ban"].iter().map(|&n| AutocompleteChoice::new(n, n))
-}
-
-fn parse_punish_type(s: &str) -> Option<UserPunishmentType> {
-    match s {
-        "Ban" => Some(UserPunishmentType::Ban),
-        "Mute" => Some(UserPunishmentType::Mute),
-        "Room Ban" => Some(UserPunishmentType::RoomBan),
-        _ => None,
-    }
-}
-
-#[poise::command(slash_command, guild_only = true)]
-/// Punishes the provided user
-pub async fn punish(
+async fn do_punish(
     ctx: Context<'_>,
-    #[autocomplete = "punish_autocomplete"]
-    #[description = "Punishment type"]
-    punishment_type: String,
-
-    #[autocomplete = "online_and_db_user_autocomplete"]
-    #[description = "Geometry Dash username or ID"]
-    target_user: String,
-
-    #[description = "Ban reason"] reason: String,
-    #[rename = "duration"]
-    #[description = "Punishment duration (i.e. \"1 year\", \"2 days\"); use \"permanent\" or \"perma\" for permanent punishments."]
-    duration_str: String,
+    pun_type: UserPunishmentType,
+    target_user: &str,
+    reason: &str,
+    duration_str: &str,
 ) -> Result<(), BotError> {
-    let pun_type = parse_punish_type(&punishment_type).unwrap_or(UserPunishmentType::Mute);
     let user = check_linked_and_can_punish(ctx, pun_type).await?;
 
     let server = ctx.data().server()?;
     let users = server.handler().module::<UsersModule>();
 
-    let target = users.query_or_create_user(&target_user).await?;
+    let target = users.query_or_create_user(target_user).await?;
     let Some(target) = target else {
         ctx.reply(":x: Failed to find the user by the given name").await?;
         return Ok(());
     };
 
-    let duration = parse_duration_str(&duration_str)?;
+    let duration = parse_duration_str(duration_str)?;
     let expires_at = if duration.is_zero() {
         0
     } else {
@@ -69,36 +42,56 @@ pub async fn punish(
 
     let ban_result = server
         .handler()
-        .do_punish_user(user.account_id, target.account_id, &reason, expires_at, pun_type)
+        .do_punish_user(user.account_id, target.account_id, reason, expires_at, pun_type)
         .await;
 
     if let Err(reason) = ban_result {
         ctx.reply(format!(":x: Failed to issue punishment: {reason}")).await?;
     } else {
-        ctx.reply(format!(":white_check_mark: Sucessfully punished {target}")).await?;
+        ctx.reply(format!(":white_check_mark: Successfully punished {target}")).await?;
     }
 
     Ok(())
 }
 
-#[poise::command(slash_command, guild_only = true)]
-/// unpunishes the provided target
-pub async fn unpunish(
+macro_rules! punish_command {
+    ($fn_name:ident, $type:expr, $action:literal) => {
+        #[poise::command(slash_command, guild_only = true)]
+        #[doc = concat!($action, " the provided user in-game")]
+        pub async fn $fn_name(
+            ctx: Context<'_>,
+
+            #[autocomplete = "online_and_db_user_autocomplete"]
+            #[description = "Geometry Dash username or ID"]
+            target_user: String,
+
+            #[description = "Punishment reason"]
+            reason: String,
+
+            #[rename = "duration"]
+            #[description = "Punishment duration (i.e. \"1 year\", \"2 days\"); use \"permanent\" or \"perma\" for permanent punishments."]
+            duration_str: String,
+        ) -> Result<(), BotError> {
+            do_punish(ctx, $type, &target_user, &reason, &duration_str).await
+        }
+    };
+}
+
+punish_command!(ban, UserPunishmentType::Ban, "Bans");
+punish_command!(roomban, UserPunishmentType::RoomBan, "Room bans");
+punish_command!(mute, UserPunishmentType::Mute, "Mutes");
+
+async fn do_unpunish(
     ctx: Context<'_>,
-    #[autocomplete = "punish_autocomplete"]
-    #[description = "Punishment type"]
-    punishment_type: String,
-    #[autocomplete = "online_and_db_user_autocomplete"]
-    #[description = "Geometry Dash username or ID"]
-    target_user: String,
+    pun_type: UserPunishmentType,
+    target_user: &str,
 ) -> Result<(), BotError> {
-    let pun_type = parse_punish_type(&punishment_type).unwrap_or(UserPunishmentType::Mute);
     let user = check_linked_and_can_punish(ctx, pun_type).await?;
 
     let server = ctx.data().server()?;
     let users = server.handler().module::<UsersModule>();
 
-    let target = users.query_user(&target_user).await?;
+    let target = users.query_user(target_user).await?;
     let Some(target) = target else {
         ctx.reply(":x: Failed to find the user by the given name").await?;
         return Ok(());
@@ -110,12 +103,32 @@ pub async fn unpunish(
     if let Err(reason) = unpunish_result {
         ctx.reply(format!(":x: Failed to remove punishment: `{reason}`")).await?;
     } else {
-        ctx.reply(format!(":white_check_mark: Sucessfully removed punishment for {target}"))
+        ctx.reply(format!(":white_check_mark: Successfully removed punishment for {target}"))
             .await?;
     }
 
     Ok(())
 }
+
+macro_rules! unpunish_command {
+    ($fn_name:ident, $type:expr, $action:literal) => {
+        #[poise::command(slash_command, guild_only = true)]
+        #[doc = concat!($action, " the provided user in-game")]
+        pub async fn $fn_name(
+            ctx: Context<'_>,
+
+            #[autocomplete = "online_and_db_user_autocomplete"]
+            #[description = "Geometry Dash username or ID"]
+            target_user: String,
+        ) -> Result<(), BotError> {
+            do_unpunish(ctx, $type, &target_user).await
+        }
+    };
+}
+
+unpunish_command!(unban, UserPunishmentType::Ban, "Removes a ban from");
+unpunish_command!(unmute, UserPunishmentType::Mute, "Removes a mute from");
+unpunish_command!(unroomban, UserPunishmentType::RoomBan, "Removes a room ban from");
 
 #[allow(clippy::format_in_format_args)]
 async fn audit_log_embed(
@@ -356,7 +369,7 @@ pub async fn kick(
     };
 
     server.handler().do_kick_user(user.account_id, &target, &reason, true).await;
-    ctx.reply(format!(":white_check_mark: Sucessfully kicked {}", target.username())).await?;
+    ctx.reply(format!(":white_check_mark: Successfully kicked {}", target.username())).await?;
 
     Ok(())
 }

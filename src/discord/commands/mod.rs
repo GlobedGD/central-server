@@ -18,13 +18,21 @@ pub fn all() -> Vec<poise::Command<Arc<BotState>, BotError>> {
         link::sync(),
         link::syncall(),
         link::linkinfo(),
-        moderation::punish(),
-        moderation::unpunish(),
+        // punishments
+        moderation::ban(),
+        moderation::mute(),
+        moderation::roomban(),
+        // punishment removal
+        moderation::unban(),
+        moderation::unmute(),
+        moderation::unroomban(),
+        // misc user actions
+        moderation::kick(),
+        moderation::kick_all(),
+        // checks and logs
         moderation::audit_log(),
         moderation::check_actions(),
         moderation::check_alts(),
-        moderation::kick(),
-        moderation::kick_all(),
         #[cfg(feature = "featured-levels")]
         features::feature(),
         maintenance::refresh_blacklist_cache(),
