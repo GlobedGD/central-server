@@ -25,15 +25,17 @@ impl ConnectionHandler {
         let rooms = self.module::<RoomModule>();
 
         // if the user is not allowed to name rooms, always override the name with a default one
+        // also do it if the user did not provide a name
+        name = name.trim();
+
         let default_name;
         let mut using_default = false;
-        if users.disallow_room_names() && client.role().as_ref().is_none_or(|r| !r.can_name_rooms) {
+        if name.is_empty() || !users.can_name_rooms(client) {
             default_name = format!("{}'s Room", client.username());
             name = &default_name;
             using_default = true;
         }
 
-        name = name.trim();
         if !name.is_ascii() || name.is_empty() {
             return self.send_room_create_failed(client, data::RoomCreateFailedReason::InvalidName);
         }

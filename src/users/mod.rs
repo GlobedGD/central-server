@@ -188,6 +188,14 @@ impl UsersModule {
         self.config().disallow_room_names
     }
 
+    pub fn can_name_rooms(&self, client: &ClientStateHandle) -> bool {
+        !self.disallow_room_names() || client.role().as_ref().is_some_and(|r| r.can_name_rooms)
+    }
+
+    pub fn can_role_name_rooms(&self, role: &ComputedRole) -> bool {
+        !self.disallow_room_names() || role.can_name_rooms
+    }
+
     pub fn check_usernames(&self) -> bool {
         self.config().check_usernames
     }
