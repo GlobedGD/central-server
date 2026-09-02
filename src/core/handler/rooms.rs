@@ -21,6 +21,18 @@ impl ConnectionHandler {
     ) -> HandlerResult<()> {
         must_auth(client)?;
 
+        let users = self.module::<UsersModule>();
+        let rooms = self.module::<RoomModule>();
+
+        // if the user is not allowed to name rooms, always override the name with a default one
+        let default_name;
+        let mut using_default = false;
+        if users.disallow_room_names() && client.role().as_ref().is_none_or(|r| !r.can_name_rooms) {
+            default_name = format!("{}'s Room", client.username());
+            name = &default_name;
+            using_default = true;
+        }
+
         name = name.trim();
         if !name.is_ascii() || name.is_empty() {
             return self.send_room_create_failed(client, data::RoomCreateFailedReason::InvalidName);
@@ -31,8 +43,6 @@ impl ConnectionHandler {
             return self.send_room_banned(client, &p.reason, p.expires_at);
         }
 
-        let users = self.module::<UsersModule>();
-        let rooms = self.module::<RoomModule>();
         let server_id = settings.server_id;
 
         // check if the requested server is valid
@@ -41,16 +51,9 @@ impl ConnectionHandler {
                 .send_room_create_failed(client, data::RoomCreateFailedReason::InvalidServer);
         }
 
-        let default_name;
-        // if the user is not allowed to name rooms, override the name with a default one
-        if users.disallow_room_names() && client.role().as_ref().is_none_or(|r| !r.can_name_rooms) {
-            default_name = format!("{}'s Room", client.username());
-            name = &default_name;
-        }
+        // check if the name is a-ok, only if the room name is user supplied
 
-        // check if the name is a-ok
-
-        if let Some(word) = self.has_bad_word(name).await {
+        if !using_default && let Some(word) = self.has_bad_word(name).await {
             warn!(
                 "({}) disallowing room name '{}' due to banned word: '{}'",
                 client.account_id(),
