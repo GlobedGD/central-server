@@ -20,8 +20,6 @@ users_migration = { path = "src/users/database/migration" }
 features_migration = { path = "src/features/database/migration" }
 
 sea-orm-migration = { version = "2.0.2" }
-base64 = "0.23.1"
-blake3 = "1.8.7"
 dashmap = { version = "6.2.1", features = ["inline", "raw-api"] }
 futures-util = "0.3.34"
 heapless = { version = "0.9.3", features = ["serde"] }
@@ -36,7 +34,6 @@ server-shared = { git = "https://github.com/GlobedGD/server-shared", rev = "622f
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 slab = "0.4.12"
-state = "0.6.0"
 thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["full"] }
 tokio-tungstenite = { version = "0.30.0", features = [
@@ -56,26 +53,41 @@ itertools = "0.15.0"
 bcrypt = "0.19.3"
 smallvec = "1.15.2"
 nohash-hasher = "0.2.0"
+crypto_secretbox = { version = "0.1.1", features = ["heapless"] }
+time-format = "1.2.3"
+anyhow = "1.0.104"
+build-time = "0.1.3"
+validator = { version = "0.21.0", features = ["derive"] }
+moka = { version = "0.12.16", features = ["future"] }
+reqwest = { version = "0.13.4", default-features = false, features = [
+    "http2",
+    "json",
+    "rustls",
+    "form",
+] }
+
+# Featured levels
+google-sheets4 = { version = "7.0.0", optional = true, default-features = false, features = [
+    "yup-oauth2",
+] }
+yup-oauth2 = { version = "12", features = [
+    "hyper-rustls",
+    "aws-lc-rs",
+], optional = true }
+
+# Word filter
+aho-corasick = { version = "1.1.5", optional = true }
+fuzzy-matcher = { version = "0.3.7", optional = true }
+
+# Discord
 poise = { version = "0.6.2", optional = true }
 plotters = { version = "0.3", optional = true, default-features = false, features = [
     "bitmap_backend",
     "ab_glyph",
     "all_series",
 ] }
-crypto_secretbox = { version = "0.1.1", features = ["heapless"] }
-google-sheets4 = { version = "7.0.0", optional = true, default-features = false, features = [
-    "yup-oauth2",
-] }
-yup-oauth2 = { version = "12", features = ["hyper-rustls", "aws-lc-rs"] }
-time-format = "1.2.3"
-anyhow = "1.0.104"
-build-time = "0.1.3"
-metrics-process = "2.4.3"
-aho-corasick = { version = "1.1.5", optional = true }
-async-watcher = { version = "0.4.0", optional = true }
-mimalloc = { version = "0.1.52", optional = true }
-fuzzy-matcher = { version = "0.3.7", optional = true }
-validator = { version = "0.21.0", features = ["derive"] }
+metrics-process = { version = "2.4.3", optional = true }
+image = { version = "0.25.10", optional = true }
 
 # Analytics
 clickhouse = { version = "0.15.1", features = [
@@ -86,17 +98,14 @@ clickhouse = { version = "0.15.1", features = [
 ], optional = true }
 include_dir = { version = "0.7.4", optional = true }
 chrono = { version = "0.4.45", optional = true }
+
+# Web
 axum = { version = "0.8.9", optional = true }
-tower-http = { version = "0.7.0", features = ["cors"] }
-image = { version = "0.25.10", optional = true }
-reqwest = { version = "0.13.4", default-features = false, features = [
-    "http2",
-    "json",
-    "rustls",
-    "form",
-] }
 urlencoding = { version = "2.1.3", optional = true }
-moka = { version = "0.12.16", features = ["future"] }
+tower-http = { version = "0.7.0", features = ["cors"], optional = true }
+
+# Mimalloc
+mimalloc = { version = "0.1.52", optional = true }
 
 [features]
 all = [
@@ -111,12 +120,18 @@ all = [
 docker-build = ["all"]
 docker-alpine-build = ["all", "mimalloc"]
 
-word-filter = ["dep:aho-corasick", "dep:async-watcher"]
-featured-levels = ["dep:google-sheets4"]
+word-filter = ["dep:aho-corasick"]
+featured-levels = ["dep:google-sheets4", "dep:yup-oauth2"]
 default = []
-discord = ["dep:poise", "dep:plotters", "dep:image", "dep:fuzzy-matcher"]
+discord = [
+    "dep:poise",
+    "dep:plotters",
+    "dep:image",
+    "dep:fuzzy-matcher",
+    "dep:metrics-process",
+]
 quic = ["server-shared/quic"]
 websocket = ["server-shared/websocket"]
 mimalloc = ["dep:mimalloc"]
 analytics = ["dep:clickhouse", "dep:include_dir", "dep:chrono"]
-web = ["dep:axum", "dep:urlencoding"]
+web = ["dep:axum", "dep:urlencoding", "dep:tower-http"]
