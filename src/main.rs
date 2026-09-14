@@ -204,8 +204,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = QunetServer::builder()
         .with_memory_options(make_memory_limits(3))
         .with_app_handler(handler)
-        .with_handshake_timeout(Duration::from_secs(3))
-        .with_idle_timeout(Duration::from_secs(15))
+        .with_handshake_timeout(Duration::from_secs(5))
+        .with_idle_timeout(Duration::from_secs(30))
         .with_max_suspend_time(Duration::from_secs(30));
 
     if let Some(addr) = &core.gs_tcp_address
