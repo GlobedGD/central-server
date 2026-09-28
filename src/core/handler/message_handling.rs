@@ -261,18 +261,14 @@ impl ConnectionHandler {
             },
 
             SetDiscordPairingState(message) => {
-                let state = message.get_state();
                 unpacked_data.reset(); // free up memory
 
-                self.handle_set_discord_pairing_state(client, state)
+                self.handle_set_discord_pairing_state(client)
             },
 
             DiscordLinkConfirm(message) => {
-                let id = message.get_id();
-                let accept = message.get_accept();
                 unpacked_data.reset(); // free up memory
-
-                self.handle_discord_link_confirm(client, id, accept)
+                self.handle_discord_link_confirm(client)
             },
 
             RequestDiscordOauth(_message) => {

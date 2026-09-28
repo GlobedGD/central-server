@@ -12,7 +12,6 @@ pub mod util;
 
 pub fn all() -> Vec<poise::Command<Arc<BotState>, BotError>> {
     vec![
-        link::link(),
         link::adminlink(),
         link::unlink(),
         link::sync(),

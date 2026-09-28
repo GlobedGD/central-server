@@ -222,34 +222,13 @@ impl ConnectionHandler {
     pub fn handle_set_discord_pairing_state(
         &self,
         client: &ClientStateHandle,
-        state: bool,
     ) -> HandlerResult<()> {
         must_auth(client)?;
-
-        client.set_discord_pairing(state);
-
         Ok(())
     }
 
-    pub fn handle_discord_link_confirm(
-        &self,
-        client: &ClientStateHandle,
-        id: u64,
-        accept: bool,
-    ) -> HandlerResult<()> {
+    pub fn handle_discord_link_confirm(&self, client: &ClientStateHandle) -> HandlerResult<()> {
         must_auth(client)?;
-
-        #[cfg(feature = "discord")]
-        {
-            use crate::discord::DiscordModule;
-
-            let discord = self.module::<DiscordModule>();
-            discord.finish_link_attempt(client.account_id(), id, accept);
-        }
-
-        let _ = id;
-        let _ = accept;
-
         Ok(())
     }
 

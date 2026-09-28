@@ -19,10 +19,7 @@ use server_shared::{
     qunet::server::{ServerHandle, WeakServerHandle},
 };
 use thiserror::Error;
-use tokio::{
-    sync::{RwLock, oneshot},
-    time::MissedTickBehavior,
-};
+use tokio::{sync::RwLock, time::MissedTickBehavior};
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -30,22 +27,6 @@ use crate::{
     discord::{DiscordMessage, DiscordModule, DiscordUserData, commands::util::ParseDurationError},
     users::{DatabaseError, DbUser, Error as UsersError, UserPunishmentType, UsersModule},
 };
-
-struct LinkAttempt {
-    started_at: Instant,
-    gd_account: i32,
-    tx: oneshot::Sender<bool>,
-}
-
-impl LinkAttempt {
-    pub fn new(tx: oneshot::Sender<bool>, gd_account: i32) -> Self {
-        Self {
-            started_at: Instant::now(),
-            gd_account,
-            tx,
-        }
-    }
-}
 
 struct OauthAttempt {
     started_at: Instant,
@@ -107,7 +88,6 @@ pub struct BotState {
     server: OnceLock<WeakServerHandle<ConnectionHandler>>,
     http_client: reqwest::Client,
 
-    link_attempts: DashMap<u64, LinkAttempt>,
     oauth_attempts: DashMap<i32, OauthAttempt>,
 
     name_alerts: DashMap<u64, NameAlertInteraction>,
@@ -160,7 +140,6 @@ impl BotState {
             ctx: RwLock::new(None),
             server: OnceLock::new(),
             http_client,
-            link_attempts: DashMap::new(),
             oauth_attempts: DashMap::new(),
             name_alerts: DashMap::new(),
             alt_alerts: DashMap::new(),
@@ -196,37 +175,6 @@ impl BotState {
 
     pub fn get_from_server(handle: &ServerHandle<ConnectionHandler>) -> Arc<Self> {
         handle.handler().module::<DiscordModule>().state.clone()
-    }
-
-    pub fn create_link_attempt(&self, id: u64, gd_account: i32) -> oneshot::Receiver<bool> {
-        let (tx, rx) = oneshot::channel();
-        self.link_attempts.insert(id, LinkAttempt::new(tx, gd_account));
-
-        rx
-    }
-
-    pub fn has_link_attempt(&self, id: u64) -> bool {
-        self.link_attempts.contains_key(&id)
-    }
-
-    pub fn finish_link_attempt(&self, gd_account: i32, id: u64, accepted: bool) {
-        if let Some((_, la)) = self.link_attempts.remove(&id) {
-            if la.gd_account != gd_account {
-                // id mismatch
-                debug!(
-                    "ID mismatch when finishing link attempt: expected {}, got {}",
-                    la.gd_account, gd_account
-                );
-
-                self.link_attempts.insert(id, la);
-            } else {
-                let _ = la.tx.send(accepted);
-            }
-        }
-    }
-
-    pub fn remove_link_attempt(&self, id: u64) {
-        self.link_attempts.remove(&id);
     }
 
     pub fn begin_oauth_flow(&self, client: WeakClientStateHandle, gd_account: i32) -> String {
@@ -927,10 +875,6 @@ impl BotState {
         Ok(())
     }
 
-    fn cleanup_link_attempts(&self) {
-        self.link_attempts.retain(|_, la| la.started_at.elapsed() < Duration::from_mins(1));
-    }
-
     fn cleanup_oauth_flows(&self) {
         self.oauth_attempts.retain(|_, oa| oa.started_at.elapsed() < Duration::from_mins(10));
     }
@@ -941,7 +885,6 @@ impl BotState {
     }
 
     pub fn cleanup(&self) {
-        self.cleanup_link_attempts();
         self.cleanup_oauth_flows();
         self.cleanup_old_interactions();
     }

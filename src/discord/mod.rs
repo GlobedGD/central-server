@@ -258,10 +258,6 @@ impl DiscordModule {
         self.state.get_user_data(account_id).await
     }
 
-    pub fn finish_link_attempt(&self, gd_account: i32, id: u64, accepted: bool) {
-        self.state.finish_link_attempt(gd_account, id, accepted)
-    }
-
     /// Begins oauth2 flow and returns a URL that the user must open
     pub fn begin_oauth_flow(&self, client: &ClientStateHandle, gd_account: i32) -> String {
         self.state.begin_oauth_flow(Arc::downgrade(client), gd_account)

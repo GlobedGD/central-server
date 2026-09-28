@@ -35,7 +35,6 @@ pub struct ClientData {
     authorized_admin: AtomicBool,
     deauthorized: AtomicBool,
     team_id: AtomicU16,
-    discord_pairing_on: AtomicBool,
     discord_linked: AtomicBool,
     awaiting_notice_reply_from: Mutex<IntSet<i32>>,
 
@@ -233,14 +232,6 @@ impl ClientData {
         *self.settings.lock()
     }
 
-    pub fn set_discord_pairing(&self, enabled: bool) {
-        self.discord_pairing_on.store(enabled, Ordering::Relaxed);
-    }
-
-    pub fn discord_pairing(&self) -> bool {
-        self.discord_pairing_on.load(Ordering::Relaxed)
-    }
-
     pub fn set_discord_linked(&self, linked: bool) {
         self.discord_linked.store(linked, Ordering::Relaxed);
     }
@@ -292,7 +283,6 @@ impl Default for ClientData {
             authorized_admin: AtomicBool::new(false),
             deauthorized: AtomicBool::new(false),
             team_id: AtomicU16::new(0),
-            discord_pairing_on: AtomicBool::new(false),
             discord_linked: AtomicBool::new(false),
             awaiting_notice_reply_from: Mutex::new(IntSet::default()),
 

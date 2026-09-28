@@ -1106,6 +1106,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "zstd",
 ]
 
 [[package]]
@@ -6674,6 +6675,15 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "zstd"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
+dependencies = [
+ "zstd-safe",
+]
 
 [[package]]
 name = "zstd-safe"

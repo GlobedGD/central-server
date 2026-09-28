@@ -166,7 +166,8 @@ fn create_client(config: &Config) -> Result<Option<clickhouse::Client>> {
             .with_url(&config.url)
             .with_user(&config.username)
             .with_password(&config.password)
-            .with_database(&config.database);
+            .with_database(&config.database)
+            .with_compression(clickhouse::Compression::None); // TODO: https://github.com/ClickHouse/clickhouse-rs/issues/468
 
         Ok(Some(client))
     }

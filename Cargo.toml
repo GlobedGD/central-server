@@ -95,6 +95,7 @@ clickhouse = { version = "0.15.1", features = [
     "rustls-tls-ring",
     "rustls-tls-native-roots",
     "chrono",
+    "zstd",
 ], optional = true }
 include_dir = { version = "0.7.4", optional = true }
 chrono = { version = "0.4.45", optional = true }
