@@ -43,14 +43,12 @@ pub async fn adminlink(
 }
 
 #[poise::command(slash_command, ephemeral = true, guild_only = true)]
-/// Unlink a GD account, admin only command
+/// Unlink a GD account, omit arguments for unlinking yourself
 pub async fn unlink(
     ctx: Context<'_>,
     discord_user: Option<serenity::Member>,
     gd_user: Option<String>,
 ) -> Result<(), BotError> {
-    check_admin(ctx).await?;
-
     let state = ctx.data();
     let server = state.server()?;
     let users = server.handler().module::<UsersModule>();
@@ -62,6 +60,11 @@ pub async fn unlink(
             .await?;
         return Ok(());
     };
+
+    // anyone who is not an admin can only unlink themselves
+    if linked.id != ctx.author().id.get() {
+        check_admin(ctx).await?;
+    }
 
     users.unlink_discord_inverse(linked.id).await?;
     users.system_clear_linked_roles(user.account_id).await?;
@@ -122,9 +125,15 @@ pub async fn linkinfo(
     discord_user: Option<serenity::Member>,
     gd_user: Option<String>,
 ) -> Result<(), BotError> {
-    check_moderator(ctx).await?;
+    let result = get_linked_user(ctx, discord_user.as_ref(), gd_user.as_deref()).await?;
+    let is_same_user =
+        result.as_ref().is_some_and(|(_, linked)| linked.id == ctx.author().id.get());
 
-    match get_linked_user(ctx, discord_user.as_ref(), gd_user.as_deref()).await? {
+    if !is_same_user {
+        check_moderator(ctx).await?;
+    }
+
+    match result {
         Some((dbuser, linked)) => {
             ctx.reply(format!(
                 "✅ `@{}` (`{}`) is linked to GD account `{}` (`{}`)",
@@ -186,5 +195,13 @@ async fn get_linked_user(
         });
     };
 
-    Ok(None)
+    // nothing supplied, try to fetch this user
+    let Some(actor) = ctx.author_member().await else {
+        return Ok(None);
+    };
+
+    let dbu = users.get_linked_discord_inverse(actor.user.id.get()).await?;
+    let data = LinkedDiscordAccount::from_discord(&actor);
+
+    return Ok(dbu.map(|u| (u, data)));
 }
