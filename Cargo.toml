@@ -90,7 +90,7 @@ metrics-process = { version = "2.4.3", optional = true }
 image = { version = "0.25.10", optional = true }
 
 # Analytics
-clickhouse = { version = "0.15.1", features = [
+clickhouse = { version = "0.15.3", features = [
     "rustls-tls",
     "rustls-tls-ring",
     "rustls-tls-native-roots",
