@@ -5,13 +5,16 @@
     const_result_trait_fn,
     try_blocks,
     iter_array_chunks,
-    if_let_guard,
     string_remove_matches,
-    result_option_map_or_default,
-    generic_const_exprs,
     duration_constructors
 )]
-#![allow(clippy::new_without_default, clippy::collapsible_if, clippy::too_many_arguments)]
+#![allow(
+    clippy::new_without_default,
+    clippy::collapsible_if,
+    clippy::too_many_arguments,
+    // this is serenity's fault
+    clippy::result_large_err
+)]
 
 use std::{sync::Arc, time::Duration};
 
@@ -198,7 +201,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // .. Build the listener for game servers ..
 
-    let handler = GameServerHandler::new(server.make_weak(), core.gs_password.clone());
+    let handler = GameServerHandler::new(server.downgrade(), core.gs_password.clone());
 
     // set limits to be fairly low, we want to quickly detect dead connections to game servers
     let mut builder = QunetServer::builder()
@@ -359,20 +362,14 @@ fn should_c_3(data: &[u8]) -> Option<CompressionType> {
         Some(CompressionType::Zstd)
     }
 }
-const fn const_min(a: usize, b: usize) -> usize {
-    if a < b { a } else { b }
-}
 
-fn should_c_4<const MIN: usize, const ZSTD_BREAK: usize>(data: &[u8]) -> Option<CompressionType>
-where
-    [(); const_min(ZSTD_BREAK, 8192)]:,
-{
+fn should_c_4<const MIN: usize, const ZSTD_BREAK: usize>(data: &[u8]) -> Option<CompressionType> {
     if data.len() < MIN {
         return None;
     }
 
     // adaptive, try compressing with lz4
-    let mut temp = [0u8; const_min(ZSTD_BREAK, 8192)];
+    let mut temp = [0u8; ZSTD_BREAK];
     let lz4_size = lz4_compress(data, &mut temp).unwrap_or(data.len() + 1);
 
     // if lz4 is not effective at all, don't compress

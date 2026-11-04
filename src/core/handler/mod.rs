@@ -85,7 +85,7 @@ impl AppHandler for ConnectionHandler {
     type ClientData = ClientData;
 
     async fn on_launch(&self, server: QunetServerHandle<Self>) -> AppResult<()> {
-        let _ = self.server.set(server.make_weak());
+        let _ = self.server.set(server.downgrade());
 
         info!("Globed central server is running!");
 
@@ -419,7 +419,7 @@ impl ConnectionHandler {
         &self,
         server: QunetServerHandle<GameServerHandler>,
     ) {
-        self.game_server_manager.set_server(server.make_weak());
+        self.game_server_manager.set_server(server.downgrade());
     }
 
     pub async fn handle_game_server_connect(

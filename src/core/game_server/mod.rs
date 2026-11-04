@@ -1,5 +1,3 @@
-#[allow(unused)]
-mod data;
 mod handler;
 mod manager;
 

@@ -78,7 +78,7 @@ impl ServerModule for WebModule {
 
     fn on_launch(&self, server: &ServerHandle<ConnectionHandler>) {
         let this = server.handler().opt_module_owned::<Self>().unwrap();
-        this.state.server.set(server.make_weak()).ok();
+        this.state.server.set(server.downgrade()).ok();
 
         tokio::spawn(async move {
             this.add_route("/status", axum::routing::get(status_handler)).await;

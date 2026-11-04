@@ -1464,7 +1464,7 @@ impl ServerModule for UsersModule {
     }
 
     fn on_launch(&self, server: &ServerHandle<ConnectionHandler>) {
-        let _ = self.server.set(server.make_weak());
+        let _ = self.server.set(server.downgrade());
 
         #[cfg(feature = "analytics")]
         if let Some(analytics) = server.handler().opt_module_owned::<AnalyticsModule>() {

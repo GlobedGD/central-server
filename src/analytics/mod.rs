@@ -194,7 +194,7 @@ impl ServerModule for AnalyticsModule {
     }
 
     fn on_launch(&self, server: &ServerHandle<ConnectionHandler>) {
-        let _ = self.server.set(server.make_weak());
+        let _ = self.server.set(server.downgrade());
 
         if self.client.is_some() {
             let server = server.clone();

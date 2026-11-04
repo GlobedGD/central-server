@@ -163,7 +163,7 @@ impl BotState {
     }
 
     pub fn set_server(&self, handle: &ServerHandle<ConnectionHandler>) {
-        let _ = self.server.set(handle.make_weak());
+        let _ = self.server.set(handle.downgrade());
     }
 
     pub fn server(&self) -> Result<ServerHandle<ConnectionHandler>, BotError> {

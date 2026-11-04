@@ -5,20 +5,16 @@ use std::{
 
 use arc_swap::ArcSwap;
 use rustc_hash::FxHashMap;
+use server_shared::data::{GameServerData, SrvMessage, SrvUserData};
 use server_shared::{
-    data::SrvStatusData,
+    data::{SrvEncodeError, SrvStatusData},
     qunet::{
-        message::{BufferKind, channel},
+        message::channel,
         server::{ServerHandle, WeakServerHandle, client::ClientState},
     },
 };
-use server_shared::{
-    data::{GameServerData, SrvUserData},
-    encoding::EncodeMessageError,
-};
 use thiserror::Error;
 
-use super::data;
 use crate::core::game_server::GameServerHandler;
 
 #[derive(Clone)]
@@ -50,7 +46,7 @@ pub enum GameServerError {
     #[error("Server not found")]
     ServerNotFound,
     #[error("Failed to encode message: {0}")]
-    EncodeError(#[from] EncodeMessageError),
+    EncodeError(#[from] SrvEncodeError),
     #[error("Internal failure talking to the game server")]
     InternalFailure,
     #[error("Timed out waiting for the game server to respond")]
@@ -148,14 +144,8 @@ impl GameServerManager {
             .find(|s| s.data.id == server_id)
             .ok_or(GameServerError::ServerNotFound)?;
 
-        let buf = data::encode_message_unsafe!(self, 64, msg => {
-            let mut room_created = msg.init_notify_room_created();
-            room_created.set_room_id(room_id);
-            room_created.set_passcode(passcode);
-            room_created.set_owner(owner);
-        })?;
-
-        server.qclient.send_data_bufkind(buf);
+        let msg = SrvMessage::NotifyRoomCreated { room_id, passcode, owner };
+        server.qclient.send_data(&msg.encode()?);
 
         // wait up to 5 seconds for a response from the game server
 
@@ -191,12 +181,8 @@ impl GameServerManager {
             .find(|s| s.data.id == server_id)
             .ok_or(GameServerError::ServerNotFound)?;
 
-        let buf = data::encode_message_unsafe!(self, 64, msg => {
-            let mut room_deleted = msg.init_notify_room_deleted();
-            room_deleted.set_room_id(room_id);
-        })?;
-
-        server.qclient.send_data_bufkind(buf);
+        let msg = SrvMessage::NotifyRoomDeleted { room_id };
+        server.qclient.send_data(&msg.encode()?);
 
         // we don't wait for an ack, that doesn't matter to us
 
@@ -214,12 +200,8 @@ impl GameServerManager {
             .find(|s| s.data.id == server_id)
             .ok_or(GameServerError::ServerNotFound)?;
 
-        let buf = data::encode_message_unsafe!(self, 128, msg => {
-            let notif = msg.init_notify_user_data();
-            data.encode(notif.init_data());
-        })?;
-
-        server.qclient.send_data_bufkind(buf);
+        let msg = SrvMessage::NotifyUserData { data };
+        server.qclient.send_data(&msg.encode()?);
 
         Ok(())
     }
@@ -242,38 +224,23 @@ impl GameServerManager {
     }
 
     pub async fn notify_user_kicked(&self, account_id: i32) -> Result<(), GameServerError> {
-        let buf = data::encode_message_unsafe!(self, 80, msg => {
-            let mut notif = msg.init_notify_kick_user();
-            notif.set_account_id(account_id);
-        })?;
-
-        self.notify_all_servers(buf)
+        self.notify_all_servers(SrvMessage::NotifyKickUser { id: account_id })
     }
 
     pub async fn notify_reload_config(&self) -> Result<(), GameServerError> {
-        let buf = data::encode_message_unsafe!(self, 64, msg => {
-            msg.init_reload_config();
-        })?;
-
-        self.notify_all_servers(buf)
+        self.notify_all_servers(SrvMessage::ReloadConfig)
     }
 
     fn notify_all_servers_data(&self, data: SrvUserData) -> Result<(), GameServerError> {
-        let buf = data::encode_message_unsafe!(self, 128, msg => {
-            let notif = msg.init_notify_user_data();
-            data.encode(notif.init_data());
-        })?;
-
-        self.notify_all_servers(buf)
+        self.notify_all_servers(SrvMessage::NotifyUserData { data })
     }
 
-    fn notify_all_servers(&self, buf: BufferKind) -> Result<(), GameServerError> {
+    fn notify_all_servers(&self, msg: SrvMessage) -> Result<(), GameServerError> {
         let servers = self.servers.load();
-
-        let buf = Arc::new(buf);
+        let encoded = msg.encode()?;
 
         for server in &**servers {
-            server.qclient.send_data_bufkind(BufferKind::Reference(buf.clone()));
+            server.qclient.send_data(&encoded);
         }
 
         Ok(())

@@ -203,5 +203,5 @@ async fn get_linked_user(
     let dbu = users.get_linked_discord_inverse(actor.user.id.get()).await?;
     let data = LinkedDiscordAccount::from_discord(&actor);
 
-    return Ok(dbu.map(|u| (u, data)));
+    Ok(dbu.map(|u| (u, data)))
 }

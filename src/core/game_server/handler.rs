@@ -8,9 +8,8 @@ use std::{
 
 use anyhow::anyhow;
 use parking_lot::Mutex;
-use server_shared::{
-    data::{GameServerData, SRVC_PROTOCOL_VERSION},
-    encoding::EncodeMessageError,
+use server_shared::data::{
+    GameServerData, SRVC_PROTOCOL_VERSION, SrvEncodeError, SrvMessage, SrvRole,
 };
 use server_shared::{
     data::{SRVC_MAGIC, SrvStatusData},
@@ -27,12 +26,7 @@ use server_shared::{
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
-use super::data;
-use crate::{
-    auth::AuthModule,
-    core::{data::heapless_str_from_reader, handler::ConnectionHandler},
-    users::UsersModule,
-};
+use crate::{auth::AuthModule, core::handler::ConnectionHandler, users::UsersModule};
 
 pub struct GameServerHandler {
     password: String,
@@ -45,7 +39,7 @@ pub type ClientStateHandle = Arc<ClientState<GameServerHandler>>;
 #[derive(Debug, Error)]
 enum HandlerError {
     #[error("failed to encode message: {0}")]
-    Encoder(#[from] EncodeMessageError),
+    Encoder(#[from] SrvEncodeError),
     #[error("unauthorized client")]
     Unauthorized,
 }
@@ -118,12 +112,8 @@ impl GameServerHandler {
         client: &ClientStateHandle,
         reason: &str,
     ) -> HandlerResult<()> {
-        let buf = data::encode_message_dyn!(self, msg => {
-            let mut login_failed = msg.reborrow().init_login_failed();
-            login_failed.set_reason(reason);
-        })?;
-
-        client.send_data_bufkind(buf);
+        let msg = SrvMessage::LoginFailed { reason: reason.to_owned() };
+        client.send_data(&msg.encode()?);
 
         Ok(())
     }
@@ -159,26 +149,21 @@ impl GameServerHandler {
         let token_expiry = auth_config.token_expiry as u64;
         let script_key = &server.handler().config().module::<UsersModule>().script_sign_key;
 
-        let buf = data::encode_message_dyn!(self, msg => {
-            let mut login_ok = msg.reborrow().init_login_ok();
+        let msg = SrvMessage::LoginOk {
+            token_key: secret_key.clone(),
+            script_key: script_key.clone(),
+            token_expiry,
+            roles: roles
+                .iter()
+                .enumerate()
+                .map(|(i, r)| {
+                    assert!(i < 256, "too many roles, must be below 256");
+                    SrvRole::new(i as u8, &r.id, r.can_moderate())
+                })
+                .collect(),
+        };
 
-            login_ok.set_token_key(secret_key);
-            login_ok.set_script_key(script_key);
-            login_ok.set_token_expiry(token_expiry);
-            let mut roles_ser = login_ok.init_roles(roles.len() as u32);
-
-            for (i, role) in roles.iter().enumerate() {
-                assert!(i < 256, "too many roles, must be below 256");
-
-                let mut role_ser = roles_ser.reborrow().get(i as u32);
-                role_ser.set_id(i as u8);
-                role_ser.set_string_id(&role.id);
-                role_ser.set_can_moderate(role.can_moderate());
-            }
-        })
-        .expect("failed to encode login success message");
-
-        client.send_data_bufkind(buf);
+        client.send_data(&msg.encode()?);
 
         client.set_authorized(true);
 
@@ -244,7 +229,7 @@ impl AppHandler for GameServerHandler {
     type ClientData = GameServerClientData;
 
     async fn on_launch(&self, server: QunetServerHandle<Self>) -> AppResult<()> {
-        let _ = self.server.set(server.make_weak());
+        let _ = self.server.set(server.downgrade());
         self.main_server().handler().notify_game_server_handler_started(server).await;
 
         debug!("Game server handler launched");
@@ -295,45 +280,36 @@ impl AppHandler for GameServerHandler {
             return;
         }
 
-        let result = data::decode_message_match!(self, data, _unpacked_data, {
-            LoginSrv(message) => {
-                let password = message.get_password()?.to_str()?;
-                let data = message.get_data()?;
-
-                let data = GameServerData {
-                    id: 0,
-                    address: heapless_str_from_reader(data.get_address()?)?,
-                    name: heapless_str_from_reader(data.get_name()?)?,
-                    string_id: heapless_str_from_reader(data.get_string_id()?)?,
-                    region: heapless_str_from_reader(data.get_region()?)?,
-                };
-
-                self.handle_login(client, password, data).await
-            },
-
-            RoomCreatedAck(message) => {
-                let room_id = message.get_room_id();
-
-                self.handle_room_created_ack(client, room_id).await
-            },
-
-            Status(message) => {
-                let status = SrvStatusData::from_reader(message)?;
-
-                self.handle_server_status(client, status).await
-            }
-        });
-
-        match result {
-            Ok(Ok(_)) => {}
-
-            Ok(Err(e)) => {
-                error!("[{}] failed to handle game server message: {e}", client.address);
-            }
-
+        let message = match SrvMessage::decode(&data) {
+            Ok(m) => m,
             Err(e) => {
-                error!("[{}] failed to decode game server message: {e}", client.address);
+                debug!("[{}] failed to decode game server message: {e}", client.address);
+                return;
             }
+        };
+
+        let result = match message {
+            SrvMessage::Login { password, data } => {
+                self.handle_login(client, &password, data).await
+            }
+
+            SrvMessage::RoomCreatedAck { room_id } => {
+                self.handle_room_created_ack(client, room_id).await
+            }
+
+            SrvMessage::Status(data) => self.handle_server_status(client, data).await,
+
+            _ => {
+                debug!(
+                    "[{}] received unexpected game server message: {:?}",
+                    client.address, message
+                );
+                Ok(())
+            }
+        };
+
+        if let Err(e) = result {
+            error!("[{}] failed to handle game server message: {e}", client.address);
         }
     }
 }
