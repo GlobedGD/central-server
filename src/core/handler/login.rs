@@ -54,6 +54,14 @@ impl ConnectionHandler {
             return Ok(());
         }
 
+        if !self.is_globed_version_supported(login_data.globed_version) {
+            // TODO: this enum value was added in v2.3.0, clients before would see an unknown value
+            // return self.on_login_failed(client, LoginFailedReason::UpdateRequired);
+
+            client.disconnect("Your Globed version is unsupported, please update to the latest versions of Geometry Dash, Geode and Globed to connect to this server.");
+            return Ok(());
+        }
+
         let ttkey = auth.trust_token_key();
 
         let uident = if ttkey.is_empty() {
@@ -420,6 +428,12 @@ impl ConnectionHandler {
 
         client.send_data_bufkind(buf);
         Ok(())
+    }
+
+    // for now this is stubbed as we are backwards compatible, in the future we may want to reduce this
+    fn is_globed_version_supported(&self, _version: &str) -> bool {
+        // TODO: once legacy auth is removed, this should be true only on v2.3.0+
+        true
     }
 
     fn decrypt_uident(
