@@ -1,498 +1,87 @@
-use futures_util::{SinkExt, StreamExt};
-use parking_lot::Mutex;
-use server_shared::qunet::{
-    buffers::{ByteReader, ByteReaderError, ByteWriter},
-    message::channel,
-};
-use std::{
-    collections::VecDeque,
-    str::FromStr,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::{Duration, Instant},
-};
+use serde::Deserialize;
+use serde_json::json;
+use server_shared::data::ClientAccountData;
 use thiserror::Error;
-use tokio::{net::TcpStream, task::JoinHandle};
-use tokio_tungstenite::{
-    MaybeTlsStream, WebSocketStream,
-    tungstenite::{Bytes, protocol::Message},
-};
-use tracing::{error, info, warn};
+use tracing::warn;
 
-use crate::auth::ClientAccountData;
+use crate::users::DiscordUserData;
 
-pub struct ArgonClient {
-    inner: Arc<InnerState>,
-    handle: JoinHandle<()>,
-}
-
-/// Converts an http(s) URL to an argon ws(s) URL.
-/// Example: 'https://argon.globed.dev' -> 'wss://argon.globed.dev/v1/ws'
-fn to_ws_url(url: &str) -> String {
-    if let Some(url) = url.strip_prefix("http://") {
-        format!("ws://{url}/v1/ws")
-    } else if let Some(url) = url.strip_prefix("https://") {
-        format!("wss://{url}/v1/ws")
-    } else {
-        panic!("Invalid argon URL: {url}");
-    }
-}
-
-pub struct ArgonValidateResponse {
-    result: Result<ClientAccountData, String>,
-}
-
-impl ArgonValidateResponse {
-    pub fn is_valid(&self) -> bool {
-        self.result.is_ok()
-    }
-
-    pub fn data(&self) -> Option<&ClientAccountData> {
-        self.result.as_ref().ok()
-    }
-
-    pub fn into_inner(self) -> Result<ClientAccountData, String> {
-        self.result
-    }
-
-    pub fn error(&self) -> Option<&str> {
-        self.result.as_ref().err().map(String::as_str)
-    }
-}
-
-pub struct ValidationAwaitToken {
-    rx: channel::Receiver<ArgonValidateResponse>,
-}
-
-struct ArgonValidateRequest {
-    account_id: i32,
-    token: String,
-    tx: channel::Sender<ArgonValidateResponse>,
-}
-
-#[derive(Debug)]
-pub struct TokenValidationDropped;
-
-impl ValidationAwaitToken {
-    #[inline]
-    pub async fn wait(self) -> Result<ArgonValidateResponse, TokenValidationDropped> {
-        self.rx.recv().await.ok_or(TokenValidationDropped)
-    }
-}
-
-impl ArgonClient {
-    pub fn new(
-        url: String,
-        api_token: String,
-        ping_interval: Duration,
-        disconnect_timeout: Duration,
-    ) -> Self {
-        let inner = Arc::new(InnerState::new(url, api_token, ping_interval, disconnect_timeout));
-        let handle = inner.clone().run();
-
-        Self { inner, handle }
-    }
-
-    pub fn url(&self) -> &str {
-        &self.inner.url
-    }
-
-    pub fn connected_for(&self) -> Option<Duration> {
-        if self.inner.connected.load(Ordering::Relaxed) {
-            Some(self.inner.connected_at.lock().elapsed())
-        } else {
-            None
-        }
-    }
-
-    pub fn validate(
-        &self,
-        account_id: i32,
-        token: &str,
-    ) -> Result<ValidationAwaitToken, &'static str> {
-        if !self.inner.connected.load(Ordering::Acquire) {
-            return Err("argon client is not connected");
-        }
-
-        let (tx, rx) = channel::new_channel(1);
-
-        let req = ArgonValidateRequest {
-            account_id,
-            token: token.to_string(),
-            tx,
-        };
-
-        if self.inner.req_tx.send(req) {
-            Ok(ValidationAwaitToken { rx })
-        } else {
-            Err("argon request queue is full")
-        }
-    }
-}
-
-impl Drop for ArgonClient {
-    fn drop(&mut self) {
-        self.handle.abort();
-    }
+#[derive(Deserialize)]
+pub struct ArgonCheckResponse {
+    pub valid: bool,
+    // this struct just so happens to have the same layout as argon's user response
+    pub account_data: Option<ClientAccountData>,
+    pub discord_user: Option<DiscordUserData>,
 }
 
 #[derive(Debug, Error)]
-pub enum ArgonClientError {
-    #[error("Failed to connect to argon server: {0}")]
-    ConnectionError(#[from] Box<tokio_tungstenite::tungstenite::Error>),
-    #[error("Connection timed out")]
-    Timeout,
-    #[error("Server unexpectedly closed the connection")]
-    ConnectionClosed,
-    #[error("Server sent an invalid message")]
-    InvalidMessage,
-    #[error("Unexpected account ID in response")]
-    UnexpectedAccountId,
-    #[error("Failed to decode server response: {0}")]
-    DecodeError(#[from] ByteReaderError),
-    #[error("Invalid token provided by the user")]
-    InvalidToken,
-    #[error("{0}")]
-    Other(String),
+pub enum ArgonError {
+    #[error("failed to send a request to Argon: {0}")]
+    Request(#[from] reqwest::Error),
+    #[error("argon server returned unknown error, code: {0}, body: {1}")]
+    Unknown(u16, String),
+    #[error("argon server returned an error: {0}")]
+    Argon(String),
 }
 
-impl From<tokio_tungstenite::tungstenite::Error> for ArgonClientError {
-    fn from(err: tokio_tungstenite::tungstenite::Error) -> Self {
-        ArgonClientError::ConnectionError(Box::new(err))
-    }
-}
-
-#[allow(unused)]
-enum ArgonMessageType {
-    Auth = 1,
-    AuthAck = 2,
-    FatalError = 3,
-    Error = 4,
-    Status = 5,
-    StatusResponse = 6,
-    Validate = 7,
-    ValidateResponse = 8,
-    ValidateStrong = 9,
-    ValidateStrongResponse = 10,
-    ValidateCheckDataMany = 13,
-    ValidateCheckDataManyResponse = 14,
-}
-
-struct InnerState {
+pub struct ArgonClient {
+    http_client: reqwest::Client,
     url: String,
-    api_token: String,
-    connected: AtomicBool,
-    connected_at: Mutex<Instant>,
-    ping_interval: Duration,
-    disconnect_timeout: Duration,
-
-    req_tx: channel::Sender<ArgonValidateRequest>,
-    req_rx: channel::Receiver<ArgonValidateRequest>,
+    api_key: String,
 }
 
-impl InnerState {
-    pub fn new(
-        url: String,
-        api_token: String,
-        ping_interval: Duration,
-        disconnect_timeout: Duration,
-    ) -> Self {
-        let (req_tx, req_rx) = channel::new_channel(128);
-
-        Self {
-            url,
-            api_token,
-            connected: AtomicBool::new(false),
-            connected_at: Mutex::new(Instant::now()),
-            req_tx,
-            req_rx,
-            ping_interval,
-            disconnect_timeout,
-        }
+impl ArgonClient {
+    pub fn new(http_client: reqwest::Client, url: String, api_key: String) -> Self {
+        Self { http_client, url, api_key }
     }
 
-    pub fn run(self: Arc<Self>) -> JoinHandle<()> {
-        tokio::spawn(async move {
-            // websocket thread will keep trying to connect to the argon server, sleeping on failure
-            let mut in_flight = VecDeque::new();
-
-            loop {
-                let (do_sleep, do_clear) = match self._try_connect().await {
-                    Ok(conn) => match self._conn_loop(conn, &mut in_flight).await {
-                        Ok(()) => (false, false),
-                        Err(e) => {
-                            warn!("argon connection loop failed: {e}");
-                            (
-                                false,
-                                // clear all requests if the state of request queue is invalid, this should never happen
-                                // otherwise, we want to keep all requests and try to handle them after reconnecting
-                                matches!(
-                                    e,
-                                    ArgonClientError::UnexpectedAccountId
-                                        | ArgonClientError::InvalidMessage
-                                ),
-                            )
-                        }
-                    },
-
-                    Err(e) => {
-                        warn!("connection to argon server failed: {e}");
-                        (true, true)
-                    }
-                };
-
-                self.connected.store(false, Ordering::Release);
-
-                if do_clear {
-                    // clear all requests, but only if the initial connection failed
-                    in_flight.clear();
-                    let _ = self.req_rx.drain();
-                }
-
-                if do_sleep {
-                    tokio::time::sleep(Duration::from_secs(15)).await;
-                }
-            }
-        })
+    pub fn url(&self) -> &str {
+        &self.url
     }
 
-    async fn _try_connect(
-        &self,
-    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, ArgonClientError> {
-        tokio::time::timeout(Duration::from_secs(10), self._try_connect_inner())
-            .await
-            .map_err(|_| ArgonClientError::Timeout)?
-    }
-
-    async fn _try_connect_inner(
-        &self,
-    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, ArgonClientError> {
-        let (mut socket, _) = tokio_tungstenite::connect_async(to_ws_url(&self.url)).await?;
-
-        // Send auth message
-        let msg = Message::text(format!(
-            r#"{{"type":"Auth","data":{{"token":"{}","proto":"binary-v1"}}}}"#,
-            self.api_token
-        ));
-
-        socket.send(msg).await?;
-
-        // wait for ack
-        let msg = socket.next().await.ok_or(ArgonClientError::ConnectionClosed)??;
-
-        match msg {
-            Message::Text(text) => {
-                self._extract_if_ack_successful(text.as_str())?;
-            }
-
-            _ => {
-                error!("argon server sent an invalid message: {:?}", msg);
-                return Err(ArgonClientError::InvalidMessage);
-            }
+    pub async fn check_token(&self, token: &str) -> Result<ArgonCheckResponse, ArgonError> {
+        let mut request = self.http_client.post(format!("{}/v2/token/validate", self.url));
+        if !self.api_key.is_empty() {
+            request = request.header("Authorization", format!("Bearer {}", self.api_key));
         }
 
-        Ok(socket)
+        let response = request
+            .json(&json!({
+                "token": token,
+                "include_discord": true
+            }))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(self.extract_error(response).await);
+        }
+
+        Ok(response.json().await?)
     }
 
-    fn _extract_if_ack_successful(&self, msg: &str) -> Result<(), ArgonClientError> {
-        let obj = serde_json::Value::from_str(msg).map_err(|_| ArgonClientError::InvalidMessage)?;
-
-        let Some(ty) = obj["type"].as_str() else {
-            error!("invalid message sent by argon server: {msg}");
-            return Err(ArgonClientError::InvalidMessage);
+    async fn extract_error(&self, response: reqwest::Response) -> ArgonError {
+        let code = response.status();
+        let text = match response.text().await {
+            Ok(t) => t,
+            Err(e) => format!("failed to read response body: {}", e),
         };
 
-        if ty == "AuthAck" {
-            Ok(())
-        } else if ty == "FatalError" {
-            error!("argon server sent a fatal error: {}", obj["data"]["error"]);
-            Err(ArgonClientError::Other(
-                obj["data"]["error"].as_str().unwrap_or("<unknown fatal error>").to_owned(),
-            ))
-        } else {
-            error!("expected AuthAck from argon server, got message: {}", msg);
-            Err(ArgonClientError::InvalidMessage)
-        }
-    }
-
-    async fn _conn_loop(
-        &self,
-        mut socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
-        in_flight: &mut VecDeque<ArgonValidateRequest>,
-    ) -> Result<(), ArgonClientError> {
-        self.connected.store(true, Ordering::SeqCst);
-        *self.connected_at.lock() = Instant::now();
-
-        info!("Argon client successfully connected to {}", self.url);
-
-        // if there are any requests from the previous connection, resend them
-        for req in in_flight.iter() {
-            self.send_req(req, &mut socket).await?;
+        #[derive(Deserialize)]
+        struct ErrorBody {
+            error: String,
+            code: String,
         }
 
-        let mut last_ping = Instant::now();
-        let mut last_response = Instant::now();
-
-        loop {
-            let until_ping = self.ping_interval.saturating_sub(last_ping.elapsed());
-            let until_termination = self.disconnect_timeout.saturating_sub(last_response.elapsed());
-
-            tokio::select! {
-                msg = self.req_rx.recv() => match msg {
-                    Some(msg) => match self.send_req(&msg, &mut socket).await {
-                        Ok(()) => {
-                            in_flight.push_back(msg);
-                        }
-
-                        Err(ArgonClientError::InvalidToken) => {
-                            msg.tx.send(ArgonValidateResponse { result: Err("invalid token".to_owned()) });
-                        }
-
-                        Err(e) => {
-                            warn!("failed to send argon request: {e}");
-                            return Err(e);
-                        }
-                    },
-
-                    None => panic!("Argon request channel closed unexpectedly"),
-                },
-
-                msg = socket.next() => match msg {
-                    Some(Ok(msg)) => {
-                        last_response = Instant::now();
-
-                        self.handle_message(msg, in_flight).await?;
-                    },
-
-                    Some(Err(e)) => {
-                        return Err(ArgonClientError::ConnectionError(Box::new(e)));
-                    },
-
-                    None => {
-                        warn!("argon server connection closed");
-                        return Ok(());
-                    },
-                },
-
-                _ = tokio::time::sleep(until_ping) => {
-                    socket.send(Message::Ping(Bytes::new())).await?;
-                    last_ping = Instant::now();
-                },
-
-                _ = tokio::time::sleep(until_termination) => {
-                    warn!("argon server connection not responding for a minute, terminating");
-                    return Ok(());
-                }
-            };
-        }
-    }
-
-    async fn send_req(
-        &self,
-        msg: &ArgonValidateRequest,
-        socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
-    ) -> Result<(), ArgonClientError> {
-        let mut data_buf = [0u8; 256];
-
-        let mut writer = ByteWriter::new(&mut data_buf);
-        writer.write_u8(ArgonMessageType::ValidateCheckDataMany as u8);
-        writer.write_u16(1); // number of accounts
-        writer.write_i32(msg.account_id);
-
-        if writer.try_write_string_u16(&msg.token).is_err() {
-            return Err(ArgonClientError::InvalidToken);
-        }
-
-        // send a ws message
-        socket.send(Message::Binary(Bytes::copy_from_slice(writer.written()))).await?;
-
-        Ok(())
-    }
-
-    async fn handle_message(
-        &self,
-        msg: Message,
-        in_flight: &mut VecDeque<ArgonValidateRequest>,
-    ) -> Result<(), ArgonClientError> {
-        if msg.is_pong() {
-            return Ok(());
-        }
-
-        if !msg.is_binary() {
-            // holy shit non binary
-            error!("argon server sent a non-binary message: {:?}", msg);
-            return Err(ArgonClientError::InvalidMessage);
-        }
-
-        let Message::Binary(data) = msg else { unreachable!() };
-
-        let mut reader = ByteReader::new(data.as_ref());
-        let msg = reader.read_u8()?;
-
-        if msg != ArgonMessageType::ValidateCheckDataManyResponse as u8 {
-            if msg == ArgonMessageType::Error as u8 {
-                let err = reader.read_string_u16()?;
-                error!("argon server sent an Error message: {err}");
-                return Ok(());
-            } else {
-                error!("argon server sent unexpected message: {msg}");
-                return Err(ArgonClientError::InvalidMessage);
-            }
-        }
-
-        let num_accounts = reader.read_u16()?;
-        if num_accounts != 1 {
-            error!("argon server sent unexpected number of accounts: {num_accounts}");
-            return Err(ArgonClientError::InvalidMessage);
-        }
-
-        let account_id = reader.read_i32()?;
-        let valid = reader.read_bool()?;
-
-        let resp = if valid {
-            let user_id = reader.read_i32()?;
-            let username = reader.read_string_u16()?;
-
-            ArgonValidateResponse {
-                result: Ok(ClientAccountData {
-                    account_id,
-                    user_id,
-                    username: heapless::String::from_str(username)
-                        .map_err(|_| ArgonClientError::InvalidMessage)?,
-                }),
-            }
-        } else {
-            let cause = reader.read_string_u16()?;
-
-            ArgonValidateResponse { result: Err(cause.to_owned()) }
-        };
-
-        match in_flight.pop_front() {
-            Some(ArgonValidateRequest {
-                tx,
-                account_id: expected_id,
-                token: _,
-            }) => {
-                // this should never really happen
-                if account_id != expected_id {
-                    error!(
-                        "argon server sent response for unexpected account ID: {account_id}, expected: {expected_id}"
-                    );
-                    return Err(ArgonClientError::UnexpectedAccountId);
-                }
-
-                if !tx.send(resp) {
-                    warn!("argon validation response channel closed, dropping response");
-                }
-
-                Ok(())
+        match serde_json::from_str::<ErrorBody>(&text) {
+            Ok(body) => {
+                warn!("got error {} from argon!", body.code);
+                ArgonError::Argon(body.error)
             }
 
-            None => {
-                error!("argon server sent response for an unknown request");
-                Err(ArgonClientError::InvalidMessage)
+            Err(e) => {
+                warn!("failed to parse argon error response: {e}");
+                ArgonError::Unknown(code.as_u16(), text)
             }
         }
     }

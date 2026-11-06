@@ -22,14 +22,6 @@ fn default_argon_token() -> String {
     "".into()
 }
 
-fn default_argon_ping_interval() -> u64 {
-    30
-}
-
-fn default_argon_disconnect_timeout() -> u64 {
-    45
-}
-
 fn default_trust_token_key() -> String {
     "".to_owned()
 }
@@ -47,10 +39,6 @@ pub struct Config {
     pub argon_url: String,
     #[serde(default = "default_argon_token")]
     pub argon_token: String,
-    #[serde(default = "default_argon_ping_interval")]
-    pub argon_ping_interval: u64,
-    #[serde(default = "default_argon_disconnect_timeout")]
-    pub argon_disconnect_timeout: u64,
     #[serde(default = "default_trust_token_key")]
     pub trust_token_key: String,
 }
@@ -63,8 +51,6 @@ impl Default for Config {
             enable_argon: default_enable_argon(),
             argon_url: default_argon_url(),
             argon_token: default_argon_token(),
-            argon_ping_interval: default_argon_ping_interval(),
-            argon_disconnect_timeout: default_argon_disconnect_timeout(),
             trust_token_key: default_trust_token_key(),
         }
     }

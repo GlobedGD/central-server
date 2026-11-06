@@ -13,6 +13,7 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use server_shared::{
     SessionId,
+    data::SrvUserData,
     events::EventStringCache,
     qunet::{
         message::{BufferKind, MsgData},
@@ -26,7 +27,7 @@ use server_shared::{
 use server_shared::{TypeMap, data::GameServerData};
 
 use crate::{
-    auth::{ArgonConnectionState, AuthModule},
+    auth::AuthModule,
     core::{
         client_data::ClientData,
         config::Config,
@@ -37,7 +38,7 @@ use crate::{
         module::{ConfigurableModule, ServerModule},
     },
     rooms::RoomModule,
-    users::UsersModule,
+    users::{ComputedRole, UsersModule},
 };
 
 mod admin;
@@ -207,7 +208,7 @@ impl AppHandler for ConnectionHandler {
 impl ConnectionHandler {
     pub fn new(config: Config) -> Self {
         static APP_USER_AGENT: &str =
-            concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
+            concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
         Self {
             modules: TypeMap::new(),
@@ -219,6 +220,7 @@ impl ConnectionHandler {
             http_client: reqwest::Client::builder()
                 .user_agent(APP_USER_AGENT)
                 .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(10))
                 .build()
                 .expect("failed to create an http client"),
             launched_at: Instant::now(),
@@ -382,16 +384,8 @@ impl ConnectionHandler {
     }
 
     pub fn get_server_health(&self) -> ServerHealth {
-        let auth = self.module::<AuthModule>();
-
         ServerHealth {
             uptime: self.launched_at.elapsed().as_secs_f64(),
-            argon_state: match auth.argon_state() {
-                ArgonConnectionState::Disabled => "disabled",
-                ArgonConnectionState::Connected => "up",
-                ArgonConnectionState::Disconnected => "down",
-            },
-            argon_connected_for: auth.argon_connected_for().map(|x| x.as_secs_f64()),
             clients: self.server().client_count(),
             rooms: self.module::<RoomModule>().get_room_count(),
             levels: self.level_count(),
@@ -507,6 +501,23 @@ impl ConnectionHandler {
         self.game_server_manager.ack_room_created(room_id).await;
     }
 
+    pub async fn handle_game_server_user_login(
+        &self,
+        account_id: i32,
+        secret: u64,
+        token: &str,
+    ) -> Option<SrvUserData> {
+        let users = self.module::<UsersModule>();
+        let auth = self.module::<AuthModule>();
+
+        self.find_client(account_id)
+            .filter(|c| {
+                // TODO: deprecated token auth
+                c.secret_key == secret || auth.validate_user_token(token, account_id).is_ok()
+            })
+            .map(|c| users.gather_user_data(&c))
+    }
+
     pub fn set_refuse_connections(&self, refuse: bool) {
         self.refuse_connections.store(refuse, Ordering::Relaxed);
     }
@@ -525,16 +536,68 @@ impl ConnectionHandler {
     }
 
     pub async fn notify_user_linked(&self, handle: &ClientStateHandle) {
-        handle.set_discord_linked(true);
+        // TODO 2.209:  linking is overhauled
+        todo!();
+        handle.set_discord_data(None);
 
-        // if the user is in a session, notify the appropriate game server
-        let session = handle.session_id();
-        if !session.is_zero() {
-            let users = self.module::<UsersModule>();
-            let data = users.gather_user_data(handle);
+        let _ = self.notify_user_data_changed_inner(handle).await;
+    }
 
-            let _ = self.game_server_manager.notify_user_data(session.server_id(), data).await;
+    pub async fn notify_user_data_changed_with_roles(
+        &self,
+        account_id: i32,
+        role: ComputedRole,
+    ) -> HandlerResult<()> {
+        let Some(client) = self.find_client(account_id) else {
+            return Ok(());
+        };
+
+        client.set_role(role);
+        self.notify_user_data_changed(account_id).await
+    }
+
+    pub async fn notify_user_data_changed(&self, account_id: i32) -> HandlerResult<()> {
+        let Some(client) = self.find_client(account_id) else {
+            return Ok(());
+        };
+
+        self.notify_user_data_changed_inner(&client).await
+    }
+
+    async fn notify_user_data_changed_inner(
+        &self,
+        client: &ClientStateHandle,
+    ) -> HandlerResult<()> {
+        // notify the client if they have a role
+        {
+            let new_role_guard = client.role();
+            if let Some(new_role) = &*new_role_guard {
+                let buf = data::encode_message!(self, 1024, msg => {
+                    let mut changed = msg.init_user_data_changed();
+                    self.encode_ext_user_data(
+                        new_role,
+                        "",
+                        changed.reborrow().init_user_data(),
+                    );
+                })?;
+
+                client.send_data_bufkind(buf);
+            }
         }
+
+        // now notify the game server(s) they might be connected to, regardless of if the role changed
+        let users = self.module::<UsersModule>();
+        let data = users.gather_user_data(client);
+        let session_id = client.session_id();
+
+        if session_id.is_zero() {
+            // notify all
+            let _ = self.game_server_manager.notify_user_data_to_all(data).await;
+        } else {
+            let _ = self.game_server_manager.notify_user_data(session_id.server_id(), data).await;
+        }
+
+        Ok(())
     }
 
     // Misc encoding stuff
@@ -647,10 +710,6 @@ async fn dump_connection_data(conn: &FinishedConnection, dir: &Path) -> std::io:
 pub struct ServerHealth {
     /// Uptime in seconds
     pub uptime: f64,
-    /// Argon state: disabled / down / up
-    pub argon_state: &'static str,
-    /// How long we've been connected to the Argon server for in seconds, or null
-    pub argon_connected_for: Option<f64>,
     /// How many clients in total are connected to the server
     pub clients: usize,
     /// How many rooms are currently active

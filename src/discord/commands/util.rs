@@ -17,6 +17,7 @@ use crate::{
 
 pub type Context<'a> = poise::Context<'a, Arc<BotState>, BotError>;
 
+#[allow(unused)]
 pub async fn edit_message(
     ctx: Context<'_>,
     msg: ReplyHandle<'_>,

@@ -1,10 +1,9 @@
 use std::{num::NonZeroI64, sync::Arc};
 
 use rand::seq::IteratorRandom;
-use server_shared::qunet::buffers::ByteWriter;
+use server_shared::{data::ClientAccountData, qunet::buffers::ByteWriter};
 
 use crate::{
-    auth::ClientAccountData,
     rooms::{Room, RoomCreationError, RoomModule, RoomSettings},
     users::UsersModule,
 };

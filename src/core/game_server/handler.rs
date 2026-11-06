@@ -26,7 +26,7 @@ use server_shared::{
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
-use crate::{auth::AuthModule, core::handler::ConnectionHandler, users::UsersModule};
+use crate::{core::handler::ConnectionHandler, users::UsersModule};
 
 pub struct GameServerHandler {
     password: String,
@@ -40,8 +40,6 @@ pub type ClientStateHandle = Arc<ClientState<GameServerHandler>>;
 enum HandlerError {
     #[error("failed to encode message: {0}")]
     Encoder(#[from] SrvEncodeError),
-    #[error("unauthorized client")]
-    Unauthorized,
 }
 
 type HandlerResult<T> = Result<T, HandlerError>;
@@ -95,14 +93,6 @@ impl GameServerHandler {
         }
     }
 
-    fn server(&self) -> QunetServerHandle<Self> {
-        self.server
-            .get()
-            .expect("server not initialized")
-            .upgrade()
-            .expect("server already shut down")
-    }
-
     fn main_server(&self) -> QunetServerHandle<ConnectionHandler> {
         self.main_server.upgrade().expect("main server already shut down")
     }
@@ -143,16 +133,10 @@ impl GameServerHandler {
         }
 
         let roles = server.handler().module::<UsersModule>().get_roles();
-
-        let auth_config = server.handler().config().module::<AuthModule>();
-        let secret_key = &auth_config.secret_key;
-        let token_expiry = auth_config.token_expiry as u64;
         let script_key = &server.handler().config().module::<UsersModule>().script_sign_key;
 
         let msg = SrvMessage::LoginOk {
-            token_key: secret_key.clone(),
             script_key: script_key.clone(),
-            token_expiry,
             roles: roles
                 .iter()
                 .enumerate()
@@ -177,15 +161,7 @@ impl GameServerHandler {
         self.main_server().handler().handle_game_server_disconnect(client.clone()).await;
     }
 
-    async fn handle_room_created_ack(
-        &self,
-        client: &ClientStateHandle,
-        room_id: u32,
-    ) -> HandlerResult<()> {
-        if !client.authorized() {
-            return Err(HandlerError::Unauthorized);
-        }
-
+    async fn handle_room_created_ack(&self, room_id: u32) -> HandlerResult<()> {
         self.main_server().handler().handle_game_server_room_created(room_id).await;
 
         Ok(())
@@ -220,6 +196,26 @@ impl GameServerHandler {
                 version
             ));
         }
+
+        Ok(())
+    }
+
+    async fn handle_user_login(
+        &self,
+        client: &ClientStateHandle,
+        request_id: u64,
+        account_id: i32,
+        secret: u64,
+        token: String,
+    ) -> HandlerResult<()> {
+        let user_data = self
+            .main_server()
+            .handler()
+            .handle_game_server_user_login(account_id, secret, &token)
+            .await;
+
+        let msg = SrvMessage::UserLoginResponse { request_id, data: user_data };
+        client.send_data(&msg.encode()?);
 
         Ok(())
     }
@@ -288,16 +284,29 @@ impl AppHandler for GameServerHandler {
             }
         };
 
+        if !client.authorized() && !matches!(message, SrvMessage::Login { .. }) {
+            debug!(
+                "[{}] received message from unauthorized game server client: {:?}",
+                client.address, message
+            );
+            return;
+        }
+
         let result = match message {
             SrvMessage::Login { password, data } => {
                 self.handle_login(client, &password, data).await
             }
 
-            SrvMessage::RoomCreatedAck { room_id } => {
-                self.handle_room_created_ack(client, room_id).await
-            }
+            SrvMessage::RoomCreatedAck { room_id } => self.handle_room_created_ack(room_id).await,
 
             SrvMessage::Status(data) => self.handle_server_status(client, data).await,
+
+            SrvMessage::UserLogin {
+                request_id,
+                account_id,
+                secret,
+                token,
+            } => self.handle_user_login(client, request_id, account_id, secret, token).await,
 
             _ => {
                 debug!(

@@ -13,7 +13,7 @@ use {
         discord::{DiscordMessage, DiscordModule, hex_color_to_decimal},
         users::database::ActionsBreakdown,
     },
-    poise::serenity_prelude::{CreateEmbed, CreateEmbedAuthor, Member},
+    poise::serenity_prelude::{CreateEmbed, CreateEmbedAuthor, Member, User},
     std::collections::HashMap,
 };
 
@@ -31,7 +31,6 @@ use {
 use crate::analytics::{AnalyticsModule, Event as AnalyticsEvent, PlayerCountLog};
 
 use crate::{
-    auth::ClientAccountData,
     core::{
         gd_api::{GDApiClient, GDApiFetchError},
         handler::{ClientStateHandle, ConnectionHandler},
@@ -44,9 +43,10 @@ use arc_swap::ArcSwap;
 use moka::future::Cache;
 use parking_lot::Mutex;
 use rustc_hash::FxHashSet;
+use serde::Deserialize;
 use server_shared::{
-    MultiColor,
-    data::SrvUserData,
+    BinaryMultiColor, MultiColor,
+    data::{ClientAccountData, SrvUserData},
     qunet::server::{ServerHandle, WeakServerHandle},
 };
 
@@ -132,24 +132,29 @@ impl ComputedRole {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct LinkedDiscordAccount {
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct DiscordUserData {
     pub id: u64,
     pub username: String,
     pub avatar_url: String,
 }
 
-impl LinkedDiscordAccount {
+impl DiscordUserData {
     pub fn new(id: u64, username: String, avatar_url: String) -> Self {
         Self { id, username, avatar_url }
     }
 
     #[cfg(feature = "discord")]
-    pub fn from_discord(member: &Member) -> Self {
+    pub fn from_discord_member(member: &Member) -> Self {
+        Self::from_discord(&member.user)
+    }
+
+    #[cfg(feature = "discord")]
+    pub fn from_discord(user: &User) -> Self {
         Self {
-            id: member.user.id.get(),
-            username: member.user.name.clone(),
-            avatar_url: member.user.avatar_url().unwrap_or_default(),
+            id: user.id.get(),
+            username: user.name.clone(),
+            avatar_url: user.avatar_url().unwrap_or_default(),
         }
     }
 }
@@ -203,15 +208,31 @@ impl UsersModule {
 
     pub fn gather_user_data(&self, client: &ClientStateHandle) -> SrvUserData {
         let is_muted = client.active_mute.lock().is_some();
+        let is_banned = client.active_ban.lock().is_some();
         let is_linked = client.is_discord_linked();
+        let role = client.role();
+        let role_ids = role.as_ref().map(|r| r.roles.iter().copied().collect()).unwrap_or_default();
+        let name_color = role
+            .as_ref()
+            .and_then(|r| r.name_color.as_ref())
+            .map(BinaryMultiColor::from_multicolor);
+
+        // set mod status based on roles
+        let is_moderator = role.as_ref().is_some_and(|r| r.can_moderate());
 
         SrvUserData {
             account_id: client.account_id(),
-            can_use_quick_chat: !is_muted,
-            can_use_voice: !is_muted && (!self.vc_requires_discord() || is_linked),
+            user_id: client.user_id(),
+            username: client.username().try_into().unwrap(),
+            role_ids,
+            name_color,
+            is_moderator,
+
             is_linked,
+            can_use_voice: !is_muted && (!self.vc_requires_discord() || is_linked),
+            can_use_quick_chat: !is_muted,
+            is_banned,
             is_muted,
-            ..Default::default()
         }
     }
 
@@ -262,12 +283,12 @@ impl UsersModule {
     pub async fn get_linked_discord(
         &self,
         account_id: i32,
-    ) -> DatabaseResult<Option<LinkedDiscordAccount>> {
+    ) -> DatabaseResult<Option<DiscordUserData>> {
         let Some(discord_id) = self.db.get_linked_discord(account_id).await? else {
             return Ok(None);
         };
 
-        let mut acc = LinkedDiscordAccount::new(discord_id, String::new(), String::new());
+        let mut acc = DiscordUserData::new(discord_id, String::new(), String::new());
 
         // try to get the avatar url
         if let Some(discord) = self.discord.as_ref() {
@@ -288,7 +309,7 @@ impl UsersModule {
     pub async fn get_linked_discord(
         &self,
         _account_id: i32,
-    ) -> DatabaseResult<Option<LinkedDiscordAccount>> {
+    ) -> DatabaseResult<Option<DiscordUserData>> {
         Ok(None)
     }
 
@@ -721,6 +742,7 @@ impl UsersModule {
     }
 
     /// Sets roles, returns whether the roles were updated (not equal to previous roles). Does not log to db or discord.
+    /// This will notify both the user and the game servers that the user's roles changed
     async fn inner_set_roles(&self, account_id: i32, new_roles: &[u8]) -> Result<bool, Error> {
         // construct the new role string
         let new_role_string = self.make_role_string(new_roles);
@@ -729,6 +751,18 @@ impl UsersModule {
         let result = self.db.update_roles(account_id, &new_role_string).await?;
         if !result.found {
             return Err(Error::NotFound);
+        }
+
+        // if anything actually changed, notify about the change
+        if result.updated {
+            let new_role = self.compute_from_role_ids(account_id, new_roles.iter().cloned());
+
+            let server = self.server();
+            if let Err(e) =
+                server.handler().notify_user_data_changed_with_roles(account_id, new_role).await
+            {
+                warn!("Failed to notify user data change for {account_id}: {e}");
+            };
         }
 
         Ok(result.updated)

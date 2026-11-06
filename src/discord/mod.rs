@@ -33,7 +33,7 @@ use crate::{
         bot::DiscordBot,
         state::{AltAlertInteraction, BotState, NameAlertInteraction},
     },
-    users::UsersModule,
+    users::{DiscordUserData, UsersModule},
 };
 
 pub use message::*;
@@ -46,22 +46,6 @@ mod commands;
 mod event_handler;
 mod message;
 mod state;
-
-pub struct DiscordUserData {
-    pub id: u64,
-    pub avatar_url: String,
-    pub username: String,
-}
-
-impl DiscordUserData {
-    pub fn from_discord(user: &serenity::User) -> Self {
-        Self {
-            id: user.id.get(),
-            avatar_url: user.avatar_url().unwrap_or_default(),
-            username: user.name.clone(),
-        }
-    }
-}
 
 pub struct DiscordModule {
     config: ArcSwap<Config>,

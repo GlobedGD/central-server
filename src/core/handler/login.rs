@@ -1,13 +1,15 @@
 use std::{borrow::Cow, sync::atomic::Ordering};
 
 use crypto_secretbox::{KeyInit, aead::AeadMutInPlace};
+use server_shared::data::ClientAccountData;
 use server_shared::events::EventEncoder;
 use server_shared::qunet::buffers::{ByteReader, ByteReaderError, ByteWriter};
 use server_shared::schema::main::LoginFailedReason;
 use thiserror::Error;
 
+use crate::users::DiscordUserData;
 use crate::{
-    auth::{AuthModule, AuthVerdict, ClientAccountData, LoginKind},
+    auth::{AuthModule, AuthVerdict, LoginKind},
     core::handler::LoginData,
     rooms::RoomModule,
     users::UsersModule,
@@ -58,7 +60,9 @@ impl ConnectionHandler {
             None
         } else {
             match &login_data.kind {
-                &LoginKind::Argon(accid, _) | &LoginKind::UserToken(accid, _) => {
+                &LoginKind::Argon(accid, _)
+                | &LoginKind::UserToken(accid, _)
+                | &LoginKind::ArgonV2(accid, _) => {
                     match login_data.uident.and_then(|x| {
                         self.decrypt_uident(accid, x, ttkey)
                             .inspect_err(|e| warn!("Failed to decode uident from user: {e}"))
@@ -90,7 +94,10 @@ impl ConnectionHandler {
         );
 
         match auth.handle_login(login_data.kind.clone()).await {
-            AuthVerdict::Success(data) => {
+            AuthVerdict::Success {
+                account_data: data,
+                discord_data,
+            } => {
                 // verify that the data is absoultely valid
                 if data.account_id != 0
                     && data.user_id != 0
@@ -102,7 +109,8 @@ impl ConnectionHandler {
                         self.on_login_failed(client, LoginFailedReason::NotWhitelisted)?;
                     } else {
                         // success!
-                        self.on_login_success(client, data, uident, &login_data).await?;
+                        self.on_login_success(client, data, uident, &login_data, discord_data)
+                            .await?;
                     }
                 } else {
                     self.on_login_failed(client, LoginFailedReason::InvalidAccountData)?;
@@ -134,6 +142,7 @@ impl ConnectionHandler {
         data: ClientAccountData,
         uident: Option<[u8; 32]>,
         login_data: &LoginData<'_>,
+        discord_data: Option<DiscordUserData>,
     ) -> HandlerResult<()> {
         let auth = self.module::<AuthModule>();
         let rooms = self.module::<RoomModule>();
@@ -217,9 +226,9 @@ impl ConnectionHandler {
 
             client.set_role(users.compute_from_user(&user));
 
-            client.set_active_punishments(user.active_mute, user.active_room_ban);
+            client.set_active_punishments(user.active_mute, user.active_ban, user.active_room_ban);
             client.set_admin_password_hash(user.admin_password_hash);
-            client.set_discord_linked(user.discord_id.is_some());
+            client.set_discord_data(discord_data);
         } else {
             client.set_role(users.compute_from_roles(data.account_id, std::iter::empty()));
         }
@@ -322,7 +331,7 @@ impl ConnectionHandler {
         let client_role = client_role_lock.as_ref().unwrap();
         let roles_str = users.make_role_string(&client_role.roles);
 
-        let token = match login_data.kind {
+        let new_utoken = match login_data.kind {
             LoginKind::UserToken(_, token) => auth
                 .refresh_user_token(
                     token,
@@ -331,6 +340,9 @@ impl ConnectionHandler {
                     client_role.name_color.as_ref(),
                 )
                 .unwrap_or_else(|_| token.to_owned()),
+
+            // UTokens (usertokens) have been deprecated and starting from Globed v2.3.0 (which uses ArgonV2 auth) are no longer issued
+            LoginKind::ArgonV2(_, _) => String::new(),
 
             _ => auth.generate_user_token(
                 data.account_id,
@@ -346,7 +358,7 @@ impl ConnectionHandler {
         let all_roles = users.get_roles();
 
         // roughly estimate how many bytes will it take to encode the response
-        let cap = 140 + token.len() + servers.len() * 256 + all_roles.len() * 128;
+        let cap = 140 + new_utoken.len() + servers.len() * 256 + all_roles.len() * 128;
 
         let mut color_buf = [0u8; 256];
 
@@ -384,7 +396,10 @@ impl ConnectionHandler {
             }
 
             // encode user data
-            self.encode_ext_user_data(client_role, &token, login_ok.reborrow().init_user_data());
+            self.encode_ext_user_data(client_role, &new_utoken, login_ok.reborrow().init_user_data());
+
+            // encode secret key for game server auth
+            login_ok.set_secret_key(client.data().secret_key);
         })?;
 
         client.send_data_bufkind(buf);

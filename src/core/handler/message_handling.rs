@@ -3,7 +3,7 @@ use std::{borrow::Cow, num::NonZeroI64};
 use rustc_hash::FxHashSet;
 use server_shared::{
     UserSettings,
-    data::{PlayerIconData, SRVC_MAGIC},
+    data::{ClientAccountData, PlayerIconData, SRVC_MAGIC},
     encoding::{DataDecodeError, heapless_str_from_reader},
     qunet::{buffers::ByteWriter, message::MsgData, server::Server as QunetServer},
     schema::main::Platform,
@@ -11,7 +11,7 @@ use server_shared::{
 use tracing::{debug, warn};
 
 use crate::{
-    auth::{ClientAccountData, LoginKind},
+    auth::LoginKind,
     core::{
         data::{self, decode_message_match},
         handler::{ClientStateHandle, ConnectionHandler, util::HandlerResult},
@@ -617,6 +617,7 @@ fn decode_login_data<'a>(
         Which::Utoken(m) => LoginKind::UserToken(account_id, m?.to_str()?),
 
         Which::Argon(m) => LoginKind::Argon(account_id, m?.to_str()?),
+        Which::ArgonV2(m) => LoginKind::ArgonV2(account_id, m?.to_str()?),
 
         Which::Plain(m) => {
             let data = m?;

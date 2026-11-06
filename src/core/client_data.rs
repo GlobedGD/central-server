@@ -12,15 +12,14 @@ use parking_lot::{Mutex, MutexGuard};
 use rustc_hash::FxHashSet;
 use server_shared::{
     SessionId, UserSettings,
-    data::PlayerIconData,
+    data::{ClientAccountData, PlayerIconData},
     events::{EventEncoder, EventRateLimiter, EventRateLimiterOptions},
     qunet::transport::RateLimiter,
 };
 
 use crate::{
-    auth::ClientAccountData,
     rooms::{ClientRoomHandle, Room},
-    users::{ComputedRole, UserPunishment},
+    users::{ComputedRole, DiscordUserData, UserPunishment},
 };
 
 pub struct ClientData {
@@ -35,15 +34,17 @@ pub struct ClientData {
     authorized_admin: AtomicBool,
     deauthorized: AtomicBool,
     team_id: AtomicU16,
-    discord_linked: AtomicBool,
     awaiting_notice_reply_from: Mutex<IntSet<i32>>,
+    pub secret_key: u64,
 
     pub active_mute: Mutex<Option<UserPunishment>>,
+    pub active_ban: Mutex<Option<UserPunishment>>,
     pub active_room_ban: Mutex<Option<UserPunishment>>,
     admin_password_hash: Mutex<Option<String>>,
     role: Mutex<Option<ComputedRole>>,
     uident: OnceLock<[u8; 32]>,
     settings: Mutex<UserSettings>,
+    discord_data: Mutex<Option<DiscordUserData>>,
 
     invite_limiter: Mutex<RateLimiter>,
 
@@ -178,12 +179,15 @@ impl ClientData {
     pub fn set_active_punishments(
         &self,
         mute: Option<UserPunishment>,
+        ban: Option<UserPunishment>,
         room_ban: Option<UserPunishment>,
     ) {
         let mut active_mute = self.active_mute.lock();
+        let mut active_ban = self.active_ban.lock();
         let mut active_room_ban = self.active_room_ban.lock();
 
         *active_mute = mute;
+        *active_ban = ban;
         *active_room_ban = room_ban;
     }
 
@@ -232,12 +236,16 @@ impl ClientData {
         *self.settings.lock()
     }
 
-    pub fn set_discord_linked(&self, linked: bool) {
-        self.discord_linked.store(linked, Ordering::Relaxed);
+    pub fn is_discord_linked(&self) -> bool {
+        self.discord_data.lock().is_some()
     }
 
-    pub fn is_discord_linked(&self) -> bool {
-        self.discord_linked.load(Ordering::Relaxed)
+    pub fn set_discord_data(&self, data: Option<DiscordUserData>) {
+        *self.discord_data.lock() = data;
+    }
+
+    pub fn discord_data(&self) -> Option<DiscordUserData> {
+        self.discord_data.lock().clone()
     }
 
     pub fn take_awaiting_notice_reply(&self, user_id: i32) -> bool {
@@ -283,10 +291,12 @@ impl Default for ClientData {
             authorized_admin: AtomicBool::new(false),
             deauthorized: AtomicBool::new(false),
             team_id: AtomicU16::new(0),
-            discord_linked: AtomicBool::new(false),
+            discord_data: Mutex::new(None),
             awaiting_notice_reply_from: Mutex::new(IntSet::default()),
+            secret_key: rand::random(),
 
             active_mute: Mutex::new(None),
+            active_ban: Mutex::new(None),
             active_room_ban: Mutex::new(None),
             admin_password_hash: Mutex::new(None),
             role: Mutex::new(None),

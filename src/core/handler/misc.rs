@@ -9,7 +9,7 @@ use server_shared::{
 use crate::{
     credits::CreditsModule,
     rooms::{Room, RoomModule},
-    users::{LinkedDiscordAccount, UsersModule},
+    users::{DiscordUserData, UsersModule},
 };
 
 use super::{ConnectionHandler, util::*};
@@ -195,7 +195,7 @@ impl ConnectionHandler {
             Ok(u) => u,
             Err(e) => {
                 warn!("Failed to fetch linked discord ID: {e}");
-                return self.send_discord_link_state(client, LinkedDiscordAccount::default());
+                return self.send_discord_link_state(client, DiscordUserData::default());
             }
         };
 
@@ -205,7 +205,7 @@ impl ConnectionHandler {
     fn send_discord_link_state(
         &self,
         client: &ClientStateHandle,
-        account: LinkedDiscordAccount,
+        account: DiscordUserData,
     ) -> HandlerResult<()> {
         let buf = data::encode_message!(self, 512, msg => {
             let mut state = msg.init_discord_link_state();
@@ -272,7 +272,7 @@ impl ConnectionHandler {
 
             let res = users.try_unlink_discord(client.account_id()).await;
             if res.is_ok() {
-                client.set_discord_linked(false);
+                client.set_discord_data(None);
             }
 
             let buf = data::encode_message_dyn!(self, msg => {

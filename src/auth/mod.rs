@@ -1,19 +1,26 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::core::handler::ConnectionHandler;
-use crate::core::module::{ConfigurableModule, ModuleInitResult, ServerModule};
+use crate::{
+    auth::argon_client::ArgonError,
+    core::{
+        handler::ConnectionHandler,
+        module::{ConfigurableModule, ModuleInitResult, ServerModule},
+    },
+    users::DiscordUserData,
+};
+
+use config::Config;
+use server_shared::{MultiColor, data::ClientAccountData, token_issuer::*};
+use tracing::{debug, warn};
 
 mod account_data;
 mod argon_client;
 mod config;
 
 use crate::core::data::LoginFailedReason;
-pub use account_data::{ClientAccountData, LoginKind};
+pub use account_data::LoginKind;
 pub use argon_client::ArgonClient;
-use config::Config;
-use server_shared::{MultiColor, token_issuer::*};
-use tracing::{debug, warn};
 
 pub struct AuthModule {
     token_issuer: TokenIssuer,
@@ -21,14 +28,11 @@ pub struct AuthModule {
     trust_token_key: String,
 }
 
-pub enum ArgonConnectionState {
-    Disabled,
-    Connected,
-    Disconnected,
-}
-
 pub enum AuthVerdict {
-    Success(ClientAccountData),
+    Success {
+        account_data: ClientAccountData,
+        discord_data: Option<DiscordUserData>,
+    },
     Failed(LoginFailedReason),
     LoginRequired,
 }
@@ -48,22 +52,6 @@ impl AuthModule {
 
     pub fn trust_token_key(&self) -> &str {
         self.trust_token_key.as_ref()
-    }
-
-    pub fn argon_state(&self) -> ArgonConnectionState {
-        let Some(client) = &self.argon_client else {
-            return ArgonConnectionState::Disabled;
-        };
-
-        let Some(_) = client.connected_for() else {
-            return ArgonConnectionState::Disconnected;
-        };
-
-        ArgonConnectionState::Connected
-    }
-
-    pub fn argon_connected_for(&self) -> Option<Duration> {
-        self.argon_client.as_ref().and_then(|client| client.connected_for())
     }
 
     pub fn validate_user_token(
@@ -102,7 +90,10 @@ impl AuthModule {
                 if self.verification_enabled() {
                     AuthVerdict::LoginRequired
                 } else {
-                    AuthVerdict::Success(data)
+                    AuthVerdict::Success {
+                        account_data: data,
+                        discord_data: None,
+                    }
                 }
             }
 
@@ -115,63 +106,64 @@ impl AuthModule {
                     }
                 };
 
-                AuthVerdict::Success(ClientAccountData {
-                    account_id: token_data.account_id,
-                    user_id: token_data.user_id,
-                    username: token_data.username,
-                })
-            }
-
-            LoginKind::Argon(account_id, token) => {
-                if let Some(argon) = self.argon_client() {
-                    let handle = match argon.validate(account_id, token) {
-                        Ok(handle) => handle,
-                        Err(e) => {
-                            warn!("failed to request token validation: {e}");
-                            return AuthVerdict::Failed(LoginFailedReason::ArgonUnreachable);
-                        }
-                    };
-
-                    let response =
-                        match tokio::time::timeout(Duration::from_secs(10), handle.wait()).await {
-                            Ok(Ok(resp)) => resp,
-                            Ok(Err(_)) => {
-                                warn!("[{}] token validation attempt was dropped", account_id);
-                                return AuthVerdict::Failed(LoginFailedReason::ArgonInternalError);
-                            }
-                            Err(_) => {
-                                warn!("[{}] token validation attempt timed out", account_id);
-                                return AuthVerdict::Failed(LoginFailedReason::ArgonUnreachable);
-                            }
-                        };
-
-                    match response.into_inner() {
-                        Ok(data) => AuthVerdict::Success(data),
-
-                        Err(e) => {
-                            debug!("[{}] failed to validate argon token: {}", account_id, e);
-                            AuthVerdict::Failed(LoginFailedReason::InvalidArgonToken)
-                        }
-                    }
-                } else {
-                    AuthVerdict::Failed(LoginFailedReason::ArgonNotSupported)
+                AuthVerdict::Success {
+                    account_data: ClientAccountData {
+                        account_id: token_data.account_id,
+                        user_id: token_data.user_id,
+                        username: token_data.username,
+                    },
+                    discord_data: None,
                 }
             }
+
+            LoginKind::Argon(account_id, token) => self.handle_argon_login(account_id, token).await,
+
+            LoginKind::ArgonV2(account_id, token) => {
+                self.handle_argon_login(account_id, token).await
+            }
+        }
+    }
+
+    async fn handle_argon_login(&self, account_id: i32, token: &str) -> AuthVerdict {
+        let Some(argon) = self.argon_client() else {
+            return AuthVerdict::Failed(LoginFailedReason::ArgonNotSupported);
+        };
+
+        let response = match argon.check_token(token).await {
+            Ok(r) => r,
+
+            Err(e) => {
+                warn!("failed to validate token for {account_id}: {e}");
+                return AuthVerdict::Failed(match e {
+                    ArgonError::Request(_) => LoginFailedReason::ArgonUnreachable,
+                    ArgonError::Unknown(_, _) => LoginFailedReason::ArgonInternalError,
+                    ArgonError::Argon(_) => LoginFailedReason::ArgonInternalError,
+                });
+            }
+        };
+
+        let account_data = response.account_data;
+        if !response.valid || account_data.as_ref().is_none_or(|ad| ad.account_id != account_id) {
+            return AuthVerdict::Failed(LoginFailedReason::InvalidArgonToken);
+        }
+
+        AuthVerdict::Success {
+            account_data: account_data.unwrap(),
+            discord_data: response.discord_user,
         }
     }
 }
 
 impl ServerModule for AuthModule {
-    async fn new(config: Arc<Config>, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+    async fn new(config: Arc<Config>, handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         let token_issuer =
             TokenIssuer::new(&config.secret_key, Duration::from_secs(config.token_expiry as u64))?;
 
         let argon_client = config.enable_argon.then(|| {
             ArgonClient::new(
+                handler.http_client(),
                 config.argon_url.clone(),
                 config.argon_token.clone(),
-                Duration::from_secs(config.argon_ping_interval),
-                Duration::from_secs(config.argon_disconnect_timeout),
             )
         });
 

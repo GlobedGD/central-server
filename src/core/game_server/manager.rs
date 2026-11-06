@@ -10,7 +10,7 @@ use server_shared::{
     data::{SrvEncodeError, SrvStatusData},
     qunet::{
         message::channel,
-        server::{ServerHandle, WeakServerHandle, client::ClientState},
+        server::{WeakServerHandle, client::ClientState},
     },
 };
 use thiserror::Error;
@@ -67,14 +67,6 @@ impl GameServerManager {
         if self.server_handle.set(server).is_err() {
             panic!("game server server handle already set");
         }
-    }
-
-    fn server(&self) -> ServerHandle<GameServerHandler> {
-        self.server_handle
-            .get()
-            .expect("Server not initialized yet")
-            .upgrade()
-            .expect("Server has shut down")
     }
 
     pub fn add_server(
@@ -206,21 +198,16 @@ impl GameServerManager {
         Ok(())
     }
 
-    pub async fn notify_user_banned(&self, account_id: i32) -> Result<(), GameServerError> {
-        self.notify_all_servers_data(SrvUserData {
-            account_id,
-            is_banned: true,
-            ..Default::default()
-        })
-    }
+    pub async fn notify_user_data_to_all(&self, data: SrvUserData) -> Result<(), GameServerError> {
+        let servers = self.servers.load();
+        let msg = SrvMessage::NotifyUserData { data };
+        let encoded = msg.encode()?;
 
-    pub async fn notify_user_muted(&self, account_id: i32) -> Result<(), GameServerError> {
-        self.notify_all_servers_data(SrvUserData {
-            account_id,
-            can_use_voice: false,
-            is_muted: true,
-            ..Default::default()
-        })
+        for server in &**servers {
+            server.qclient.send_data(&encoded);
+        }
+
+        Ok(())
     }
 
     pub async fn notify_user_kicked(&self, account_id: i32) -> Result<(), GameServerError> {
@@ -229,10 +216,6 @@ impl GameServerManager {
 
     pub async fn notify_reload_config(&self) -> Result<(), GameServerError> {
         self.notify_all_servers(SrvMessage::ReloadConfig)
-    }
-
-    fn notify_all_servers_data(&self, data: SrvUserData) -> Result<(), GameServerError> {
-        self.notify_all_servers(SrvMessage::NotifyUserData { data })
     }
 
     fn notify_all_servers(&self, msg: SrvMessage) -> Result<(), GameServerError> {

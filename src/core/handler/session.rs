@@ -82,17 +82,6 @@ impl ConnectionHandler {
                 || new_author.is_some_and(|x| users.is_author_blacklisted(x));
 
             self.increment_level_players(new_session, is_blacklisted);
-
-            let users = self.module::<UsersModule>();
-            let data = users.gather_user_data(client);
-
-            // notify the appropriate game server
-
-            if let Err(e) =
-                self.game_server_manager.notify_user_data(new_session.server_id(), data).await
-            {
-                warn!("Failed to send NotifyUserData to game server: {e}");
-            }
         }
 
         // if this is a follower room and the owner changed the level, warp all other players

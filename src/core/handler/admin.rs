@@ -4,8 +4,6 @@ use server_shared::{SessionId, qunet::message::BufferKind};
 use thiserror::Error;
 
 use crate::{
-    auth::AuthModule,
-    credits::CreditsModule,
     rooms::RoomModule,
     users::{
         self, DatabaseError, PunishUserError, UserPunishment, UserPunishmentType, UsersModule,
@@ -544,7 +542,7 @@ impl ConnectionHandler {
         let r#type = r#type.into();
 
         if let Some(user) = users.get_user(client.account_id()).await? {
-            if let Some(ban) = user.active_ban {
+            if let Some(ban) = &user.active_ban {
                 self.send_banned(client, &ban.reason, ban.expires_at)?;
             }
 
@@ -554,16 +552,11 @@ impl ConnectionHandler {
                 self.send_muted(client, &mute.reason, mute.expires_at)?;
             }
 
-            client.set_active_punishments(user.active_mute, user.active_room_ban);
-
-            // tell all game servers about the ban/mute if the user is connected
-
-            if r#type == Some(UserPunishmentType::Ban) {
-                let _ = self.game_server_manager.notify_user_banned(client.account_id()).await;
-            } else if r#type == Some(UserPunishmentType::Mute) {
-                let _ = self.game_server_manager.notify_user_muted(client.account_id()).await;
-            }
+            client.set_active_punishments(user.active_mute, user.active_ban, user.active_room_ban);
         }
+
+        // notify game servers about the change
+        let _ = self.notify_user_data_changed_inner(client).await;
 
         Ok(())
     }
@@ -713,13 +706,6 @@ impl ConnectionHandler {
 
         let users = self.module::<UsersModule>();
         let result = users.admin_edit_roles(client.account_id(), account_id, role_ids).await;
-
-        if result.is_ok() {
-            let _ = self.notify_user_data_changed(account_id, role_ids).await;
-
-            // force a reload of credits
-            self.module::<CreditsModule>().queue_reload();
-        }
 
         self.send_admin_db_result(client, result)?;
 
@@ -900,44 +886,5 @@ impl ConnectionHandler {
                 Err(e) => Err(e.to_string()),
             },
         )
-    }
-
-    async fn notify_user_data_changed(
-        &self,
-        account_id: i32,
-        new_roles: &[u8],
-    ) -> HandlerResult<()> {
-        let Some(client) = self.find_client(account_id) else {
-            return Ok(());
-        };
-
-        let auth = self.module::<AuthModule>();
-        let users = self.module::<UsersModule>();
-
-        // generate new role and token to send to the user
-        // new token is generated so the user can immediately connect to the game server with appropriate roles
-        let new_role = users.compute_from_role_ids(account_id, new_roles.iter().cloned());
-        let roles_str = users.make_role_string(new_roles);
-        let token = auth.generate_user_token(
-            account_id,
-            client.user_id(),
-            client.username(),
-            &roles_str,
-            new_role.name_color.as_ref(),
-        );
-
-        let buf = data::encode_message!(self, 1024, msg => {
-            let mut changed = msg.init_user_data_changed();
-            self.encode_ext_user_data(
-                &new_role,
-                &token,
-                changed.reborrow().init_user_data(),
-            );
-        })?;
-
-        client.set_role(new_role);
-        client.send_data_bufkind(buf);
-
-        Ok(())
     }
 }

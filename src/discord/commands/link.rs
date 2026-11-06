@@ -4,7 +4,7 @@ use tracing::warn;
 use super::util::*;
 use crate::{
     discord::BotError,
-    users::{DbUser, LinkedDiscordAccount, UsersModule},
+    users::{DbUser, DiscordUserData, UsersModule},
 };
 
 #[poise::command(slash_command, guild_only = true)]
@@ -171,13 +171,13 @@ async fn get_linked_user(
     ctx: Context<'_>,
     discord_user: Option<&serenity::Member>,
     gd_user: Option<&str>,
-) -> Result<Option<(DbUser, LinkedDiscordAccount)>, BotError> {
+) -> Result<Option<(DbUser, DiscordUserData)>, BotError> {
     let server = ctx.data().server()?;
     let users = server.handler().module::<UsersModule>();
 
     if let Some(u) = discord_user {
         let dbu = users.get_linked_discord_inverse(u.user.id.get()).await?;
-        let data = LinkedDiscordAccount::from_discord(u);
+        let data = DiscordUserData::from_discord_member(u);
 
         return Ok(dbu.map(|u| (u, data)));
     }
@@ -201,7 +201,7 @@ async fn get_linked_user(
     };
 
     let dbu = users.get_linked_discord_inverse(actor.user.id.get()).await?;
-    let data = LinkedDiscordAccount::from_discord(&actor);
+    let data = DiscordUserData::from_discord_member(&actor);
 
     Ok(dbu.map(|u| (u, data)))
 }
