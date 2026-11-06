@@ -4,7 +4,7 @@ use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
 use itertools::Itertools;
 use poise::{
     CreateReply, ReplyHandle,
-    serenity_prelude::{self as serenity, AutocompleteChoice},
+    serenity_prelude::{self as serenity, AutocompleteChoice, CreateAutocompleteResponse},
 };
 use server_shared::qunet::server::Server;
 use thiserror::Error;
@@ -145,7 +145,7 @@ fn fuzzy_match(target: &str, candidate: &str) -> i64 {
 fn wrap_user_autocomplete<'a>(
     query: &str,
     iter: impl Iterator<Item = (&'a str, i32)>,
-) -> Vec<AutocompleteChoice> {
+) -> CreateAutocompleteResponse {
     let query_id = query.parse::<i32>().ok();
 
     let mut choices = iter
@@ -192,11 +192,13 @@ fn wrap_user_autocomplete<'a>(
 
     choices.dedup();
 
-    choices
-        .into_iter()
-        .map(|(username, id)| AutocompleteChoice::new(username.to_owned(), id.to_string()))
-        .take(10)
-        .collect()
+    CreateAutocompleteResponse::new().set_choices(
+        choices
+            .into_iter()
+            .map(|(username, id)| AutocompleteChoice::new(username.to_owned(), id.to_string()))
+            .take(10)
+            .collect(),
+    )
 }
 
 fn get_online_users_matching(ctx: Context<'_>, partial: &str) -> Vec<ClientStateHandle> {
@@ -219,12 +221,15 @@ async fn get_db_users_matching(ctx: Context<'_>, partial: &str) -> Vec<DbUser> {
     users.query_matching_users(partial, 50).await.unwrap_or_default()
 }
 
-pub async fn online_user_autocomplete(ctx: Context<'_>, partial: &str) -> Vec<AutocompleteChoice> {
+pub async fn online_user_autocomplete(
+    ctx: Context<'_>,
+    partial: &str,
+) -> CreateAutocompleteResponse {
     let clients = get_online_users_matching(ctx, partial);
     wrap_user_autocomplete(partial, clients.iter().map(|c| (c.username(), c.account_id())))
 }
 
-pub async fn db_user_autocomplete(ctx: Context<'_>, partial: &str) -> Vec<AutocompleteChoice> {
+pub async fn db_user_autocomplete(ctx: Context<'_>, partial: &str) -> CreateAutocompleteResponse {
     let users = get_db_users_matching(ctx, partial).await;
     wrap_user_autocomplete(partial, users.iter().map(|u| (u.username(), u.account_id)))
 }
@@ -232,7 +237,7 @@ pub async fn db_user_autocomplete(ctx: Context<'_>, partial: &str) -> Vec<Autoco
 pub async fn online_and_db_user_autocomplete(
     ctx: Context<'_>,
     partial: &str,
-) -> Vec<AutocompleteChoice> {
+) -> CreateAutocompleteResponse {
     let mut vec = Vec::new();
 
     let first = get_online_users_matching(ctx, partial);

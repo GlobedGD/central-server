@@ -27,8 +27,12 @@ impl DiscordBot {
                 //         Ok(true)
                 //     })
                 // }),
-                event_handler: |ctx, event, framework, data| {
-                    Box::pin(super::event_handler::event_handler(ctx, event, framework, data))
+                event_handler: |ctx, event| {
+                    Box::pin(super::event_handler::event_handler(
+                        ctx.serenity_context,
+                        event,
+                        ctx.user_data,
+                    ))
                 },
                 pre_command: |ctx| Box::pin(super::event_handler::pre_command(ctx)),
                 ..Default::default()

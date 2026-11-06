@@ -1,3 +1,5 @@
+use poise::serenity_prelude::CreateAutocompleteResponse;
+
 use super::util::*;
 use crate::{
     core::gd_api::GDApiClient, discord::BotError, features::FeaturesModule, users::ComputedRole,
@@ -35,13 +37,13 @@ pub async fn update_spreadsheet(ctx: Context<'_>) -> Result<(), BotError> {
     Ok(())
 }
 
-async fn send_autocomplete(
-    _ctx: Context<'_>,
-    _partial: &str,
-) -> impl Iterator<Item = poise::serenity_prelude::AutocompleteChoice> {
-    ["Featured", "Epic", "Outstanding"]
-        .iter()
-        .map(|&n| poise::serenity_prelude::AutocompleteChoice::new(n, n))
+async fn send_autocomplete(_ctx: Context<'_>, _partial: &str) -> CreateAutocompleteResponse {
+    CreateAutocompleteResponse::new().set_choices(
+        ["Featured", "Epic", "Outstanding"]
+            .iter()
+            .map(|&n| poise::serenity_prelude::AutocompleteChoice::new(n, n))
+            .collect(),
+    )
 }
 
 fn tier_str_to_int(tier: &str) -> Option<u8> {

@@ -11,7 +11,6 @@ use crate::discord::{
 pub async fn event_handler(
     ctx: &Context,
     event: &FullEvent,
-    _framework: poise::FrameworkContext<'_, Arc<BotState>, BotError>,
     state: &Arc<BotState>,
 ) -> Result<(), BotError> {
     match event {
