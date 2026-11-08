@@ -223,70 +223,19 @@ impl ConnectionHandler {
         &self,
         client: &ClientStateHandle,
     ) -> HandlerResult<()> {
-        must_auth(client)?;
-        Ok(())
+        self.send_warn(client, "discord linking is no longer supported through Globed")
     }
 
     pub fn handle_discord_link_confirm(&self, client: &ClientStateHandle) -> HandlerResult<()> {
-        must_auth(client)?;
-        Ok(())
+        self.send_warn(client, "discord linking is no longer supported through Globed")
     }
 
     pub fn handle_discord_get_oauth(&self, client: &ClientStateHandle) -> HandlerResult<()> {
-        must_auth(client)?;
-
-        #[cfg(feature = "discord")]
-        {
-            use crate::discord::DiscordModule;
-
-            let discord = self.module::<DiscordModule>();
-            let url = discord.begin_oauth_flow(client, client.account_id());
-
-            info!("[{} ({})] generated oauth url: {url}", client.username(), client.account_id());
-
-            let buf = data::encode_message_dyn!(self, msg => {
-                let mut oauth = msg.init_discord_oauth_url();
-                oauth.set_url(&url);
-            })?;
-
-            client.send_data_bufkind(buf);
-        }
-
-        #[cfg(not(feature = "discord"))]
-        {
-            warn!(
-                "{} requested discord oauth url, but discord support is disabled",
-                client.account_id()
-            );
-        }
-
-        Ok(())
+        self.send_warn(client, "discord linking is no longer supported through Globed")
     }
 
     pub async fn handle_discord_unlink(&self, client: &ClientStateHandle) -> HandlerResult<()> {
-        must_auth(client)?;
-
-        #[cfg(feature = "discord")]
-        {
-            let users = self.module::<UsersModule>();
-
-            let res = users.try_unlink_discord(client.account_id()).await;
-            if res.is_ok() {
-                client.set_discord_data(None);
-            }
-
-            let buf = data::encode_message_dyn!(self, msg => {
-                let mut r = msg.init_discord_unlink_result();
-                r.set_success(res.is_ok());
-                if let Err(e) = res {
-                    r.set_error(e.to_string());
-                }
-            })?;
-
-            client.send_data_bufkind(buf);
-        }
-
-        Ok(())
+        self.send_warn(client, "discord linking is no longer supported through Globed")
     }
 
     // Used in the discord module

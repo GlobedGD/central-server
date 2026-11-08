@@ -37,15 +37,6 @@ pub enum DatabaseError {
     InvalidPunishmentType,
     #[error("User not found")]
     NotFound,
-    #[error("Attempting to link a Discord account that is already linked to another account")]
-    AlreadyLinked,
-}
-
-#[derive(DerivePartialModel)]
-#[sea_orm(entity = "User")]
-struct PartialDiscordUser {
-    #[sea_orm(from_col = "discord_id")]
-    pub discord_id: Option<i64>,
 }
 
 #[derive(DerivePartialModel)]
@@ -114,109 +105,6 @@ impl UsersDb {
         };
 
         Ok(Some(self.post_user_fetch(model).await?))
-    }
-
-    pub async fn get_linked_discord(&self, account_id: i32) -> DatabaseResult<Option<u64>> {
-        let user = User::find_by_id(account_id)
-            .into_partial_model::<PartialDiscordUser>()
-            .one(&self.conn)
-            .await?;
-
-        Ok(user.and_then(|x| match x.discord_id {
-            Some(0) | None => None,
-            Some(id) => Some(id as u64),
-        }))
-    }
-
-    pub async fn get_linked_discord_inverse(
-        &self,
-        discord_id: u64,
-    ) -> DatabaseResult<Option<DbUser>> {
-        let user =
-            User::find().filter(user::Column::DiscordId.eq(discord_id)).one(&self.conn).await?;
-
-        let Some(model) = user else {
-            return Ok(None);
-        };
-
-        Ok(Some(self.post_user_fetch(model).await?))
-    }
-
-    pub async fn unlink_discord_inverse(&self, discord_id: u64) -> DatabaseResult<()> {
-        let res = User::update_many()
-            .filter(user::Column::DiscordId.eq(discord_id as i64))
-            .col_expr(user::Column::DiscordId, Expr::value(None::<i64>))
-            .exec(&self.conn)
-            .await?;
-
-        if res.rows_affected == 0 {
-            return Err(DatabaseError::NotFound);
-        }
-
-        Ok(())
-    }
-
-    pub async fn unlink_discord(&self, account_id: i32) -> DatabaseResult<()> {
-        let res = User::update_many()
-            .filter(user::Column::AccountId.eq(account_id))
-            .col_expr(user::Column::DiscordId, Expr::value(None::<i64>))
-            .exec(&self.conn)
-            .await?;
-
-        if res.rows_affected == 0 {
-            return Err(DatabaseError::NotFound);
-        }
-
-        Ok(())
-    }
-
-    pub async fn link_discord_account(
-        &self,
-        account_id: i32,
-        discord_id: u64,
-    ) -> DatabaseResult<()> {
-        // check if this discord id is already linked to another account
-        let existing = User::find()
-            .filter(user::Column::DiscordId.eq(discord_id as i64))
-            .one(&self.conn)
-            .await?;
-
-        if let Some(existing) = existing {
-            if existing.account_id as i32 != account_id {
-                return Err(DatabaseError::AlreadyLinked);
-            } else {
-                // already linked to the same account, nothing to do
-                return Ok(());
-            }
-        }
-
-        let res = User::update_many()
-            .filter(user::Column::AccountId.eq(account_id))
-            .col_expr(user::Column::DiscordId, Expr::value(discord_id as i64))
-            .exec(&self.conn)
-            .await?;
-
-        if res.rows_affected == 0 {
-            return Err(DatabaseError::NotFound);
-        }
-
-        Ok(())
-    }
-
-    #[cfg(feature = "discord")]
-    pub async fn get_all_linked_users_with_roles(&self) -> DatabaseResult<Vec<DbUser>> {
-        let users = User::find()
-            .filter(user::Column::DiscordId.is_not_null())
-            .filter(user::Column::Roles.is_not_null().and(user::Column::Roles.ne("")))
-            .all(&self.conn)
-            .await?;
-
-        let mut out = Vec::with_capacity(users.len());
-        for user in users {
-            out.push(self.post_user_fetch(user).await?);
-        }
-
-        Ok(out)
     }
 
     pub async fn query_user(&self, query: &str) -> DatabaseResult<Option<DbUser>> {
@@ -309,7 +197,10 @@ impl UsersDb {
             active_mute: None,
             active_ban: None,
             active_room_ban: None,
-            discord_id: model.discord_id.and_then(|x| NonZeroU64::new(x as u64)),
+            cube: model.cube.try_into().unwrap_or(0),
+            color1: model.color1.try_into().unwrap_or(0),
+            color2: model.color2.try_into().unwrap_or(0),
+            glow_color: model.glow_color.try_into().unwrap_or(0),
         };
 
         if let Some(id) = model.active_mute {
@@ -535,11 +426,17 @@ impl UsersDb {
         Ok(())
     }
 
-    pub async fn fetch_all_with_roles(&self) -> DatabaseResult<Vec<user::Model>> {
-        Ok(User::find()
+    pub async fn fetch_all_with_roles(&self) -> DatabaseResult<Vec<DbUser>> {
+        let models = User::find()
             .filter(user::Column::Roles.is_not_null().and(user::Column::Roles.ne("")))
             .all(&self.conn)
-            .await?)
+            .await?;
+
+        let mut out = Vec::with_capacity(models.len());
+        for model in models {
+            out.push(self.post_user_fetch(model).await?);
+        }
+        Ok(out)
     }
 
     /// Returns whether the user was modified
@@ -1008,7 +905,11 @@ pub struct DbUser {
     pub active_mute: Option<UserPunishment>,
     pub active_ban: Option<UserPunishment>,
     pub active_room_ban: Option<UserPunishment>,
-    pub discord_id: Option<NonZeroU64>,
+
+    pub cube: i16,
+    pub color1: u16,
+    pub color2: u16,
+    pub glow_color: u16,
 }
 
 impl UserPunishment {

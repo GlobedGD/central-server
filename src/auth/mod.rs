@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::{
-    auth::argon_client::ArgonError,
     core::{
         handler::ConnectionHandler,
         module::{ConfigurableModule, ModuleInitResult, ServerModule},
@@ -20,11 +19,11 @@ mod config;
 
 use crate::core::data::LoginFailedReason;
 pub use account_data::LoginKind;
-pub use argon_client::ArgonClient;
+pub use argon_client::{ArgonClient, ArgonError, DiscordLookupAllResponse, DiscordLookupResponse};
 
 pub struct AuthModule {
     token_issuer: TokenIssuer,
-    argon_client: Option<ArgonClient>,
+    argon_client: Option<Arc<ArgonClient>>,
     trust_token_key: String,
 }
 
@@ -46,7 +45,7 @@ impl AuthModule {
         self.argon_client.as_ref().map(|client| client.url())
     }
 
-    pub fn argon_client(&self) -> Option<&ArgonClient> {
+    pub fn argon_client(&self) -> Option<&Arc<ArgonClient>> {
         self.argon_client.as_ref()
     }
 
@@ -136,8 +135,7 @@ impl AuthModule {
                 warn!("failed to validate token for {account_id}: {e}");
                 return AuthVerdict::Failed(match e {
                     ArgonError::Request(_) => LoginFailedReason::ArgonUnreachable,
-                    ArgonError::Unknown(_, _) => LoginFailedReason::ArgonInternalError,
-                    ArgonError::Argon(_) => LoginFailedReason::ArgonInternalError,
+                    _ => LoginFailedReason::ArgonInternalError,
                 });
             }
         };
@@ -160,11 +158,11 @@ impl ServerModule for AuthModule {
             TokenIssuer::new(&config.secret_key, Duration::from_secs(config.token_expiry as u64))?;
 
         let argon_client = config.enable_argon.then(|| {
-            ArgonClient::new(
+            Arc::new(ArgonClient::new(
                 handler.http_client(),
                 config.argon_url.clone(),
                 config.argon_token.clone(),
-            )
+            ))
         });
 
         Ok(Self {

@@ -14,19 +14,9 @@ use server_shared::{UsernameString, qunet::server::ServerHandle};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
-#[cfg(feature = "web")]
-use {
-    crate::web::{WebModule, WebState},
-    axum::{
-        extract::{Query, State},
-        response::{Html, IntoResponse, Redirect},
-    },
-    tracing::debug,
-};
-
 use crate::{
     core::{
-        handler::{ClientStateHandle, ConnectionHandler},
+        handler::ConnectionHandler,
         module::{ConfigurableModule, ModuleInitResult, ServerModule},
     },
     discord::{
@@ -93,11 +83,13 @@ impl DiscordModule {
 
         info!("Sending ticket ping for channel {ticket_channel} to moderator {moderator_id}");
 
-        self.send_message(
-            config.ticket_ping_channel,
-            DiscordMessage::new()
-                .content(format!("<@{moderator_id}> New ticket to handle: <#{ticket_channel}>")),
-        )
+        let msg = if moderator_id != 0 {
+            format!("<@{moderator_id}> New ticket to handle: <#{ticket_channel}>")
+        } else {
+            format!("New ticket to handle: <#{ticket_channel}>")
+        };
+
+        self.send_message(config.ticket_ping_channel, DiscordMessage::new().content(msg))
     }
 
     pub async fn send_alt_alert(
@@ -241,15 +233,6 @@ impl DiscordModule {
     pub async fn get_user_data(&self, account_id: u64) -> Result<DiscordUserData, BotError> {
         self.state.get_user_data(account_id).await
     }
-
-    /// Begins oauth2 flow and returns a URL that the user must open
-    pub fn begin_oauth_flow(&self, client: &ClientStateHandle, gd_account: i32) -> String {
-        self.state.begin_oauth_flow(Arc::downgrade(client), gd_account)
-    }
-
-    pub async fn finish_oauth_flow(&self, code: String, state: String) -> anyhow::Result<()> {
-        self.state.finish_oauth_flow(code, state).await
-    }
 }
 
 impl Drop for DiscordModule {
@@ -262,17 +245,6 @@ impl Drop for DiscordModule {
 
         self.handle.abort();
     }
-}
-
-#[derive(Deserialize, Serialize, Default, Clone)]
-#[serde(deny_unknown_fields)]
-pub struct OauthOptions {
-    #[serde(default)]
-    pub client_id: String,
-    #[serde(default)]
-    pub client_secret: String,
-    #[serde(default)]
-    pub redirect_uri: String,
 }
 
 #[derive(Deserialize, Serialize, Default)]
@@ -290,12 +262,10 @@ pub struct Config {
     pub server_alert_channel: u64,
     #[serde(default)]
     pub ticket_ping_channel: u64,
-    #[serde(default)]
-    pub oauth: OauthOptions,
 }
 
 impl ServerModule for DiscordModule {
-    async fn new(config: Arc<Config>, handler: &ConnectionHandler) -> ModuleInitResult<Self> {
+    async fn new(config: Arc<Config>, _handler: &ConnectionHandler) -> ModuleInitResult<Self> {
         // laod the roboto font
         let _ = tokio::task::spawn_blocking(|| {
             if plotters::style::register_font("sans-serif", FontStyle::Normal, ROBOTO_TTF).is_err()
@@ -305,7 +275,7 @@ impl ServerModule for DiscordModule {
         })
         .await;
 
-        let state = Arc::new(BotState::new(handler.http_client(), config.clone()));
+        let state = Arc::new(BotState::new(config.clone()));
 
         let mut bot = DiscordBot::new(&config.token, state.clone()).await?;
 
@@ -314,16 +284,6 @@ impl ServerModule for DiscordModule {
                 error!("Failed to start discord bot: {e}");
             }
         });
-
-        #[cfg(feature = "web")]
-        {
-            let web = handler.module::<WebModule>();
-            web.add_route("/discord-oauth/callback", axum::routing::get(oauth_handler)).await;
-            web.add_route("/discord-oauth/success", axum::routing::get(oauth_success_handler))
-                .await;
-            web.add_route("/discord-oauth/failure", axum::routing::get(oauth_failure_handler))
-                .await;
-        }
 
         Ok(Self {
             handle,
@@ -373,42 +333,4 @@ pub const fn hex_color_to_decimal(color: &'static str) -> u32 {
     }
 
     u32::from_str_radix(color, 16).unwrap_or_default()
-}
-
-#[cfg(feature = "web")]
-#[derive(Deserialize)]
-struct OauthQuery {
-    code: String,
-    state: String,
-}
-
-#[cfg(feature = "web")]
-async fn oauth_handler(
-    Query(OauthQuery { code, state }): Query<OauthQuery>,
-    State(wstate): State<Arc<WebState>>,
-) -> impl IntoResponse {
-    debug!("Received OAuth callback with code {code}");
-    let server = wstate.server();
-    let module = server.handler().module::<DiscordModule>();
-
-    match module.finish_oauth_flow(code, state).await {
-        Ok(()) => Redirect::to("/discord-oauth/success").into_response(),
-        Err(e) => {
-            let msg = e.to_string();
-            warn!("Failed to finish OAuth flow: {msg}");
-
-            let err_msg = urlencoding::encode(&msg);
-            Redirect::to(&format!("/discord-oauth/failure?message={err_msg}")).into_response()
-        }
-    }
-}
-
-#[cfg(feature = "web")]
-async fn oauth_success_handler() -> impl IntoResponse {
-    Html(include_str!("oauth_success.html")).into_response()
-}
-
-#[cfg(feature = "web")]
-async fn oauth_failure_handler() -> impl IntoResponse {
-    Html(include_str!("oauth_failure.html")).into_response()
 }

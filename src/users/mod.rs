@@ -10,6 +10,7 @@ use std::{
 #[cfg(feature = "discord")]
 use {
     crate::{
+        auth::AuthModule,
         discord::{DiscordMessage, DiscordModule, hex_color_to_decimal},
         users::database::ActionsBreakdown,
     },
@@ -30,7 +31,10 @@ use {
 #[cfg(feature = "analytics")]
 use crate::analytics::{AnalyticsModule, Event as AnalyticsEvent, PlayerCountLog};
 
+#[cfg(feature = "discord")]
+use crate::users::discord_resolver::DiscordResolver;
 use crate::{
+    auth::ArgonError,
     core::{
         gd_api::{GDApiClient, GDApiFetchError},
         handler::{ClientStateHandle, ConnectionHandler},
@@ -52,6 +56,7 @@ use server_shared::{
 
 mod config;
 pub mod database;
+mod discord_resolver;
 mod pwhash;
 
 pub use config::{Config, Role};
@@ -84,7 +89,8 @@ pub enum Error {
     Permissions,
     #[error("Failed to fetch user from GD api: {0}")]
     Fetch(#[from] GDApiFetchError),
-
+    #[error("Failed to get response from Argon API: {0}")]
+    Argon(#[from] ArgonError),
     #[cfg(feature = "discord")]
     #[error("Failed to log action via discord bot: {0}")]
     Discord(#[from] crate::discord::BotError),
@@ -159,6 +165,11 @@ impl DiscordUserData {
     }
 }
 
+pub struct MaybeLinkedDbUser {
+    pub user: DbUser,
+    pub discord_user: Option<DiscordUserData>,
+}
+
 pub struct UsersModule {
     db: UsersDb,
     server: OnceLock<WeakServerHandle<ConnectionHandler>>,
@@ -169,6 +180,8 @@ pub struct UsersModule {
     discord: Option<Arc<DiscordModule>>,
     #[cfg(feature = "discord")]
     discord_role_map: HashMap<u64, u8>,
+    #[cfg(feature = "discord")]
+    discord_resolver: Option<DiscordResolver>,
 
     blacklisted_authors: ArcSwap<FxHashSet<i32>>,
     blacklisted_levels: ArcSwap<FxHashSet<i32>>,
@@ -283,39 +296,45 @@ impl UsersModule {
     pub async fn get_linked_discord(
         &self,
         account_id: i32,
-    ) -> DatabaseResult<Option<DiscordUserData>> {
-        let Some(discord_id) = self.db.get_linked_discord(account_id).await? else {
-            return Ok(None);
-        };
-
-        let mut acc = DiscordUserData::new(discord_id, String::new(), String::new());
-
-        // try to get the avatar url
-        if let Some(discord) = self.discord.as_ref() {
-            match discord.get_user_data(discord_id).await {
-                Ok(data) => {
-                    acc.username = data.username;
-                    acc.avatar_url = data.avatar_url;
-                }
-
-                Err(e) => warn!("Failed to get user data for user {discord_id}: {e}"),
-            }
-        }
-
-        Ok(Some(acc))
+    ) -> Result<Option<DiscordUserData>, Error> {
+        Ok(match &self.discord_resolver {
+            Some(r) => r.resolve_by_account_id(account_id).await?.map(|r| r.discord_user),
+            None => None,
+        })
     }
 
     #[cfg(not(feature = "discord"))]
     pub async fn get_linked_discord(
         &self,
         _account_id: i32,
-    ) -> DatabaseResult<Option<DiscordUserData>> {
+    ) -> Result<Option<DiscordUserData>, Error> {
         Ok(None)
     }
 
     #[cfg(feature = "discord")]
-    pub async fn get_all_linked_users_with_roles(&self) -> DatabaseResult<Vec<DbUser>> {
-        self.db.get_all_linked_users_with_roles().await
+    pub async fn get_all_linked_users_with_roles(&self) -> Result<Vec<MaybeLinkedDbUser>, Error> {
+        let Some(resolver) = &self.discord_resolver else {
+            return Ok(Vec::new());
+        };
+
+        // fetch all users that are linked in the Argon database
+        let all_linked = resolver.get_all_linked().await?;
+        let mut all_linked = all_linked
+            .users
+            .into_iter()
+            .map(|u| (u.account_id, u.discord_user))
+            .collect::<HashMap<_, _>>();
+
+        // then fetch all users with roles in our DB, and leave only those that are linked
+        let all_with_roles = self.db.fetch_all_with_roles().await?;
+
+        Ok(all_with_roles
+            .into_iter()
+            .map(|u| {
+                let discord_user = all_linked.remove(&u.account_id);
+                MaybeLinkedDbUser { user: u, discord_user }
+            })
+            .collect())
     }
 
     #[cfg(not(feature = "discord"))]
@@ -324,81 +343,20 @@ impl UsersModule {
     }
 
     #[cfg(feature = "discord")]
-    pub async fn link_discord_account_online(
-        &self,
-        handle: &ClientStateHandle,
-        discord_id: u64,
-    ) -> DatabaseResult<()> {
-        let account_id = handle.account_id();
-        let username = handle.username();
-        let icons = handle.icons();
-
-        self.db
-            .update_user(
-                account_id,
-                username,
-                icons.cube,
-                icons.color1,
-                icons.color2,
-                icons.glow_color,
-            )
-            .await?;
-
-        self.db.link_discord_account(account_id, discord_id).await?;
-        self.server().handler().notify_user_linked(handle).await;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "discord")]
-    pub async fn link_discord_account_offline(
-        &self,
-        account_id: i32,
-        discord_id: u64,
-    ) -> DatabaseResult<()> {
-        self.db.link_discord_account(account_id, discord_id).await
-    }
-
-    #[cfg(feature = "discord")]
     pub async fn get_linked_discord_inverse(
         &self,
         discord_id: u64,
-    ) -> DatabaseResult<Option<DbUser>> {
-        self.db.get_linked_discord_inverse(discord_id).await
-    }
-
-    #[cfg(feature = "discord")]
-    pub async fn unlink_discord_inverse(&self, discord_id: u64) -> DatabaseResult<()> {
-        self.db.unlink_discord_inverse(discord_id).await
-    }
-
-    /// Tries to unlink discord account, removes all roles and returns Ok on success.
-    #[cfg(feature = "discord")]
-    pub async fn try_unlink_discord(&self, account_id: i32) -> anyhow::Result<()> {
-        let Some(user) = self.get_user(account_id).await? else {
-            anyhow::bail!("User not found in database");
+    ) -> Result<Option<DbUser>, Error> {
+        let account_id = match &self.discord_resolver {
+            Some(r) => r.resolve_by_discord_id(discord_id).await?.map(|r| r.account_id),
+            None => None,
         };
 
-        if user.is_banned() || user.is_muted() || user.is_room_banned() {
-            anyhow::bail!("Cannot unlink due to active punishments");
-        }
+        let Some(account_id) = account_id else {
+            return Ok(None);
+        };
 
-        // otherwise, allow unlinking
-
-        self.db.unlink_discord(account_id).await?;
-
-        if let Some(d) = self.discord.as_ref() {
-            d.send_alert(DiscordMessage::new().content(format!(
-                "User {} ({}) has unlinked their Discord account ({})",
-                user.username(),
-                account_id,
-                user.discord_id.map_or(0, |id| id.get())
-            )));
-        }
-
-        self.system_clear_linked_roles(account_id).await?;
-
-        Ok(())
+        Ok(self.db.get_user(account_id).await?)
     }
 
     /// Query a user by account ID or username
@@ -855,19 +813,19 @@ impl UsersModule {
         let mut users = self.db.fetch_all_with_roles().await?;
 
         users.retain(|user| {
-            let role = self
-                .compute_from_rolestr(user.account_id as i32, user.roles.as_deref().unwrap_or(""));
+            let role =
+                self.compute_from_rolestr(user.account_id, user.roles.as_deref().unwrap_or(""));
             role.can_moderate()
         });
 
         for user in users {
             out.push(FetchedMod {
-                account_id: user.account_id as i32,
+                account_id: user.account_id,
                 username: user.username.unwrap_or_else(|| "Unknown".to_owned()),
-                cube: user.cube.try_into().unwrap_or(0),
-                color1: user.color1.try_into().unwrap_or(0),
-                color2: user.color2.try_into().unwrap_or(0),
-                glow_color: user.glow_color.try_into().unwrap_or(0),
+                cube: user.cube,
+                color1: user.color1,
+                color2: user.color2,
+                glow_color: user.glow_color,
             });
         }
 
@@ -1029,13 +987,13 @@ impl UsersModule {
         &self,
         discord_id: u64,
         period: Option<Duration>,
-    ) -> DatabaseResult<ActionsBreakdown> {
+    ) -> Result<ActionsBreakdown, Error> {
         let account_id = match self.get_linked_discord_inverse(discord_id).await? {
             Some(user) => user.account_id,
             None => return Ok(ActionsBreakdown::default()),
         };
 
-        self.db.check_actions_over_period(account_id, period).await
+        Ok(self.db.check_actions_over_period(account_id, period).await?)
     }
 
     pub async fn get_punishment(&self, pun_id: i64) -> DatabaseResult<Option<UserPunishment>> {
@@ -1447,6 +1405,12 @@ impl ServerModule for UsersModule {
             map
         };
 
+        #[cfg(feature = "discord")]
+        let discord_resolver = {
+            let auth = handler.module::<AuthModule>();
+            auth.argon_client().cloned().map(DiscordResolver::new)
+        };
+
         let _ = handler;
 
         // load blacklisted levels and authors
@@ -1487,6 +1451,8 @@ impl ServerModule for UsersModule {
             discord,
             #[cfg(feature = "discord")]
             discord_role_map,
+            #[cfg(feature = "discord")]
+            discord_resolver,
             blacklisted_authors: ArcSwap::new(Arc::new(authors)),
             blacklisted_levels: ArcSwap::new(Arc::new(levels)),
             player_counts_cache,

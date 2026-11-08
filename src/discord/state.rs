@@ -5,7 +5,6 @@ use std::{
 };
 
 use super::serenity::{self, ChannelId, Context, CreateMessage, UserId};
-use anyhow::{anyhow, bail};
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use poise::serenity_prelude::{
@@ -13,36 +12,19 @@ use poise::serenity_prelude::{
     CreateInteractionResponseMessage, EditMessage, GetMessages, GuildChannel, GuildId, Member,
     Message, RoleId, User,
 };
-use serde::{Deserialize, de::DeserializeOwned};
 use server_shared::{
     UsernameString,
     qunet::server::{ServerHandle, WeakServerHandle},
 };
 use thiserror::Error;
 use tokio::{sync::RwLock, time::MissedTickBehavior};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use crate::{
-    core::handler::{ClientStateHandle, ConnectionHandler, WeakClientStateHandle},
+    core::handler::ConnectionHandler,
     discord::{DiscordMessage, DiscordModule, DiscordUserData, commands::util::ParseDurationError},
     users::{DatabaseError, DbUser, Error as UsersError, UserPunishmentType, UsersModule},
 };
-
-struct OauthAttempt {
-    started_at: Instant,
-    client: WeakClientStateHandle,
-    secret: u64,
-}
-
-impl OauthAttempt {
-    pub fn new(client: WeakClientStateHandle, secret: u64) -> Self {
-        Self {
-            started_at: Instant::now(),
-            client,
-            secret,
-        }
-    }
-}
 
 pub struct NameAlertInteraction {
     pub message_id: u64,
@@ -86,9 +68,6 @@ pub struct BotState {
     config: ArcSwap<super::Config>,
     ctx: RwLock<Option<Context>>,
     server: OnceLock<WeakServerHandle<ConnectionHandler>>,
-    http_client: reqwest::Client,
-
-    oauth_attempts: DashMap<i32, OauthAttempt>,
 
     name_alerts: DashMap<u64, NameAlertInteraction>,
     alt_alerts: DashMap<u64, AltAlertInteraction>,
@@ -134,13 +113,11 @@ impl BotError {
 }
 
 impl BotState {
-    pub fn new(http_client: reqwest::Client, config: Arc<super::Config>) -> Self {
+    pub fn new(config: Arc<super::Config>) -> Self {
         Self {
             config: ArcSwap::new(config),
             ctx: RwLock::new(None),
             server: OnceLock::new(),
-            http_client,
-            oauth_attempts: DashMap::new(),
             name_alerts: DashMap::new(),
             alt_alerts: DashMap::new(),
         }
@@ -177,88 +154,6 @@ impl BotState {
         handle.handler().module::<DiscordModule>().state.clone()
     }
 
-    pub fn begin_oauth_flow(&self, client: WeakClientStateHandle, gd_account: i32) -> String {
-        let secret = rand::random::<u64>();
-        self.oauth_attempts.insert(gd_account, OauthAttempt::new(client, secret));
-
-        let config = self.config.load();
-        format!(
-            "https://discord.com/api/oauth2/authorize?client_id={}&redirect_uri={}&response_type=code&scope=identify&state={}-{}",
-            config.oauth.client_id, config.oauth.redirect_uri, gd_account, secret
-        )
-    }
-
-    pub async fn finish_oauth_flow(&self, code: String, state: String) -> anyhow::Result<()> {
-        let Some((id_str, secret_str)) = state.split_once('-') else {
-            bail!("invalid OAuth state: '{state}'");
-        };
-
-        let id = id_str.parse::<i32>()?;
-        let secret = secret_str.parse::<u64>()?;
-
-        if let Some((_, attempt)) = self.oauth_attempts.remove(&id) {
-            if attempt.secret == secret {
-                // valid OAuth flow
-                debug!("Finished OAuth flow for user {id}");
-
-                let server = self.server().unwrap();
-                let Some(client) = attempt.client.upgrade() else {
-                    bail!("invalid OAuth state: Client handle was dropped");
-                };
-
-                Self::finish_oauth_link(server, client, code).await?;
-            } else {
-                bail!("invalid OAuth state: secret mismatch for user {id}");
-            }
-        } else {
-            bail!("Received OAuth state for unknown user {id}");
-        }
-
-        Ok(())
-    }
-
-    async fn finish_oauth_link(
-        server: ServerHandle<ConnectionHandler>,
-        client: ClientStateHandle,
-        code: String,
-    ) -> anyhow::Result<()> {
-        let this = server.handler().module::<DiscordModule>().state.clone();
-        let config = this.config.load();
-
-        let response = json_request::<DiscordOAuthAuthorizeResponse>(
-            this.http_client.post("https://discord.com/api/v10/oauth2/token").form(&[
-                ("client_id", config.oauth.client_id.as_str()),
-                ("client_secret", config.oauth.client_secret.as_str()),
-                ("grant_type", "authorization_code"),
-                ("redirect_uri", config.oauth.redirect_uri.as_str()),
-                ("code", code.as_str()),
-            ]),
-            "oauth2/token",
-        )
-        .await?;
-
-        let response = json_request::<DiscordOAuthUserResponse>(
-            this.http_client
-                .get("https://discord.com/api/v10/users/@me")
-                .header("Authorization", format!("Bearer {}", response.access_token).as_str()),
-            "users/@me",
-        )
-        .await?;
-
-        let user_id = response
-            .id
-            .parse::<u64>()
-            .map_err(|e| anyhow!("failed to parse discord user id: {e}"))?;
-
-        info!("Received Discord OAuth data for user {}", response.id);
-        let users = server.handler().module::<UsersModule>();
-
-        users.link_discord_account_online(&client, user_id).await?;
-        this.sync_user_roles_by_id(user_id).await?;
-
-        Ok(())
-    }
-
     /// Sync all linked users' roles. This will be slow and block for a while.
     pub async fn slow_sync_all(&self) -> anyhow::Result<()> {
         let users = self
@@ -274,38 +169,46 @@ impl BotState {
         let mut interval = tokio::time::interval(Duration::from_millis(200));
         interval.set_missed_tick_behavior(MissedTickBehavior::Burst);
 
-        for user in users {
-            interval.tick().await;
+        for luser in users {
+            let user = &luser.user;
 
-            let discord_id = user.discord_id.expect("returned user didn't have discord id");
-
-            match self.get_member_data(discord_id.get()).await {
-                Ok(Some(u)) => {
-                    // sync their roles
-                    if let Err(e) = self.sync_user_roles_for_dbuser(&u, &user).await {
-                        warn!("Failed to sync roles for {} ({}): {e}", discord_id, user.account_id);
-                    }
-                }
-
-                Ok(None) => {
-                    // remove all roles that require linking, user left the server
-                    info!(
-                        "Clearing roles for user {} ({}), they left the server",
-                        user.account_id, discord_id
-                    );
-                    self.clear_roles_for_dbuser(&user).await?;
-                    continue;
-                }
-
-                Err(e) => {
-                    warn!("failed to fetch discord user {discord_id}: {e}");
-                    // don't do anything if we fail to fetch the user
-                    continue;
-                }
-            };
+            if let Some(discord_user) = luser.discord_user {
+                interval.tick().await;
+                self.slow_sync_roles_for_user(discord_user.id, user).await;
+            } else {
+                // user has roles but not a linked discord account, we should strip away any roles that require linking
+                let server = self.server()?;
+                let users_module = server.handler().module::<UsersModule>();
+                users_module.system_clear_linked_roles(user.account_id).await?;
+            }
         }
 
         Ok(())
+    }
+
+    async fn slow_sync_roles_for_user(&self, discord_id: u64, user: &DbUser) {
+        match self.get_member_data(discord_id).await {
+            Ok(Some(u)) => {
+                // sync their roles
+                if let Err(e) = self.sync_user_roles_for_dbuser(&u, user).await {
+                    warn!("Failed to sync roles for {} ({}): {e}", discord_id, user.account_id);
+                }
+            }
+
+            Ok(None) => {
+                // remove all roles that require linking, user left the server
+                info!(
+                    "Clearing roles for user {} ({}), they left the server",
+                    user.account_id, discord_id
+                );
+                let _ = self.clear_roles_for_dbuser(user).await;
+            }
+
+            Err(e) => {
+                warn!("failed to fetch discord user {discord_id}: {e}");
+                // don't do anything if we fail to fetch the user
+            }
+        };
     }
 
     pub async fn with_ctx<R, E: Into<BotError>>(
@@ -501,7 +404,27 @@ impl BotState {
                 return;
             };
 
-            let issuer_discord = issuer.discord_id.map_or(0, |d| d.get());
+            let issuer_discord = match users.get_linked_discord(issuer.account_id).await {
+                Ok(Some(d)) => d.id,
+                Ok(None) => {
+                    warn!(
+                        cid = channel.id.get(),
+                        "Punishment issuer {} ({}) doesn't have a linked discord account",
+                        issuer.username(),
+                        issuer.account_id
+                    );
+                    0
+                }
+                Err(e) => {
+                    error!(
+                        cid = channel.id.get(),
+                        "Failed to lookup linked discord account for punishment issuer {} ({}): {e}",
+                        issuer.username(),
+                        issuer.account_id
+                    );
+                    return;
+                }
+            };
 
             let discord = server.handler().module::<DiscordModule>();
             discord.send_ticket_ping(channel.id.get(), issuer_discord);
@@ -875,47 +798,12 @@ impl BotState {
         Ok(())
     }
 
-    fn cleanup_oauth_flows(&self) {
-        self.oauth_attempts.retain(|_, oa| oa.started_at.elapsed() < Duration::from_mins(10));
-    }
-
     fn cleanup_old_interactions(&self) {
         self.name_alerts.retain(|_, ia| ia.began_at.elapsed() < Duration::from_days(7));
         self.alt_alerts.retain(|_, ia| ia.began_at.elapsed() < Duration::from_days(7));
     }
 
     pub fn cleanup(&self) {
-        self.cleanup_oauth_flows();
         self.cleanup_old_interactions();
     }
-}
-
-#[derive(Deserialize)]
-struct DiscordOAuthAuthorizeResponse {
-    access_token: String,
-}
-
-#[derive(Deserialize)]
-struct DiscordOAuthUserResponse {
-    id: String,
-}
-
-async fn json_request<T: DeserializeOwned>(
-    request: reqwest::RequestBuilder,
-    name: &str,
-) -> Result<T, anyhow::Error> {
-    let result = request
-        .send()
-        .await
-        .map_err(|e| anyhow!("request {name} failed to send: {e}"))?
-        .error_for_status()
-        .map_err(|e| anyhow!("request {name} returned error: {e}"))?;
-
-    let text =
-        result.text().await.map_err(|e| anyhow!("request {name} failed to read text: {e}"))?;
-
-    let data: T = serde_json::from_str(&text)
-        .map_err(|e| anyhow!("request {name} failed to parse json: {e}, text was: {text}"))?;
-
-    Ok(data)
 }

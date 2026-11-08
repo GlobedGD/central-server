@@ -535,14 +535,6 @@ impl ConnectionHandler {
         self.clients.collect_all_authorized()
     }
 
-    pub async fn notify_user_linked(&self, handle: &ClientStateHandle) {
-        // TODO 2.209:  linking is overhauled
-        todo!();
-        handle.set_discord_data(None);
-
-        let _ = self.notify_user_data_changed_inner(handle).await;
-    }
-
     pub async fn notify_user_data_changed_with_roles(
         &self,
         account_id: i32,
