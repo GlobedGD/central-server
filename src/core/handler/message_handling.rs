@@ -281,6 +281,11 @@ impl ConnectionHandler {
                 self.handle_discord_unlink(client).await
             },
 
+            RefreshDiscordState(_message) => {
+                unpacked_data.reset(); // free up memory
+                self.handle_discord_refresh_state(client).await
+            },
+
             //
 
             AdminLogin(message) => {

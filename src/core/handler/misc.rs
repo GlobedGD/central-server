@@ -238,22 +238,34 @@ impl ConnectionHandler {
         self.send_warn(client, "discord linking is no longer supported through Globed")
     }
 
-    // Used in the discord module
-    pub fn send_discord_link_attempt(
+    pub async fn handle_discord_refresh_state(
         &self,
         client: &ClientStateHandle,
-        id: u64,
-        username: &str,
-        avatar_url: &str,
     ) -> HandlerResult<()> {
-        let buf = data::encode_message!(self, 512, msg => {
-            let mut att = msg.init_discord_link_attempt();
-            att.set_id(id);
-            att.set_username(username);
-            att.set_avatar_url(avatar_url);
-        })?;
+        must_auth(client)?;
 
-        client.send_data_bufkind(buf);
+        let users = self.module::<UsersModule>();
+        let data = match users.get_linked_discord(client.account_id()).await {
+            Ok(u) => {
+                client.set_discord_data(u.clone());
+                self.notify_user_data_changed_inner(client).await?;
+                u
+            }
+            Err(e) => {
+                warn!("Failed to fetch linked discord for account {}: {e}", client.account_id());
+                None
+            }
+        };
+
+        let data = data.unwrap_or_default();
+        let buf = data::encode_message_dyn!(self, msg => {
+            let mut m = msg.init_discord_refreshed();
+            m.set_id(data.id);
+            m.set_username(data.username);
+            m.set_avatar_url(data.avatar_url);
+        });
+        client.send_data_bufkind(buf?);
+
         Ok(())
     }
 
