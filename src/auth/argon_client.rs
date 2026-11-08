@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::json;
 use server_shared::data::ClientAccountData;
 use thiserror::Error;
-use tracing::warn;
+use tracing::{trace, warn};
 
 use crate::users::DiscordUserData;
 
@@ -106,6 +106,7 @@ impl ArgonClient {
         payload: &impl Serialize,
     ) -> Result<T, ArgonError> {
         let url = format!("{}/{}", self.url, suffix);
+        trace!(%method, %url, "sending argon request");
 
         let mut req = self.http_client.request(method.clone(), &url);
         if !self.api_key.is_empty() {
@@ -139,13 +140,13 @@ impl ArgonClient {
         }
 
         match serde_json::from_str::<ErrorBody>(&text) {
-            Ok(body) => {
-                warn!("got error {} from argon!", body.code);
-                match body.code.as_str() {
-                    "not_found" => ArgonError::NotFound,
-                    _ => ArgonError::Argon(body.error),
+            Ok(body) => match body.code.as_str() {
+                "not_found" => ArgonError::NotFound,
+                _ => {
+                    warn!("got error {} from argon!", body.code);
+                    ArgonError::Argon(body.error)
                 }
-            }
+            },
 
             Err(e) => {
                 warn!("failed to parse argon error response: {e}");

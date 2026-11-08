@@ -289,7 +289,7 @@ async fn init_optional_module<T: ServerModule + ConfigurableModule>(
 
     if let Err(e) = config.init_module::<T>() {
         error!("Failed to initialize config for module {} ({}): {e}", T::name(), T::id());
-        return None;
+        std::process::exit(1);
     }
 
     let conf = config.module::<T>();

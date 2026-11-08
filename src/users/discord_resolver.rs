@@ -1,5 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
+use tracing::{debug, trace};
+
 use crate::{
     auth::{ArgonClient, ArgonError, DiscordLookupAllResponse, DiscordLookupResponse},
     users::Error,
@@ -18,8 +20,13 @@ impl DiscordResolver {
         &self,
         account_id: i32,
     ) -> Result<Option<DiscordLookupResponse>, Error> {
+        trace!(%account_id, "resolving discord ID");
+
         match self.with_timeout(self.client.lookup_discord_by_gd(account_id)).await {
-            Ok(u) => Ok(Some(u)),
+            Ok(u) => {
+                debug!("resolved account ID {} -> discord ID {}", account_id, u.discord_user.id);
+                Ok(Some(u))
+            }
             Err(Error::Argon(ArgonError::NotFound)) => Ok(None),
             Err(e) => Err(e),
         }
@@ -29,8 +36,13 @@ impl DiscordResolver {
         &self,
         discord_id: u64,
     ) -> Result<Option<DiscordLookupResponse>, Error> {
+        trace!(%discord_id, "resolving account ID");
+
         match self.with_timeout(self.client.lookup_gd_by_discord(discord_id)).await {
-            Ok(u) => Ok(Some(u)),
+            Ok(u) => {
+                debug!("resolved discord ID {} -> account ID {}", discord_id, u.account_id);
+                Ok(Some(u))
+            }
             Err(Error::Argon(ArgonError::NotFound)) => Ok(None),
             Err(e) => Err(e),
         }

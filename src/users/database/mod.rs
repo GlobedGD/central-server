@@ -2,7 +2,7 @@ use server_shared::MultiColor;
 use smallvec::SmallVec;
 use std::{
     fmt::Display,
-    num::{NonZeroI64, NonZeroU64},
+    num::NonZeroI64,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use thiserror::Error;
