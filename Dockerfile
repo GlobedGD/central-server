@@ -1,6 +1,6 @@
 FROM --platform=$BUILDPLATFORM debian:trixie-slim AS builder-tools
 
-ARG RUST_NIGHTLY_VERSION=nightly-2026-08-01
+ARG RUST_NIGHTLY_VERSION=nightly-2026-10-24
 ARG ZIG_VERSION=0.15.2
 
 ENV CARGO_HOME=/cargo \
