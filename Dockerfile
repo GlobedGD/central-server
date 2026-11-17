@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain ${RUST_NIGHTLY_VERSION} \
     && curl -L https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz | tar -xJ && mv zig-x86_64-linux-${ZIG_VERSION} /zig \
-    && cargo install --locked cargo-zigbuild --version 0.23.0 \
+    && cargo install --locked cargo-zigbuild --version 0.24.0 \
     && cargo install --locked cargo-chef --version 0.1.78 \
     && rustup target add \
         x86_64-unknown-linux-musl \
