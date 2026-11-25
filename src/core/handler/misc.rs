@@ -246,6 +246,16 @@ impl ConnectionHandler {
         let data = match users.get_linked_discord(client.account_id()).await {
             Ok(u) => {
                 client.set_discord_data(u.clone());
+
+                // sync roles if they're in the discord server
+                if let Err(e) = users.sync_discord_roles_for(client.account_id(), u.as_ref()).await
+                {
+                    warn!(
+                        "failed to sync roles after refresh for account {}: {e}",
+                        client.account_id()
+                    );
+                }
+
                 self.notify_user_data_changed_inner(client).await?;
                 u
             }

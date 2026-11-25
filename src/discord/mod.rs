@@ -21,9 +21,9 @@ use crate::{
     },
     discord::{
         bot::DiscordBot,
-        state::{AltAlertInteraction, BotState, NameAlertInteraction},
+        state::{AltAlertInteraction, BotState, DiscordMemberData, NameAlertInteraction},
     },
-    users::{DiscordUserData, UsersModule},
+    users::{DbUser, DiscordUserData, UsersModule},
 };
 
 pub use message::*;
@@ -232,6 +232,21 @@ impl DiscordModule {
 
     pub async fn get_user_data(&self, account_id: u64) -> Result<DiscordUserData, BotError> {
         self.state.get_user_data(account_id).await
+    }
+
+    pub async fn get_member_data(
+        &self,
+        account_id: u64,
+    ) -> Result<Option<DiscordMemberData>, BotError> {
+        self.state.get_member_data(account_id).await
+    }
+
+    pub async fn sync_user_roles_for_dbuser(
+        &self,
+        user: &DiscordMemberData,
+        db_user: &DbUser,
+    ) -> Result<Vec<String>, BotError> {
+        self.state.sync_user_roles_for_dbuser(user, db_user).await
     }
 }
 

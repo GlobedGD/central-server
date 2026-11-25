@@ -165,6 +165,8 @@ impl BotState {
 
         info!("Beginning to sync roles for all ({}) linked users", users.len());
 
+        let start = Instant::now();
+
         // limit to 5 requests per second
         let mut interval = tokio::time::interval(Duration::from_millis(200));
         interval.set_missed_tick_behavior(MissedTickBehavior::Burst);
@@ -182,6 +184,8 @@ impl BotState {
                 users_module.system_clear_linked_roles(user.account_id).await?;
             }
         }
+
+        info!("Finished syncing roles for all users in {:?}", start.elapsed());
 
         Ok(())
     }
@@ -444,7 +448,7 @@ impl BotState {
         Ok(db_user)
     }
 
-    pub(super) async fn sync_user_roles(&self, user: &Member) -> Result<Vec<String>, BotError> {
+    pub async fn sync_user_roles(&self, user: &Member) -> Result<Vec<String>, BotError> {
         let db_user = self.dbuser_from_discord_id(user.user.id.get()).await?;
         self.sync_user_roles_for_dbuser(&DiscordMemberData::from_discord(user), &db_user).await
     }
@@ -460,7 +464,7 @@ impl BotState {
         }
     }
 
-    async fn sync_user_roles_for_dbuser(
+    pub async fn sync_user_roles_for_dbuser(
         &self,
         user: &DiscordMemberData,
         db_user: &DbUser,

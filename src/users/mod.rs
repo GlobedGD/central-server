@@ -359,6 +359,35 @@ impl UsersModule {
         Ok(self.db.get_user(account_id).await?)
     }
 
+    #[cfg(feature = "discord")]
+    pub async fn sync_discord_roles_for(
+        &self,
+        account_id: i32,
+        discord_data: Option<&DiscordUserData>,
+    ) -> Result<(), Error> {
+        let Some(discord) = &self.discord else {
+            return Ok(());
+        };
+
+        let Some(data) = discord_data else {
+            // not linked
+            return self.system_clear_linked_roles(account_id).await;
+        };
+
+        let dbuser = self.get_or_create_user(account_id).await?.ok_or(Error::NotFound)?;
+        match discord.get_member_data(data.id).await? {
+            Some(member_data) => {
+                discord.sync_user_roles_for_dbuser(&member_data, &dbuser).await?;
+                Ok(())
+            }
+
+            None => {
+                // user not in server, clear roles
+                self.system_clear_linked_roles(account_id).await
+            }
+        }
+    }
+
     /// Query a user by account ID or username
     pub async fn query_user(&self, query: &str) -> DatabaseResult<Option<DbUser>> {
         self.db.query_user(query).await
