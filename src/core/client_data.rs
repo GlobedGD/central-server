@@ -149,7 +149,7 @@ impl ClientData {
 
     /// Returns client's current session (aka which level they are in)
     pub fn session_id(&self) -> SessionId {
-        SessionId::from(self.session_id_u64())
+        SessionId::from_legacy(self.session_id_u64())
     }
 
     /// Returns client's current session (aka which level they are in)
@@ -158,8 +158,10 @@ impl ClientData {
     }
 
     /// Sets the client's session ID, returning the previous session ID.
-    pub fn set_session_id(&self, session_id: u64) -> u64 {
-        self.session_id.swap(session_id, Ordering::Relaxed)
+    pub fn set_session_id(&self, session_id: SessionId) -> SessionId {
+        SessionId::from_legacy(
+            self.session_id.swap(session_id.as_legacy().unwrap_or(0), Ordering::Relaxed),
+        )
     }
 
     pub fn set_icons(&self, icons: PlayerIconData) {

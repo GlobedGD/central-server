@@ -1,6 +1,6 @@
 use std::{fmt::Display, sync::Arc};
 
-use server_shared::{SessionId, qunet::message::BufferKind};
+use server_shared::qunet::message::BufferKind;
 use thiserror::Error;
 
 use crate::{
@@ -242,7 +242,7 @@ impl ConnectionHandler {
                     out.extend(players.map(|(_, p)| p.handle.clone()));
                 } else {
                     players.for_each(|(_, p)| {
-                        if SessionId::from(p.handle.session_id_u64()).level_id() == level_id {
+                        if p.handle.session_id().is_eq_vanilla_level(level_id) {
                             out.push(p.handle.clone());
                         }
                     });
@@ -251,7 +251,7 @@ impl ConnectionHandler {
                 out
             })
         } else if level_id != 0 {
-            self.clients.collect_all_pred(|c| c.session_id().level_id() == level_id)
+            self.clients.collect_all_pred(|c| c.session_id().is_eq_vanilla_level(level_id))
         } else {
             self.send_admin_result(client, Err("no target specified"))?;
             return Ok(());

@@ -13,21 +13,20 @@ impl ConnectionHandler {
     ) -> HandlerResult<()> {
         must_auth(client)?;
 
-        let session_id = SessionId::from(session_id);
+        let session_id = SessionId::from_legacy(session_id);
 
         // do some validation
 
-        if client.get_room_id().is_none_or(|x| x != session_id.room_id()) {
+        if client.get_room_id().is_none_or(|x| x != session_id.room_id) {
             return self.on_join_failed(client, data::JoinSessionFailedReason::InvalidRoom);
         }
 
-        if !self.game_server_manager.has_server(session_id.server_id()) {
+        if !self.game_server_manager.has_server(session_id.server_id) {
             return self.on_join_failed(client, data::JoinSessionFailedReason::InvalidServer);
         }
 
-        let prev_id = client.set_session_id(session_id.as_u64());
-        self.handle_session_change(client, SessionId::from(prev_id), session_id, Some(author_id))
-            .await?;
+        let prev_id = client.set_session_id(session_id);
+        self.handle_session_change(client, prev_id, session_id, Some(author_id)).await?;
 
         Ok(())
     }
@@ -49,8 +48,8 @@ impl ConnectionHandler {
     pub async fn handle_leave_session(&self, client: &ClientStateHandle) -> HandlerResult<()> {
         must_auth(client)?;
 
-        let prev_id = client.set_session_id(0);
-        self.handle_session_change(client, SessionId::from(prev_id), SessionId(0), None).await?;
+        let prev_id = client.set_session_id(SessionId::default());
+        self.handle_session_change(client, prev_id, SessionId::default(), None).await?;
 
         Ok(())
     }
@@ -67,8 +66,8 @@ impl ConnectionHandler {
         tracing::trace!(
             "[{}] session change: {} -> {}",
             client.account_id(),
-            prev_session.as_u64(),
-            new_session.as_u64()
+            prev_session,
+            new_session
         );
 
         let users = self.module::<UsersModule>();
@@ -77,8 +76,10 @@ impl ConnectionHandler {
             self.decrement_level_players(prev_session);
         }
 
-        if !new_session.is_zero() {
-            let is_blacklisted = users.is_level_blacklisted(new_session.level_id())
+        if !new_session.is_zero()
+            && let Some(level_id) = new_session.vanilla_level_id()
+        {
+            let is_blacklisted = users.is_level_blacklisted(level_id)
                 || new_author.is_some_and(|x| users.is_author_blacklisted(x));
 
             self.increment_level_players(new_session, is_blacklisted);
@@ -94,10 +95,10 @@ impl ConnectionHandler {
         let do_warp = is_owner && room.is_follower();
         let do_update_pinned = is_owner && !room.settings.lock().manual_pinning;
 
-        if do_warp {
+        if do_warp && let Some(legacy) = new_session.as_legacy() {
             let buf = data::encode_message!(self, 64, msg => {
                 let mut warp = msg.reborrow().init_room_warp();
-                warp.set_session(new_session.as_u64());
+                warp.set_session(legacy);
             })?;
 
             room.send_to_all(buf);

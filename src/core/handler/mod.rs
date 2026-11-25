@@ -75,7 +75,7 @@ pub struct ConnectionHandler {
     launched_at: Instant,
 
     clients: ClientStore,
-    all_levels: DashMap<u64, LevelEntry>,
+    all_levels: DashMap<SessionId, LevelEntry>,
     refuse_connections: AtomicBool,
 
     event_string_cache: EventStringCache,
@@ -351,17 +351,14 @@ impl ConnectionHandler {
         self.all_levels.len()
     }
 
-    pub fn increment_level_players(&self, session: impl Into<SessionId>, is_hidden: bool) {
-        let mut ent = self
-            .all_levels
-            .entry(session.into().as_u64())
-            .or_insert(LevelEntry { player_count: 0, is_hidden });
+    pub fn increment_level_players(&self, session: SessionId, is_hidden: bool) {
+        let mut ent =
+            self.all_levels.entry(session).or_insert(LevelEntry { player_count: 0, is_hidden });
 
         ent.player_count += 1;
     }
 
-    pub fn decrement_level_players(&self, session: impl Into<SessionId>) {
-        let session = session.into().as_u64();
+    pub fn decrement_level_players(&self, session: SessionId) {
         debug_assert!(self.all_levels.contains_key(&session));
 
         self.all_levels.remove_if_mut(&session, |_, entry| {
@@ -370,7 +367,7 @@ impl ConnectionHandler {
         });
     }
 
-    pub fn override_level_hidden(&self, session: u64, hidden: bool) -> bool {
+    pub fn override_level_hidden(&self, session: SessionId, hidden: bool) -> bool {
         if let Some(mut ent) = self.all_levels.get_mut(&session) {
             ent.is_hidden = hidden;
             true
@@ -586,7 +583,7 @@ impl ConnectionHandler {
             // notify all
             let _ = self.game_server_manager.notify_user_data_to_all(data).await;
         } else {
-            let _ = self.game_server_manager.notify_user_data(session_id.server_id(), data).await;
+            let _ = self.game_server_manager.notify_user_data(session_id.server_id, data).await;
         }
 
         Ok(())

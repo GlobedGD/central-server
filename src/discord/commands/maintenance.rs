@@ -19,7 +19,10 @@ use poise::{
         CreateInteractionResponse,
     },
 };
-use server_shared::qunet::server::{ServerHandle, stat_tracker::OverallStats};
+use server_shared::{
+    SessionId,
+    qunet::server::{ServerHandle, stat_tracker::OverallStats},
+};
 use tracing::{info, warn};
 
 use super::util::*;
@@ -55,7 +58,7 @@ pub async fn set_level_blacklisted(
 
     let state = ctx.data();
     let server = state.server()?;
-    let result = server.handler().override_level_hidden(session, blacklist);
+    let result = server.handler().override_level_hidden(SessionId::from_legacy(session), blacklist);
 
     if result {
         ctx.reply("✅ Success").await?;

@@ -1,7 +1,7 @@
 use std::{num::NonZeroI64, sync::Arc};
 
 use rand::seq::IteratorRandom;
-use server_shared::{data::ClientAccountData, qunet::buffers::ByteWriter};
+use server_shared::{SessionId, data::ClientAccountData, qunet::buffers::ByteWriter};
 
 use crate::{
     rooms::{Room, RoomCreationError, RoomModule, RoomSettings},
@@ -278,7 +278,7 @@ impl ConnectionHandler {
                 room_state.set_room_name(&room.name);
                 room_state.set_passcode(room.passcode);
                 room_state.set_player_count(total_player_count as u32);
-                room_state.set_pinned_level(room.pinned_level().as_u64());
+                room_state.set_pinned_level(room.pinned_level_u64());
 
                 room.settings.lock().encode(room_state.reborrow().init_settings());
 
@@ -762,7 +762,7 @@ impl ConnectionHandler {
         must_auth(client)?;
 
         let room = get_custom_room_as_owner(client)?;
-        room.set_pinned_level(id);
+        room.set_pinned_level(SessionId::from_legacy(id));
 
         self.notify_pinned_level_updated(&room)?;
 
@@ -796,7 +796,7 @@ impl ConnectionHandler {
     pub fn notify_pinned_level_updated(&self, room: &Room) -> HandlerResult<()> {
         room.send_to_all(data::encode_message!(self, 48, msg => {
             let mut ser = msg.reborrow().init_pinned_level_updated();
-            ser.set_id(room.pinned_level().as_u64());
+            ser.set_id(room.pinned_level().as_legacy().unwrap_or(0));
         })?);
 
         Ok(())

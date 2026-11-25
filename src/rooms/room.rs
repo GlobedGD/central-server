@@ -124,11 +124,17 @@ impl Room {
     }
 
     pub fn set_pinned_level(&self, level: impl Into<SessionId>) {
-        self.pinned_level.store(level.into().as_u64(), Ordering::Relaxed);
+        if let Some(level) = level.into().as_legacy() {
+            self.pinned_level.store(level, Ordering::Relaxed);
+        }
     }
 
     pub fn pinned_level(&self) -> SessionId {
-        SessionId::from(self.pinned_level.load(Ordering::Relaxed))
+        SessionId::from_legacy(self.pinned_level.load(Ordering::Relaxed))
+    }
+
+    pub fn pinned_level_u64(&self) -> u64 {
+        self.pinned_level.load(Ordering::Relaxed)
     }
 
     fn remove_player(&self, key: usize) {

@@ -1,7 +1,6 @@
-use nohash_hasher::IntMap;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use server_shared::{
-    UserSettings,
+    SessionId, UserSettings,
     data::PlayerIconData,
     events::{EventOptions, OwnedEvent},
 };
@@ -54,19 +53,18 @@ impl ConnectionHandler {
     pub fn handle_request_player_counts(
         &self,
         client: &ClientStateHandle,
-        sessions: &[u64],
+        sessions: &[SessionId],
     ) -> HandlerResult<()> {
         must_auth(client)?;
 
-        let mut out_vals = heapless::Vec::<(u64, u16), 128>::new();
-        debug_assert!(sessions.len() <= out_vals.capacity());
+        let mut out_vals = Vec::new();
 
         for &sess in sessions {
             if let Some(ent) = self.all_levels.get(&sess)
                 && !ent.is_hidden
                 && ent.player_count > 0
             {
-                let _ = out_vals.push((sess, ent.player_count as u16));
+                out_vals.push((sess, ent.player_count as u16));
             }
         }
 
@@ -77,7 +75,7 @@ impl ConnectionHandler {
 
             let mut level_ids = player_counts.reborrow().init_level_ids(out_vals.len() as u32);
             for (n, (level_id, _)) in out_vals.iter().enumerate() {
-                level_ids.set(n as u32, *level_id);
+                level_ids.set(n as u32, level_id.as_legacy().unwrap_or(0));
             }
 
             let mut counts = player_counts.reborrow().init_counts(out_vals.len() as u32);
@@ -106,7 +104,7 @@ impl ConnectionHandler {
 
             let mut level_ids = list.reborrow().init_level_ids(levels.len() as u32);
             for (n, (level_id, _)) in levels.iter().enumerate() {
-                level_ids.set(n as u32, *level_id);
+                level_ids.set(n as u32, level_id.as_legacy().unwrap_or(0));
             }
 
             let mut counts = list.reborrow().init_player_counts(levels.len() as u32);
@@ -165,12 +163,12 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    fn gather_levels_in_room(&self, room: &Room) -> IntMap<u64, u16> {
+    fn gather_levels_in_room(&self, room: &Room) -> FxHashMap<SessionId, u16> {
         room.with_players(|_, iter| {
-            let mut map = IntMap::default();
+            let mut map = FxHashMap::default();
 
             for (_, p) in iter {
-                let session = p.handle.session_id_u64();
+                let session = p.handle.session_id();
 
                 if self.all_levels.get(&session).is_some_and(|e| e.is_hidden) {
                     continue;

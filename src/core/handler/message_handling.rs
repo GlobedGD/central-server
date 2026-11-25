@@ -2,7 +2,7 @@ use std::{borrow::Cow, num::NonZeroI64};
 
 use rustc_hash::FxHashSet;
 use server_shared::{
-    UserSettings,
+    SessionId, UserSettings,
     data::{ClientAccountData, PlayerIconData, SRVC_MAGIC},
     encoding::{DataDecodeError, heapless_str_from_reader},
     qunet::{buffers::ByteWriter, message::MsgData, server::Server as QunetServer},
@@ -79,10 +79,11 @@ impl ConnectionHandler {
 
             RequestPlayerCounts(message) => {
                 let levels = message.get_levels()?;
-                let mut out_levels = heapless::Vec::<u64, 128>::new();
+                let mut out_levels = Vec::new();
 
-                for level in levels.iter().take(out_levels.capacity()) {
-                    let _ = out_levels.push(level);
+                // limit to 1024
+                for level in levels.iter().take(1024) {
+                    out_levels.push(SessionId::from_legacy(level));
                 }
 
                 unpacked_data.reset(); // free up memory
