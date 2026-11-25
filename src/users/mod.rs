@@ -388,6 +388,15 @@ impl UsersModule {
         }
     }
 
+    #[cfg(not(feature = "discord"))]
+    pub async fn sync_discord_roles_for(
+        &self,
+        _account_id: i32,
+        _discord_data: Option<&DiscordUserData>,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+
     /// Query a user by account ID or username
     pub async fn query_user(&self, query: &str) -> DatabaseResult<Option<DbUser>> {
         self.db.query_user(query).await

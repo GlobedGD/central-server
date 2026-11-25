@@ -201,6 +201,8 @@ impl ConnectionHandler {
             )?);
         }
 
+        client.set_discord_data(discord_data);
+
         if let Some(user) = user {
             // do some checks
 
@@ -236,7 +238,6 @@ impl ConnectionHandler {
 
             client.set_active_punishments(user.active_mute, user.active_ban, user.active_room_ban);
             client.set_admin_password_hash(user.admin_password_hash);
-            client.set_discord_data(discord_data);
         } else {
             client.set_role(users.compute_from_roles(data.account_id, std::iter::empty()));
         }
